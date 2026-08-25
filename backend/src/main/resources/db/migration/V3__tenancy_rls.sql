@@ -19,13 +19,27 @@
 -- effect — it is what makes a forgotten binding a visible emptiness instead
 -- of a silent leak. P-3 observes both halves of that.
 --
--- BOTH `USING` AND `WITH CHECK` ARE REQUIRED
+-- `USING` AND `WITH CHECK`, AND WHAT THE SECOND ONE ACTUALLY BUYS
 --
 -- `USING` filters what a statement may see; `WITH CHECK` constrains what it
--- may write. A policy with only `USING` lets a session insert a row under a
--- foreign tenant and then lose sight of it — data planted across the
--- boundary, invisible to the planter and to the tenant that now owns it.
--- P-2 is the probe that watches the write half refuse.
+-- may write. The write half is load-bearing on its own: without it a session
+-- could insert a row under a foreign tenant and then lose sight of it — data
+-- planted across the boundary, invisible to the planter and to the tenant
+-- that now owns it.
+--
+-- The clause is written out, and the reason is NOT the one usually given.
+-- Measured on PostgreSQL 16: omitting `WITH CHECK` from a policy does not
+-- open that hole. The documented behaviour is that the `USING` expression is
+-- then used for the write check as well, so a policy carrying only `USING`
+-- refuses a foreign-tenant insert exactly as this one does. The measurement
+-- was taken by removing the clause and running the write probe, which stayed
+-- green; replacing the clause with `WITH CHECK (true)` is what turns it red.
+--
+-- So what the explicit clause buys is that the two predicates are stated
+-- separately and can be read separately. The day somebody narrows or widens
+-- `USING` — a soft-delete filter, an archived-scope filter — the write rule
+-- does not silently move with it. That is a smaller claim than "otherwise
+-- inserts leak", and it is the one that is true.
 --
 -- BOTH `ENABLE` AND `FORCE` ARE REQUIRED, AND FOR TWO DIFFERENT ROLES
 --

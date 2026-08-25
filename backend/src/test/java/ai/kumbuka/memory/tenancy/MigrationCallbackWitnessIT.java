@@ -8,6 +8,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -132,6 +136,42 @@ class MigrationCallbackWitnessIT {
                     + "missing callback and not a broken migration")
                 .containsExactly("witness-entry");
         }
+    }
+
+    /**
+     * The other half of the witness: the application's own configuration names
+     * the callback.
+     *
+     * <p>The two cases above prove what a registered callback DOES. They drive
+     * Flyway themselves, so they would prove exactly the same thing about a
+     * service whose {@code quarkus.flyway.callbacks} line was missing
+     * altogether — which is the state the schema this model comes from is in,
+     * and the reason it is not known there whether the mechanism runs at all.
+     *
+     * <p>So the registration itself is asserted, and it is asserted against the
+     * shipped file rather than against resolved configuration: a test-profile
+     * override would otherwise be able to satisfy it, and the claim is about
+     * what a deployment boots with.
+     */
+    @Test
+    void the_application_configuration_registers_the_callback() throws IOException {
+        Path properties = Files.isRegularFile(Path.of("src/main/resources/application.properties"))
+            ? Path.of("src/main/resources/application.properties")
+            : Path.of("backend/src/main/resources/application.properties");
+
+        String configured = Files.readAllLines(properties).stream()
+            .map(String::strip)
+            .filter(line -> line.startsWith("quarkus.flyway.callbacks="))
+            .findFirst()
+            .orElse("");
+
+        assertThat(configured)
+            .as("the Quarkus Flyway extension resolves callbacks from this key by class "
+                + "name and instantiates them reflectively — it does not discover them as "
+                + "CDI beans. A callback that is written, annotated and not named here is "
+                + "never registered, with no warning and no error, and every migration "
+                + "runs without it")
+            .contains(TenantMigrationCallback.class.getName());
     }
 
     /**

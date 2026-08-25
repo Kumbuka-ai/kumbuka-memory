@@ -255,22 +255,30 @@ class RowLevelSecurityProbeIT {
     }
 
     /**
-     * The write half. A policy with {@code USING} but no {@code WITH CHECK}
-     * would let a session insert a row under a foreign tenant and then lose
-     * sight of it — data planted across the boundary, invisible to the planter
-     * and to the tenant that now owns it. The refusal is the database's, and
-     * it names row-level security.
+     * The write half: a session bound to one tenant cannot plant a row under
+     * another. Data planted across the boundary would be invisible to the
+     * planter and to the tenant that now owns it, which is the one failure
+     * shape a read-side filter cannot surface.
+     *
+     * <p><strong>The insert deliberately carries no {@code RETURNING}.</strong>
+     * {@code RETURNING} reads back the row it just wrote and is therefore
+     * subject to the policy's {@code USING} clause as well, so a foreign-tenant
+     * insert with {@code RETURNING} is refused by whichever clause happens to
+     * be evaluated — and the probe would be green against a policy whose
+     * write-side predicate had been replaced by {@code true}. Measured: it was.
+     * Without the clause, only the write-side predicate can refuse this
+     * statement, which is what the probe is about.
      */
     @Test
     void a_write_under_a_foreign_tenant_is_refused_by_the_policy() throws SQLException {
         try (Connection c = Db.asService()) {
             Db.bindTenant(c, tenantA);
             try {
-                Db.insertEntry(c, tenantB, keyFor(tenantB));
+                Db.insertEntryWithoutReturning(c, tenantB, keyFor(tenantB));
                 throw new AssertionError(
-                    "a session bound to tenant A inserted a row owned by tenant B — WITH CHECK "
-                        + "is missing from the policy, and every write path can now cross the "
-                        + "boundary the reads defend");
+                    "a session bound to tenant A inserted a row owned by tenant B — the "
+                        + "policy's write-side predicate is admitting foreign rows, and every "
+                        + "write path can now cross the boundary the reads defend");
             } catch (SQLException expected) {
                 assertThat(expected.getMessage())
                     .as("the refusal must come from the policy rather than from a constraint "

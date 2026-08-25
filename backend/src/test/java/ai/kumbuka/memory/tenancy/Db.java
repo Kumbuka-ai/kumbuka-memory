@@ -153,6 +153,37 @@ final class Db {
         }
     }
 
+    /**
+     * Insert an entry without a {@code RETURNING} clause.
+     *
+     * <p>The distinction is not cosmetic and it cost this suite a probe. A
+     * policy's {@code WITH CHECK} clause governs the row being written;
+     * {@code USING} governs which rows are visible. {@code RETURNING} reads
+     * the row it just wrote, so it is subject to {@code USING} as well — and
+     * an insert of a foreign tenant's row is therefore refused TWICE, once by
+     * each clause, with an error naming row-level security either way. A probe
+     * that inserts with {@code RETURNING} cannot tell which clause refused it,
+     * and stays green against a policy whose write-side predicate has been
+     * replaced by {@code true}.
+     *
+     * <p>So the write-side probe uses this method, which gives the write
+     * predicate the only opportunity to refuse.
+     */
+    static void insertEntryWithoutReturning(Connection c, UUID tenant, String key)
+            throws SQLException {
+        try (var st = c.prepareStatement("""
+                INSERT INTO memory.memory
+                    (tenant_id, scope_id, is_private, owner_subject, type, key, content)
+                VALUES (?::uuid, ?::uuid, false, ?, 'decision', ?, 'probe content')
+                """)) {
+            st.setString(1, tenant.toString());
+            st.setString(2, SubstrateDatabaseResource.SCOPE_ID);
+            st.setString(3, SubstrateDatabaseResource.PROBE_SUBJECT);
+            st.setString(4, key);
+            st.execute();
+        }
+    }
+
     /** Insert a typed relation directly, bypassing the ORM. */
     static void insertRelation(Connection c, UUID tenant, UUID from, UUID to, String kind)
             throws SQLException {
