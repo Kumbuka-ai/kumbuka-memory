@@ -196,11 +196,13 @@ class MigrationCallbackWitnessIT {
      */
     @Test
     void a_run_leaves_a_line_that_shows_the_binding_happened() throws SQLException {
-        var records = new ArrayList<LogRecord>();
+        var emitted = new ArrayList<LogRecord>();
         var collector = new Handler() {
-            @Override public void publish(LogRecord record) { records.add(record); }
-            @Override public void flush() { }
-            @Override public void close() { }
+            @Override public void publish(LogRecord entry) { emitted.add(entry); }
+            // Nothing is buffered and nothing is held open — publish() appends
+            // to a list in memory — so there is nothing for either to do.
+            @Override public void flush() { /* nothing buffered */ }
+            @Override public void close() { /* no resource held */ }
         };
         collector.setLevel(Level.ALL);
 
@@ -215,7 +217,7 @@ class MigrationCallbackWitnessIT {
             logger.setLevel(previousLevel);
         }
 
-        var lines = records.stream()
+        var lines = emitted.stream()
             .map(r -> java.text.MessageFormat.format(
                 r.getMessage() == null ? "" : r.getMessage(),
                 r.getParameters() == null ? new Object[0] : r.getParameters()))
@@ -232,6 +234,66 @@ class MigrationCallbackWitnessIT {
                 + "confirm that something ran, not that the right axis was bound")
             .anySatisfy(line -> assertThat(line)
                 .contains(ConfigProvider.getConfig().getValue("memory.tenant-id", String.class)));
+    }
+
+    /**
+     * The fifth case: a binding that cannot be applied stops the migration.
+     *
+     * <p>The callback wraps its failure in an unchecked exception rather than
+     * swallowing it, and that choice is the whole safety property. If binding
+     * the tenant could fail quietly, the migration behind it would run
+     * unbound — and under {@code FORCE ROW LEVEL SECURITY} an unbound DML
+     * migration does not raise either. It writes no rows, reports success, and
+     * the seed turns up missing much later and somewhere else.
+     *
+     * <p>So the throw is asserted rather than assumed. The failure is produced
+     * the way it would really arrive — a connection that is no longer usable —
+     * instead of by mocking the callback's own internals.
+     */
+    @Test
+    void a_binding_that_cannot_be_applied_stops_the_migration() throws SQLException {
+        Connection closed = DriverManager.getConnection(
+            postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+        closed.close();
+
+        var context = new StubContext(closed);
+
+        assertThatThrownBy(() -> new TenantMigrationCallback()
+                .handle(org.flywaydb.core.api.callback.Event.BEFORE_EACH_MIGRATE, context))
+            .as("a callback that swallowed this would let the migration behind it run "
+                + "unbound, and an unbound DML migration under FORCE ROW LEVEL SECURITY "
+                + "writes nothing and still reports success")
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("failed to bind app.tenant_id")
+            .hasCauseInstanceOf(SQLException.class);
+    }
+
+    /**
+     * The one thing the callback reads from its context is the connection; the
+     * rest of the interface is unused on this path and returns null.
+     */
+    private record StubContext(Connection connection)
+            implements org.flywaydb.core.api.callback.Context {
+
+        @Override public org.flywaydb.core.api.configuration.Configuration getConfiguration() {
+            return null;
+        }
+
+        @Override public Connection getConnection() {
+            return connection;
+        }
+
+        @Override public org.flywaydb.core.api.MigrationInfo getMigrationInfo() {
+            return null;
+        }
+
+        @Override public org.flywaydb.core.api.callback.Statement getStatement() {
+            return null;
+        }
+
+        @Override public org.flywaydb.core.api.output.OperationResult getOperationResult() {
+            return null;
+        }
     }
 
     /**

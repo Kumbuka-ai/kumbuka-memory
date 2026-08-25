@@ -95,11 +95,13 @@ public class TenantMigrationCallback extends BaseCallback {
         // One line per migration, and migrations run once. The cost is a
         // handful of lines on a cold start; what it buys is that a deployment
         // can be shown to have bound its tenant rather than assumed to have.
+        //
+        // getMigrationInfo() is read without a null guard on purpose. It is
+        // absent only for events that are not per-migration, and supports()
+        // above admits BEFORE_EACH_MIGRATE and nothing else. A guard here
+        // would be a branch no run can take — dead defensive code that reads
+        // as caution while actually being a line nobody can ever test.
         LOG.infof("%s: app.tenant_id=%s before %s",
-            FIRED_MARKER,
-            tenantId,
-            context.getMigrationInfo() == null
-                ? "(unknown migration)"
-                : context.getMigrationInfo().getScript());
+            FIRED_MARKER, tenantId, context.getMigrationInfo().getScript());
     }
 }
