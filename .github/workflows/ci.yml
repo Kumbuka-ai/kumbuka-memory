@@ -95,8 +95,14 @@ jobs:
         working-directory: backend
         run: mvn -B -ntp verify
 
+      # Pinned to a commit rather than to a tag. A tag is a moving pointer
+      # its owner can repoint, so `@v6` is a promise that whatever runs here
+      # tomorrow is what ran today rather than a fact about it — and this step
+      # runs with a token. The comment keeps the human-readable version beside
+      # the hash, because a bare hash tells the next reader nothing about what
+      # they would be upgrading from.
       - name: SonarQube Cloud scan
-        uses: SonarSource/sonarqube-scan-action@v6
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
