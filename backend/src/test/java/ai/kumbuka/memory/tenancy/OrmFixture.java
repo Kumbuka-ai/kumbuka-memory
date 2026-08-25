@@ -1,6 +1,8 @@
 package ai.kumbuka.memory.tenancy;
 
+import ai.kumbuka.memory.domain.ContentRelation;
 import ai.kumbuka.memory.domain.Memory;
+import ai.kumbuka.memory.domain.MemoryId;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -55,5 +57,39 @@ public class OrmFixture {
     @Transactional
     public List<Memory> readAll() {
         return em.createQuery("SELECT m FROM Memory m", Memory.class).getResultList();
+    }
+
+    /**
+     * One entry by its composite identity, or null.
+     *
+     * <p>It goes through this class rather than through a transaction the test
+     * opens itself, and the reason is the whole enforcement model: the
+     * database setting the policies read is bound by the interceptor on a
+     * {@code @TenantBound} method, immediately after the transaction opens. A
+     * lookup in a transaction opened by other means carries the ORM filter and
+     * NOT the setting, so the policy would match nothing and the lookup would
+     * return null — which reads exactly like "no such entry".
+     */
+    @Transactional
+    public Memory find(UUID logicalId, int version) {
+        return em.find(Memory.class, new MemoryId(logicalId, version));
+    }
+
+    /** Writes one relation for the currently bound tenant, through Hibernate. */
+    @Transactional
+    public UUID writeRelation(UUID fromLogicalId, UUID toLogicalId, String kind) {
+        ContentRelation relation = new ContentRelation();
+        relation.tenantId = tenantContext.current().toString();
+        relation.fromLogicalId = fromLogicalId;
+        relation.toLogicalId = toLogicalId;
+        relation.kind = kind;
+        em.persist(relation);
+        return relation.id;
+    }
+
+    /** One relation by its identity, or null. */
+    @Transactional
+    public ContentRelation findRelation(UUID id) {
+        return em.find(ContentRelation.class, id);
     }
 }
