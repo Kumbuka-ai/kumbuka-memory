@@ -19,6 +19,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -172,6 +175,125 @@ class MigrationCallbackWitnessIT {
                 + "never registered, with no warning and no error, and every migration "
                 + "runs without it")
             .contains(TenantMigrationCallback.class.getName());
+    }
+
+    /**
+     * The fourth case: a run can be SHOWN to have bound its tenant.
+     *
+     * <p>The three cases above establish that the callback works and that the
+     * shipped configuration registers it. None of them lets anyone answer the
+     * question a deployment actually raises — <em>did it fire on THAT run</em>
+     * — because the binding leaves nothing behind: {@code is_local = true}
+     * ends it with the migration's transaction, so the database cannot be
+     * asked afterwards.
+     *
+     * <p>Without a line in the log the only available answer is "the
+     * configuration names it, so presumably it did". That is an inference from
+     * code, and an inference from code is exactly what let an unregistered
+     * callback in a sibling service go unnoticed for two sprints. So the
+     * callback emits one, and this case is what keeps it emitted: delete the
+     * line and this fails while the other three stay green.
+     */
+    @Test
+    void a_run_leaves_a_line_that_shows_the_binding_happened() throws SQLException {
+        var emitted = new ArrayList<LogRecord>();
+        var collector = new Handler() {
+            @Override public void publish(LogRecord entry) { emitted.add(entry); }
+            // Nothing is buffered and nothing is held open — publish() appends
+            // to a list in memory — so there is nothing for either to do.
+            @Override public void flush() { /* nothing buffered */ }
+            @Override public void close() { /* no resource held */ }
+        };
+        collector.setLevel(Level.ALL);
+
+        var logger = java.util.logging.Logger.getLogger(TenantMigrationCallback.class.getName());
+        var previousLevel = logger.getLevel();
+        logger.addHandler(collector);
+        logger.setLevel(Level.ALL);
+        try {
+            migrate(freshDatabase("witness_log"), true);
+        } finally {
+            logger.removeHandler(collector);
+            logger.setLevel(previousLevel);
+        }
+
+        var lines = emitted.stream()
+            .map(r -> java.text.MessageFormat.format(
+                r.getMessage() == null ? "" : r.getMessage(),
+                r.getParameters() == null ? new Object[0] : r.getParameters()))
+            .toList();
+
+        assertThat(lines)
+            .as("the callback must leave a line naming the binding it applied. Without one, "
+                + "'did the callback fire on this deployment' can only be answered from the "
+                + "code, and that inference is the failure mode this probe exists against")
+            .anySatisfy(line -> assertThat(line).contains(TenantMigrationCallback.FIRED_MARKER));
+
+        assertThat(lines)
+            .as("and it must name the tenant it bound — a marker without the value would "
+                + "confirm that something ran, not that the right axis was bound")
+            .anySatisfy(line -> assertThat(line)
+                .contains(ConfigProvider.getConfig().getValue("memory.tenant-id", String.class)));
+    }
+
+    /**
+     * The fifth case: a binding that cannot be applied stops the migration.
+     *
+     * <p>The callback wraps its failure in an unchecked exception rather than
+     * swallowing it, and that choice is the whole safety property. If binding
+     * the tenant could fail quietly, the migration behind it would run
+     * unbound — and under {@code FORCE ROW LEVEL SECURITY} an unbound DML
+     * migration does not raise either. It writes no rows, reports success, and
+     * the seed turns up missing much later and somewhere else.
+     *
+     * <p>So the throw is asserted rather than assumed. The failure is produced
+     * the way it would really arrive — a connection that is no longer usable —
+     * instead of by mocking the callback's own internals.
+     */
+    @Test
+    void a_binding_that_cannot_be_applied_stops_the_migration() throws SQLException {
+        Connection closed = DriverManager.getConnection(
+            postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+        closed.close();
+
+        var context = new StubContext(closed);
+
+        assertThatThrownBy(() -> new TenantMigrationCallback()
+                .handle(org.flywaydb.core.api.callback.Event.BEFORE_EACH_MIGRATE, context))
+            .as("a callback that swallowed this would let the migration behind it run "
+                + "unbound, and an unbound DML migration under FORCE ROW LEVEL SECURITY "
+                + "writes nothing and still reports success")
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("failed to bind app.tenant_id")
+            .hasCauseInstanceOf(SQLException.class);
+    }
+
+    /**
+     * The one thing the callback reads from its context is the connection; the
+     * rest of the interface is unused on this path and returns null.
+     */
+    private record StubContext(Connection connection)
+            implements org.flywaydb.core.api.callback.Context {
+
+        @Override public org.flywaydb.core.api.configuration.Configuration getConfiguration() {
+            return null;
+        }
+
+        @Override public Connection getConnection() {
+            return connection;
+        }
+
+        @Override public org.flywaydb.core.api.MigrationInfo getMigrationInfo() {
+            return null;
+        }
+
+        @Override public org.flywaydb.core.api.callback.Statement getStatement() {
+            return null;
+        }
+
+        @Override public org.flywaydb.core.api.output.OperationResult getOperationResult() {
+            return null;
+        }
     }
 
     /**

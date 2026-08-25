@@ -10,13 +10,21 @@
         WHAT IS DELIBERATELY ABSENT, AND WHY THE DEPENDENCY LIST IS THE PLACE
         THAT SAYS SO
 
-        There is no REST extension, no OIDC extension and no health extension,
-        because this service has no caller surface yet. How an independent
-        service authenticates an MCP surface has no precedent in this platform
-        and has to be designed rather than copied; a dependency added now
-        "because it will be needed" would carry configuration, and
-        configuration is where such a design gets decided by accident. The
-        seam arrives whole or not at all.
+        There is no REST extension and no OIDC extension, because this service
+        has no caller surface yet. How an independent service authenticates an
+        MCP surface has no precedent in this platform and has to be designed
+        rather than copied; a dependency added now "because it will be needed"
+        would carry configuration, and configuration is where such a design
+        gets decided by accident. The seam arrives whole or not at all.
+
+        THE HEALTH EXTENSION IS THE ONE EXCEPTION, AND IT IS NOT A CALLER
+        SURFACE. It was absent for the same reason as the others while the
+        service had no deployment; it is here now because the service is
+        deployed, and an orchestrator that cannot ask a container whether it
+        is alive restarts it on a guess. What arrives with it is a liveness
+        and readiness probe on a port reachable only from inside the stack —
+        no route is published at the edge, and answering "am I up" decides
+        nothing about how a verb surface will authenticate.
 
         What is here is the substrate: a schema, a database role, a migration
         chain, the tenancy axis and the read contract with the platform
@@ -106,6 +114,26 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-flyway</artifactId>
+        </dependency>
+
+        <!--
+            Health. The only extension here that opens a port, and it opens it
+            for the orchestrator rather than for a caller: Compose restarts the
+            container on a failing check and holds a dependent back until the
+            check passes, and it can do neither without one. The readiness
+            check is not a formality — the extensions above contribute a
+            datasource probe to it, so "ready" means the service reached the
+            database as its own role, which is the failure this deployment is
+            most likely to have.
+
+            It brings a HTTP server with it. That server carries the two health
+            routes and nothing else: there is no REST extension, so there is no
+            resource for it to serve, and no site snippet publishes it at the
+            edge.
+        -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-health</artifactId>
         </dependency>
 
         <!-- Tests -->
