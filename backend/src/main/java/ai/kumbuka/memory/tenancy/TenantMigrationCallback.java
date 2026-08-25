@@ -4,6 +4,7 @@ import org.eclipse.microprofile.config.ConfigProvider;
 import org.flywaydb.core.api.callback.BaseCallback;
 import org.flywaydb.core.api.callback.Context;
 import org.flywaydb.core.api.callback.Event;
+import org.jboss.logging.Logger;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -37,8 +38,28 @@ import java.sql.SQLException;
  * this class is a plain class, it holds no injection point, and the probe
  * that observes it firing is the only thing standing between the code and
  * that silence.
+ *
+ * <h2>How a RUN is shown to have fired it</h2>
+ *
+ * The probe answers "does this work". A deployment raises a different
+ * question — "did it fire on THAT run" — and the binding itself cannot answer
+ * it: {@code is_local = true} ends the setting with the migration's
+ * transaction, so nothing survives in the database to be asked. So the
+ * callback logs one line per migration at INFO, and that line is what a
+ * deployment's log is read for. It is asserted by a probe of its own, because
+ * an unasserted line is one that a later cleanup deletes as noise.
  */
 public class TenantMigrationCallback extends BaseCallback {
+
+    private static final Logger LOG = Logger.getLogger(TenantMigrationCallback.class);
+
+    /**
+     * The prefix of the line this callback leaves behind. Named as a constant
+     * because it is a contract with two readers outside this class — the probe
+     * that asserts the line is emitted, and whoever reads a deployment's logs
+     * to answer "did the binding hold on that run".
+     */
+    static final String FIRED_MARKER = "tenant binding applied";
 
     @Override
     public boolean supports(Event event, Context context) {
@@ -60,5 +81,25 @@ public class TenantMigrationCallback extends BaseCallback {
             throw new IllegalStateException(
                 "failed to bind app.tenant_id before a Flyway migration", e);
         }
+
+        // AT INFO, AND DELIBERATELY NOT AT DEBUG.
+        //
+        // The binding itself leaves no trace: `is_local = true` ends it with
+        // the migration's transaction, so a run cannot be asked afterwards
+        // whether the callback fired. Without this line the only available
+        // answer is "the configuration names it, so presumably it did" — an
+        // answer inferred from code rather than observed on the run, and
+        // exactly the reasoning that let an unregistered callback in a sibling
+        // service go unnoticed for two sprints.
+        //
+        // One line per migration, and migrations run once. The cost is a
+        // handful of lines on a cold start; what it buys is that a deployment
+        // can be shown to have bound its tenant rather than assumed to have.
+        LOG.infof("%s: app.tenant_id=%s before %s",
+            FIRED_MARKER,
+            tenantId,
+            context.getMigrationInfo() == null
+                ? "(unknown migration)"
+                : context.getMigrationInfo().getScript());
     }
 }
