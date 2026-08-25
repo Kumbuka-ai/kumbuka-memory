@@ -1,0 +1,82 @@
+-- ===========================================================================
+-- V3: row-level security on the tenant axis.
+--
+-- This is layer 2 of a two-layer enforcement model. Layer 1 is the Hibernate
+-- @TenantId filter, which scopes every ORM-routed read and write. Layer 2 is
+-- here, and it catches what layer 1 structurally cannot: raw SQL, native
+-- queries, and any code path that reaches the database without passing the
+-- ORM. Either layer alone would be load-bearing; both together are the seam.
+--
+-- THE PREDICATE, AND WHY IT IS WRITTEN THIS WAY
+--
+--     tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+--
+-- `current_setting(…, true)` returns NULL instead of raising when the
+-- setting is absent; NULLIF turns an empty string into NULL as well; and
+-- `tenant_id = NULL` is not FALSE but NULL, which a policy treats as failing.
+-- So a session that never bound a tenant sees no rows at all rather than
+-- every row. RLS fails CLOSED, and that is the design rather than a side
+-- effect — it is what makes a forgotten binding a visible emptiness instead
+-- of a silent leak. P-3 observes both halves of that.
+--
+-- `USING` AND `WITH CHECK`, AND WHAT THE SECOND ONE ACTUALLY BUYS
+--
+-- `USING` filters what a statement may see; `WITH CHECK` constrains what it
+-- may write. The write half is load-bearing on its own: without it a session
+-- could insert a row under a foreign tenant and then lose sight of it — data
+-- planted across the boundary, invisible to the planter and to the tenant
+-- that now owns it.
+--
+-- The clause is written out, and the reason is NOT the one usually given.
+-- Measured on PostgreSQL 16: omitting `WITH CHECK` from a policy does not
+-- open that hole. The documented behaviour is that the `USING` expression is
+-- then used for the write check as well, so a policy carrying only `USING`
+-- refuses a foreign-tenant insert exactly as this one does. The measurement
+-- was taken by removing the clause and running the write probe, which stayed
+-- green; replacing the clause with `WITH CHECK (true)` is what turns it red.
+--
+-- So what the explicit clause buys is that the two predicates are stated
+-- separately and can be read separately. The day somebody narrows or widens
+-- `USING` — a soft-delete filter, an archived-scope filter — the write rule
+-- does not silently move with it. That is a smaller claim than "otherwise
+-- inserts leak", and it is the one that is true.
+--
+-- BOTH `ENABLE` AND `FORCE` ARE REQUIRED, AND FOR TWO DIFFERENT ROLES
+--
+-- `ENABLE` switches the policy on for every role EXCEPT the table's owner.
+-- The owner here is the MIGRATOR and the runtime role owns nothing (V2), so
+-- `ENABLE` already binds the role the service connects as.
+--
+-- `FORCE` is still required and still load-bearing, for the other role: it
+-- binds the migrator, which is the role every future migration carrying DML
+-- runs as. Without it a backfill would silently write across every tenant in
+-- the table, and the migration would report success.
+--
+-- The consequence for the probes is worth stating plainly: removing FORCE
+-- does not change what the RUNTIME role sees. The probe that shows the
+-- runtime role's isolation collapsing has to remove the POLICY or switch
+-- row-level security off, and those two fail in opposite directions — a
+-- missing policy closes the table, a disabled row-level security opens it.
+-- Both are observed.
+--
+-- This migration is pure DDL. Row-level security filters DML only, so no
+-- tenant context is needed to apply it. A `beforeEachMigrate` callback
+-- (TenantMigrationCallback) binds the GUC for any future migration that does
+-- carry DML — without it, a seed or backfill would fail closed under FORCE
+-- and quietly write nothing. P-6 is the witness that the callback is in fact
+-- registered and does in fact run.
+-- ===========================================================================
+
+ALTER TABLE memory.memory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE memory.memory FORCE  ROW LEVEL SECURITY;
+
+CREATE POLICY memory_tenant_isolation ON memory.memory
+    USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+
+ALTER TABLE memory.content_relation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE memory.content_relation FORCE  ROW LEVEL SECURITY;
+
+CREATE POLICY content_relation_tenant_isolation ON memory.content_relation
+    USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
