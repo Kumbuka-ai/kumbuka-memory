@@ -32,7 +32,10 @@
 
         DELIBERATELY ONE MODULE. The service publishes no frozen interface to
         a second edition today, so a second module would carry no contract and
-        only cost a reactor.
+        only cost a reactor. memory-ee consumes the whole jar at a pinned
+        released version and composes its enterprise modules on top of it
+        instead of forking the core (DEC-0038) — a named consumer, not a
+        contract. Nothing here is frozen by being published.
 
         DELIBERATELY NO DEPENDENCY ON A SIBLING SERVICE. The other services are
         built from the same substrate shape and share no code with this one: no
@@ -268,4 +271,28 @@
             </plugin>
         </plugins>
     </build>
+
+    <!--
+        Where the library jar goes. The release workflow deploys here beside the
+        image push; memory-ee pins ai.kumbuka:kumbuka-memory at a released
+        version and resolves it from this repository (DEC-0038).
+
+        The `github` id is what actions/setup-java authenticates with the
+        workflow GITHUB_TOKEN, so no secret is named here. Both entries carry
+        the same URL — GitHub Packages serves releases and snapshots from one
+        repository — and the release workflow stamps the tag's version over the
+        -SNAPSHOT above before deploying, so what a consumer pins is the tag.
+    -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages — Kumbuka-ai/kumbuka-memory</name>
+            <url>https://maven.pkg.github.com/Kumbuka-ai/kumbuka-memory</url>
+        </repository>
+        <snapshotRepository>
+            <id>github</id>
+            <name>GitHub Packages — Kumbuka-ai/kumbuka-memory</name>
+            <url>https://maven.pkg.github.com/Kumbuka-ai/kumbuka-memory</url>
+        </snapshotRepository>
+    </distributionManagement>
 </project>
