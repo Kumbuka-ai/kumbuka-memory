@@ -32,7 +32,7 @@
 
         DELIBERATELY ONE MODULE. The service publishes no frozen interface to
         a second edition today, so a second module would carry no contract and
-        only cost a reactor. memory-ee consumes the whole jar at a pinned
+        only cost a reactor. ee-memory consumes the whole jar at a pinned
         released version and composes its enterprise modules on top of it
         instead of forking the core (DEC-0038) — a named consumer, not a
         contract. Nothing here is frozen by being published.
@@ -274,7 +274,7 @@
 
     <!--
         Where the library jar goes. The release workflow deploys here beside the
-        image push; memory-ee pins ai.kumbuka:kumbuka-memory at a released
+        image push; ee-memory pins ai.kumbuka:kumbuka-memory at a released
         version and resolves it from this repository (DEC-0038).
 
         The `github` id is what actions/setup-java authenticates with the
