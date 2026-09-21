@@ -9,6 +9,7 @@ import ai.kumbuka.memory.domain.NextStep;
 import ai.kumbuka.memory.domain.Patch;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.VerbSurface;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
@@ -212,12 +213,12 @@ public final class Payloads {
 
         public static WithdrawnResponse of(MemoryService.Withdrawn withdrawn) {
             String address = withdrawn.address().canonical();
-            List<NextPayload> next = withdrawn.addressReleased()
-                ? List.of(new NextPayload(
+            List<NextPayload> next = List.of(withdrawn.addressReleased()
+                ? new NextPayload(
                     "create memory://" + withdrawn.address().scope() + "/"
                         + withdrawn.address().selector(),
-                    "the address is free again; a new entry may be laid down at it"))
-                : List.of(new NextPayload("read " + address,
+                    "the address is free again; a new entry may be laid down at it")
+                : new NextPayload("read " + address,
                     "reads the retired entry, which still stands at this address"));
 
             return new WithdrawnResponse(address,
@@ -306,11 +307,21 @@ public final class Payloads {
      * <p>{@code { reason, message }} with the machine-readable detail under
      * {@code data} (DEC-0042). The not-found class is collapsed here and
      * nowhere else.
+     *
+     * <p>An empty detail means the member is ABSENT and not present-and-empty,
+     * which is why {@code data} is serialised only when it has something in
+     * it. The distinction carries a guarantee: the not-found class must carry
+     * no {@code data} at all, because a member present on one answer and
+     * missing on another is a difference the three collapsed cases could be
+     * told apart by. Carried by the serialiser rather than by a null in the
+     * record, so that no caller of this type has to remember which absence to
+     * construct.
      */
     public record Refusal(
         @JsonProperty("reason") String reason,
         @JsonProperty("message") String message,
-        @JsonProperty("data") Map<String, Object> data) {
+        @JsonProperty("data") @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        Map<String, Object> data) {
 
         /** The one code the not-found class carries. */
         public static final String NOT_FOUND = "NOT_FOUND";
@@ -349,12 +360,12 @@ public final class Payloads {
 
         /** A refusal with a reason and a message and nothing machine-readable. */
         public static Refusal of(String reason, String message) {
-            return new Refusal(reason, message, null);
+            return new Refusal(reason, message, Map.of());
         }
 
         /** The wire form of a transport refusal. */
         public static Refusal of(SurfaceException e) {
-            return new Refusal(e.reason().name(), e.getMessage(), null);
+            return new Refusal(e.reason().name(), e.getMessage(), Map.of());
         }
 
         /**
@@ -366,7 +377,7 @@ public final class Payloads {
          */
         public static Refusal of(MemoryException e) {
             if (NOT_FOUND_REASONS.contains(e.reason())) {
-                return new Refusal(NOT_FOUND, NOT_FOUND_MESSAGE, null);
+                return new Refusal(NOT_FOUND, NOT_FOUND_MESSAGE, Map.of());
             }
             return new Refusal(e.reason().name(), e.getMessage(), wireData(e));
         }
@@ -382,9 +393,6 @@ public final class Payloads {
          * projection of its own.
          */
         private static Map<String, Object> wireData(MemoryException e) {
-            if (e.data().isEmpty()) {
-                return null;
-            }
             Map<String, Object> wire = new LinkedHashMap<>();
             e.data().forEach((name, value) -> wire.put(name,
                 value instanceof EntryView entry ? EntryFields.of(entry) : value));

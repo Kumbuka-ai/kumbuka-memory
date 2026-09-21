@@ -32,9 +32,21 @@ import java.util.UUID;
 @TenantBound
 public class ScopeAccessRepository {
 
-    /** The seven columns, in the order the view publishes them (V24). */
+    /**
+     * The seven columns, in the order the view publishes them (V24), and the
+     * one statement they are read through.
+     *
+     * <p>The whole prefix rather than the column list alone: the three reads
+     * below differ only in their predicate, and a shared prefix is what makes
+     * that visible at a glance. A column added to the view reaches all three
+     * by one edit here, which is the arrangement that kept this file to one
+     * change when the contract grew from four columns to seven.
+     */
     private static final String COLUMNS =
         "scope_id, tenant_id, slug, archived, kind, locked, can_write";
+
+    private static final String SELECT_ACCESS =
+        "SELECT " + COLUMNS + " FROM platform.scope_access";
 
     @Inject EntityManager em;
 
@@ -48,8 +60,7 @@ public class ScopeAccessRepository {
      */
     @Transactional
     public Optional<ScopeAccessRow> findBySlug(String slug) {
-        return first(em.createNativeQuery(
-                "SELECT " + COLUMNS + " FROM platform.scope_access WHERE slug = :slug")
+        return first(em.createNativeQuery(SELECT_ACCESS + " WHERE slug = :slug")
             .setParameter("slug", slug)
             .getResultList());
     }
@@ -64,8 +75,7 @@ public class ScopeAccessRepository {
      */
     @Transactional
     public Optional<ScopeAccessRow> findById(UUID scopeId) {
-        return first(em.createNativeQuery(
-                "SELECT " + COLUMNS + " FROM platform.scope_access WHERE scope_id = :id")
+        return first(em.createNativeQuery(SELECT_ACCESS + " WHERE scope_id = :id")
             .setParameter("id", scopeId)
             .getResultList());
     }
@@ -82,8 +92,7 @@ public class ScopeAccessRepository {
     public List<ScopeAccessRow> findByKind(String kind) {
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery(
-                "SELECT " + COLUMNS + " FROM platform.scope_access WHERE kind = :kind "
-                    + "ORDER BY slug")
+                SELECT_ACCESS + " WHERE kind = :kind ORDER BY slug")
             .setParameter("kind", kind)
             .getResultList();
         return rows.stream().map(ScopeAccessRepository::rowOf).toList();

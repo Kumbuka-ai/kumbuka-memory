@@ -107,60 +107,60 @@ class NoUuidAtSurfaceIT {
         SurfaceFixture.clearEntries();
         List<Answer> answers = new ArrayList<>();
 
-        answers.add(record("create", call()
+        answers.add(answerOf("create", call()
             .body(fields("key", KEY, "type", "decision", "content", "postgres"))
             .post(API + "/" + SCOPE + "/decision")));
 
         Response read = call().get(ITEM);
-        answers.add(record("read", read));
+        answers.add(answerOf("read", read));
         String token = read.jsonPath().getString("conflict_token");
 
         UUID logicalId = SurfaceFixture.logicalIdOf(SubstrateDatabaseResource.SCOPE_ID, KEY);
-        answers.add(record("read by technical address", call().get(API + "/" + logicalId)));
+        answers.add(answerOf("read by technical address", call().get(API + "/" + logicalId)));
 
-        answers.add(record("query over the scope", call().get(API + "/" + SCOPE)));
-        answers.add(record("query in a selector", call().get(API + "/" + SCOPE + "/decision")));
-        answers.add(record("digest", call().post(API + "/" + SCOPE + ":digest")));
+        answers.add(answerOf("query over the scope", call().get(API + "/" + SCOPE)));
+        answers.add(answerOf("query in a selector", call().get(API + "/" + SCOPE + "/decision")));
+        answers.add(answerOf("digest", call().post(API + "/" + SCOPE + ":digest")));
 
-        answers.add(record("create onto an occupied address", call()
+        answers.add(answerOf("create onto an occupied address", call()
             .body(fields("key", KEY, "type", "decision", "content", "again"))
             .post(API + "/" + SCOPE + "/decision")));
-        answers.add(record("create with no selector in the key", call()
+        answers.add(answerOf("create with no selector in the key", call()
             .body(fields("key", "storage", "type", "decision", "content", "x"))
             .post(API + "/" + SCOPE + "/decision")));
-        answers.add(record("create onto the reserved selector", call()
+        answers.add(answerOf("create onto the reserved selector", call()
             .body(fields("key", "system.x", "type", "decision", "content", "x"))
             .post(API + "/" + SCOPE + "/system")));
-        answers.add(record("create with an unknown type", call()
+        answers.add(answerOf("create with an unknown type", call()
             .body(fields("key", "decision.other", "type", "musing", "content", "x"))
             .post(API + "/" + SCOPE + "/decision")));
 
-        answers.add(record("update with no token", call()
+        answers.add(answerOf("update with no token", call()
             .body(fields("content", "x")).patch(ITEM)));
-        answers.add(record("update with a stale token", call()
+        answers.add(answerOf("update with a stale token", call()
             .header("If-Match", "1999-01-01T00:00:00Z")
             .body(fields("content", "x")).patch(ITEM)));
-        answers.add(record("update with an immutable field", call()
+        answers.add(answerOf("update with an immutable field", call()
             .header("If-Match", token).body(fields("key", "decision.other")).patch(ITEM)));
 
-        answers.add(record("read of an absent address", call()
+        answers.add(answerOf("read of an absent address", call()
             .get(API + "/" + SCOPE + "/decision/nothing-here")));
-        answers.add(record("read of an absent technical address", call()
+        answers.add(answerOf("read of an absent technical address", call()
             .get(API + "/" + UUID.randomUUID())));
-        answers.add(record("query with an unknown predicate", call()
+        answers.add(answerOf("query with an unknown predicate", call()
             .get(API + "/" + SCOPE + "?author=x")));
-        answers.add(record("a verb at the wrong depth", call()
+        answers.add(answerOf("a verb at the wrong depth", call()
             .post(API + "/" + SCOPE + "/decision:digest")));
-        answers.add(record("a scope of another tenant", call()
+        answers.add(answerOf("a scope of another tenant", call()
             .get(API + "/" + SubstrateDatabaseResource.OTHER_TENANT_SCOPE_SLUG)));
 
-        answers.add(record("withdraw", call().header("If-Match", token)
+        answers.add(answerOf("withdraw", call().header("If-Match", token)
             .post(ITEM + ":withdraw")));
 
         return List.copyOf(answers);
     }
 
-    private static Answer record(String what, Response response) {
+    private static Answer answerOf(String what, Response response) {
         return new Answer(what, response.statusCode(), response.asString());
     }
 

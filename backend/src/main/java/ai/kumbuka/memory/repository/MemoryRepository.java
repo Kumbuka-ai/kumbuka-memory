@@ -48,12 +48,33 @@ import java.util.UUID;
 @TenantBound
 public class MemoryRepository {
 
+    /**
+     * The pieces every statement here is built from.
+     *
+     * <p>Named rather than repeated, and not only because repetition is
+     * counted somewhere: {@code IN_FORCE} and {@code VISIBLE} are the two
+     * predicates that must be on EVERY read, and a fragment spelled out at
+     * each call site is one that can be left off at one of them without
+     * anything looking wrong. The parameter names are constants for the same
+     * reason — a binding and its placeholder that drift apart fail at run time
+     * with a message about a parameter rather than about a query.
+     */
+    private static final String AND = " AND ";
+    private static final String SCOPE = "scope";
+    private static final String CALLER = "caller";
+
     /** The rows this edition considers to be in force. */
     private static final String IN_FORCE = "m.isHead = true AND m.isDeleted = false";
 
     /** A private row is its author's alone; a shared row is everyone's in the scope. */
     private static final String VISIBLE =
-        "(m.isPrivate = false OR m.ownerSubject = :caller)";
+        "(m.isPrivate = false OR m.ownerSubject = :" + CALLER + ")";
+
+    /** What every read of an addressable entry requires, in one place. */
+    private static final String IN_FORCE_AND_VISIBLE = IN_FORCE + AND + VISIBLE;
+
+    /** An entry whose key carries a selector, and can therefore be addressed. */
+    private static final String ADDRESSABLE = "m.key IS NOT NULL AND LOCATE('.', m.key) > 1";
 
     @Inject EntityManager em;
 
@@ -69,11 +90,11 @@ public class MemoryRepository {
     @Transactional
     public Optional<Memory> findInScope(UUID scopeId, String key, String caller) {
         return only(em.createQuery(
-                "SELECT m FROM Memory m WHERE m.scopeId = :scope AND m.key = :key "
-                    + "AND " + IN_FORCE + " AND " + VISIBLE, Memory.class)
-            .setParameter("scope", scopeId)
+                "SELECT m FROM Memory m WHERE m.scopeId = :" + SCOPE
+                    + " AND m.key = :key" + AND + IN_FORCE_AND_VISIBLE, Memory.class)
+            .setParameter(SCOPE, scopeId)
             .setParameter("key", key)
-            .setParameter("caller", caller)
+            .setParameter(CALLER, caller)
             .getResultList());
     }
 
@@ -90,11 +111,11 @@ public class MemoryRepository {
     @Transactional
     public Optional<Memory> findOccupant(UUID scopeId, String key, boolean isPrivate,
                                          String author) {
-        String ownerClause = isPrivate ? " AND m.ownerSubject = :owner" : "";
+        String ownerClause = isPrivate ? AND + "m.ownerSubject = :owner" : "";
         var query = em.createQuery(
-                "SELECT m FROM Memory m WHERE m.scopeId = :scope AND m.key = :key "
-                    + "AND " + IN_FORCE + ownerClause, Memory.class)
-            .setParameter("scope", scopeId)
+                "SELECT m FROM Memory m WHERE m.scopeId = :" + SCOPE
+                    + " AND m.key = :key" + AND + IN_FORCE + ownerClause, Memory.class)
+            .setParameter(SCOPE, scopeId)
             .setParameter("key", key);
         if (isPrivate) {
             query.setParameter("owner", author);
@@ -114,10 +135,10 @@ public class MemoryRepository {
     @Transactional
     public Optional<Memory> findByLogicalId(UUID logicalId, String caller) {
         return only(em.createQuery(
-                "SELECT m FROM Memory m WHERE m.logicalId = :id "
-                    + "AND " + IN_FORCE + " AND " + VISIBLE, Memory.class)
+                "SELECT m FROM Memory m WHERE m.logicalId = :id"
+                    + AND + IN_FORCE_AND_VISIBLE, Memory.class)
             .setParameter("id", logicalId)
-            .setParameter("caller", caller)
+            .setParameter(CALLER, caller)
             .getResultList());
     }
 
@@ -171,26 +192,25 @@ public class MemoryRepository {
     @Transactional
     public Page page(PageRequest request) {
         StringBuilder where = new StringBuilder(
-            "m.scopeId = :scope AND " + IN_FORCE + " AND " + VISIBLE
-                + " AND m.key IS NOT NULL AND LOCATE('.', m.key) > 1");
+            "m.scopeId = :" + SCOPE + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE);
         Map<String, Object> bound = new java.util.LinkedHashMap<>();
-        bound.put("scope", request.scopeId());
-        bound.put("caller", request.caller());
+        bound.put(SCOPE, request.scopeId());
+        bound.put(CALLER, request.caller());
 
         if (request.selector() != null) {
-            where.append(" AND m.key LIKE :prefix");
+            where.append(AND).append("m.key LIKE :prefix");
             bound.put("prefix", request.selector() + ".%");
         }
         if (request.type() != null) {
-            where.append(" AND m.type = :type");
+            where.append(AND).append("m.type = :type");
             bound.put("type", request.type().wire());
         }
         if (request.text() != null) {
-            where.append(" AND LOWER(m.content) LIKE :text");
+            where.append(AND).append("LOWER(m.content) LIKE :text");
             bound.put("text", "%" + request.text().toLowerCase(Locale.ROOT) + "%");
         }
         if (request.after() != null) {
-            where.append(" AND m.key > :after");
+            where.append(AND).append("m.key > :after");
             bound.put("after", request.after());
         }
 
@@ -209,7 +229,7 @@ public class MemoryRepository {
         // that shrank as the caller paged would be a different number every
         // page and could not be what "how many are there" means.
         StringBuilder countWhere = new StringBuilder(where);
-        int cursorClause = countWhere.indexOf(" AND m.key > :after");
+        int cursorClause = countWhere.indexOf(AND + "m.key > :after");
         if (cursorClause >= 0) {
             countWhere.delete(cursorClause, countWhere.length());
         }
@@ -242,11 +262,11 @@ public class MemoryRepository {
     @Transactional
     public long unaddressableIn(UUID scopeId, String caller) {
         return em.createQuery(
-                "SELECT COUNT(m) FROM Memory m WHERE m.scopeId = :scope AND " + IN_FORCE
-                    + " AND " + VISIBLE
-                    + " AND (m.key IS NULL OR LOCATE('.', m.key) <= 1)", Long.class)
-            .setParameter("scope", scopeId)
-            .setParameter("caller", caller)
+                "SELECT COUNT(m) FROM Memory m WHERE m.scopeId = :" + SCOPE
+                    + AND + IN_FORCE_AND_VISIBLE
+                    + AND + "(m.key IS NULL OR LOCATE('.', m.key) <= 1)", Long.class)
+            .setParameter(SCOPE, scopeId)
+            .setParameter(CALLER, caller)
             .getSingleResult();
     }
 
@@ -267,13 +287,12 @@ public class MemoryRepository {
             return List.of();
         }
         return em.createQuery(
-                "SELECT m FROM Memory m WHERE m.scopeId IN :scopes AND m.type IN :types "
-                    + "AND " + IN_FORCE + " AND " + VISIBLE
-                    + " AND m.key IS NOT NULL AND LOCATE('.', m.key) > 1 "
-                    + "ORDER BY m.createdAt ASC, m.key ASC", Memory.class)
+                "SELECT m FROM Memory m WHERE m.scopeId IN :scopes AND m.type IN :types"
+                    + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE
+                    + " ORDER BY m.createdAt ASC, m.key ASC", Memory.class)
             .setParameter("scopes", scopeIds)
             .setParameter("types", types.stream().map(EntryType::wire).toList())
-            .setParameter("caller", caller)
+            .setParameter(CALLER, caller)
             .getResultList();
     }
 
@@ -292,12 +311,11 @@ public class MemoryRepository {
         }
         List<Object[]> rows = em.createQuery(
                 "SELECT m.type, COUNT(m), COALESCE(SUM(LENGTH(m.content)), 0) "
-                    + "FROM Memory m WHERE m.scopeId IN :scopes AND " + IN_FORCE
-                    + " AND " + VISIBLE
-                    + " AND m.key IS NOT NULL AND LOCATE('.', m.key) > 1 "
-                    + "GROUP BY m.type", Object[].class)
+                    + "FROM Memory m WHERE m.scopeId IN :scopes"
+                    + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE
+                    + " GROUP BY m.type", Object[].class)
             .setParameter("scopes", scopeIds)
-            .setParameter("caller", caller)
+            .setParameter(CALLER, caller)
             .getResultList();
 
         Map<String, TypeTally> tallies = new java.util.LinkedHashMap<>();

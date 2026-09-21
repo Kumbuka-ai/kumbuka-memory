@@ -29,9 +29,9 @@ public record Listing(List<EntryView> entries, long total, boolean truncated,
      * is relying on an order, and one it has to infer from two pages is one it
      * will infer wrongly the first time a page is homogeneous.
      */
-    public static final String ORDER = "key ascending";
+    public static final String KEY_ASCENDING = "key ascending";
 
     public String order() {
-        return ORDER;
+        return KEY_ASCENDING;
     }
 }

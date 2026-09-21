@@ -39,6 +39,23 @@ import java.util.regex.Pattern;
  * migration. That is a duplication and it is the lesser evil: a check that
  * read its expectation out of the artefact it is checking would agree with it
  * by construction and could never disagree.
+ *
+ * <h2>Why the quantifiers are possessive</h2>
+ *
+ * {@code [a-z0-9]+([.-][a-z0-9]+)*} is the shape a catastrophic-backtracking
+ * analysis flags: a repetition inside a repetition, which on a long
+ * non-matching input can take exponential time. Here it cannot — the separator
+ * class and the segment class share no character, so at every position exactly
+ * one of the two can match and there is never an alternative for the engine to
+ * come back to.
+ *
+ * <p>That argument is correct and it is also invisible to anything but a
+ * reader, so the quantifiers are written possessively instead. A possessive
+ * quantifier never gives characters back, which makes the linearity a property
+ * of the pattern rather than of an argument about it. The accepted language is
+ * unchanged — precisely because there was nothing to give back — and that
+ * equivalence is asserted rather than claimed: {@code AddressGrammarTest} runs
+ * both forms over one corpus and requires them to agree on every input.
  */
 public final class AddressParser {
 
@@ -47,7 +64,8 @@ public final class AddressParser {
      * separated by dots or dashes. Restated from {@code memory_key_format} in
      * V1.
      */
-    private static final Pattern KEY = Pattern.compile("^[a-z0-9]+([.-][a-z0-9]+)*$");
+    private static final Pattern KEY =
+        Pattern.compile("^[a-z0-9]++(?:[.-][a-z0-9]++)*+$");
 
     /** The selector, as the surface contract gives it. */
     private static final Pattern SELECTOR = Pattern.compile("^[a-z][a-z0-9_-]{0,15}$");
@@ -57,7 +75,8 @@ public final class AddressParser {
      * platform's slugs are: lower-case, alphanumeric, dash-separated. A scope
      * this refuses cannot exist, so refusing it discloses nothing.
      */
-    private static final Pattern SCOPE = Pattern.compile("^[a-z0-9]+(-[a-z0-9]+)*$");
+    private static final Pattern SCOPE =
+        Pattern.compile("^[a-z0-9]++(?:-[a-z0-9]++)*+$");
 
     /**
      * The one selector this service keeps for itself.
@@ -69,6 +88,23 @@ public final class AddressParser {
     private static final String RESERVED_SELECTOR = "system";
 
     private AddressParser() {
+    }
+
+    /**
+     * Whether a string is a key this service stores.
+     *
+     * <p>Exposed so that the equivalence of the possessive form and the
+     * ordinary one can be measured over a corpus rather than asserted in a
+     * comment. It answers rather than refuses, because the comparison is about
+     * the language and not about a caller.
+     */
+    static boolean acceptsKey(String candidate) {
+        return candidate != null && KEY.matcher(candidate).matches();
+    }
+
+    /** Whether a string is a scope name of the shape the platform allocates. */
+    static boolean acceptsScope(String candidate) {
+        return candidate != null && SCOPE.matcher(candidate).matches();
     }
 
     /**
