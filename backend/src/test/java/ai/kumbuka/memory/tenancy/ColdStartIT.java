@@ -46,11 +46,12 @@ class ColdStartIT {
     @Inject EntityManager em;
 
     /**
-     * Every object the first acceptance criterion names: the schema, both
-     * tables, both policies, the trigger and the function behind it.
+     * Every object the first acceptance criterion names: the schema, its
+     * tables, a tenant policy on each of them, the trigger and the function
+     * behind it.
      */
     @Test
-    void flyway_creates_the_schema_its_two_tables_both_policies_and_the_guard()
+    void flyway_creates_the_schema_its_tables_a_policy_on_each_and_the_guard()
             throws SQLException, IOException {
         try (Connection c = Db.asAdmin()) {
             assertThat(scalar(c, "SELECT count(*) FROM information_schema.schemata "
@@ -61,17 +62,22 @@ class ColdStartIT {
             assertThat(list(c, "SELECT table_name FROM information_schema.tables "
                 + "WHERE table_schema = 'memory' AND table_type = 'BASE TABLE' "
                 + "AND table_name <> 'flyway_schema_history' ORDER BY table_name"))
-                .as("V1 must have created both tables of the model")
-                .containsExactly("content_relation", "memory");
+                .as("V1 the two tables of the model, V4 the digest's type selection. "
+                    + "Listed exactly rather than by count: a table that appeared here "
+                    + "without a migration naming it is a table nothing enumerated the "
+                    + "privileges of")
+                .containsExactly("content_relation", "digest_preference", "memory");
 
             assertThat(list(c, "SELECT polname FROM pg_policy p "
                 + "JOIN pg_class cl ON cl.oid = p.polrelid "
                 + "JOIN pg_namespace n ON n.oid = cl.relnamespace "
                 + "WHERE n.nspname = 'memory' ORDER BY polname"))
-                .as("V3 must have created one tenant policy per table — a table with "
-                    + "row-level security enabled and no policy is closed rather than "
-                    + "isolated, which is a service that cannot run")
-                .containsExactly("content_relation_tenant_isolation", "memory_tenant_isolation");
+                .as("one tenant policy per table — a table with row-level security "
+                    + "enabled and no policy is closed rather than isolated, which is a "
+                    + "service that cannot run. V4's table carries its own, on the same "
+                    + "shape, because a new table without one would be exactly that")
+                .containsExactly("content_relation_tenant_isolation",
+                    "digest_preference_tenant_isolation", "memory_tenant_isolation");
 
             assertThat(scalar(c, "SELECT count(*) FROM pg_trigger t "
                 + "JOIN pg_class cl ON cl.oid = t.tgrelid "

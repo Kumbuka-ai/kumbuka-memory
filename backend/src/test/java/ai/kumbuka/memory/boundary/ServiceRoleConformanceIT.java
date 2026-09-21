@@ -141,6 +141,11 @@ class ServiceRoleConformanceIT {
             .as("and on the relation table, which a probe over one table would have "
                 + "silently skipped")
             .containsExactly("DELETE", "INSERT", "SELECT", "UPDATE");
+        assertThat(grantsOn(OWN_SCHEMA, "digest_preference"))
+            .as("and SELECT alone on the digest's type selection. The asymmetry is the "
+                + "guarantee: no verb writes that table, and the missing grant is what "
+                + "makes it impossible rather than merely unimplemented")
+            .containsExactly("SELECT");
     }
 
     /**

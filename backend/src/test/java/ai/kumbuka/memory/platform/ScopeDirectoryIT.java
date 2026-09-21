@@ -49,7 +49,7 @@ class ScopeDirectoryIT {
     @Test
     void a_scope_the_subject_may_enter_resolves() {
         var access = directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
-            SubstrateDatabaseResource.PROBE_SCOPE_SLUG);
+            SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ);
 
         assertThat(access.slug()).isEqualTo(SubstrateDatabaseResource.PROBE_SCOPE_SLUG);
         assertThat(access.scopeId())
@@ -63,7 +63,7 @@ class ScopeDirectoryIT {
     @Test
     void a_scope_the_subject_may_not_enter_is_a_refusal_and_not_an_empty_result() {
         assertThatThrownBy(() -> directory.resolve("a-subject-who-is-not-a-member",
-            SubstrateDatabaseResource.PROBE_SCOPE_SLUG))
+            SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ))
             .isInstanceOfSatisfying(MemoryException.class, e -> assertThat(e.reason())
                 .as("the directory answers for the bound subject only, and existence in "
                     + "its answer IS the permission — so a subject who is not a member "
@@ -74,7 +74,7 @@ class ScopeDirectoryIT {
     @Test
     void a_scope_that_does_not_exist_is_a_refusal_too() {
         assertThatThrownBy(() -> directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
-            "no-such-scope"))
+            "no-such-scope", Access.READ))
             .isInstanceOfSatisfying(MemoryException.class, e ->
                 assertThat(e.reason()).isEqualTo(MemoryException.Reason.SCOPE_UNRESOLVED));
     }
@@ -91,7 +91,7 @@ class ScopeDirectoryIT {
     @Test
     void resolving_without_a_bound_session_fails_loudly_and_names_the_binding() {
         assertThatThrownBy(() -> directory.resolve(null,
-            SubstrateDatabaseResource.PROBE_SCOPE_SLUG))
+            SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ))
             .isInstanceOfSatisfying(MemoryException.class, e -> {
                 assertThat(e.reason())
                     .as("an unbound session is a DIFFERENT refusal from an inaccessible "
@@ -102,7 +102,7 @@ class ScopeDirectoryIT {
             });
 
         assertThatThrownBy(() -> directory.resolve("  ",
-            SubstrateDatabaseResource.PROBE_SCOPE_SLUG))
+            SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ))
             .isInstanceOfSatisfying(MemoryException.class, e ->
                 assertThat(e.reason()).isEqualTo(MemoryException.Reason.SESSION_NOT_BOUND));
 
@@ -110,7 +110,7 @@ class ScopeDirectoryIT {
         // this, the assertions above would hold just as well against a directory
         // that never resolves anything at all.
         assertThat(directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
-                SubstrateDatabaseResource.PROBE_SCOPE_SLUG).slug())
+                SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ).slug())
             .as("and with the session bound the very same call succeeds, which is what "
                 + "makes the refusals above about the binding rather than about the view")
             .isEqualTo(SubstrateDatabaseResource.PROBE_SCOPE_SLUG);
@@ -126,11 +126,82 @@ class ScopeDirectoryIT {
     void a_foreign_tenant_binding_does_not_resolve_the_scope() throws Exception {
         try (AutoCloseable ignored = tenantContext.bind(UUID.randomUUID())) {
             assertThatThrownBy(() -> directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
-                SubstrateDatabaseResource.PROBE_SCOPE_SLUG))
+                SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ))
                 .isInstanceOfSatisfying(MemoryException.class, e -> assertThat(e.reason())
                     .as("the directory keys on tenant AND subject; a valid subject under "
                         + "the wrong tenant must not reach the scope")
                     .isEqualTo(MemoryException.Reason.SCOPE_UNRESOLVED));
         }
+    }
+
+    // ------------------------------------------------------------------
+    // What V24 added: the kind, the lock, and the write right.
+    //
+    // Measured against the core's own chain on 2026-09-21 before any of this
+    // was built, and restated here as expectations taken from that
+    // measurement and from the contract — never from what this service
+    // happens to answer.
+    // ------------------------------------------------------------------
+
+    @Test
+    void all_three_scope_kinds_are_answered_and_not_only_the_project_one() {
+        assertThat(directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
+                SubstrateDatabaseResource.PRIVATE_SCOPE_SLUG, Access.READ).isPrivate())
+            .as("the V21 view filtered to kind = 'project', so a private scope could not "
+                + "be addressed at all. V24 removed that filter and this service serves "
+                + "all three kinds — a private scope is the container its own content "
+                + "lives in")
+            .isTrue();
+
+        assertThat(directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
+                SubstrateDatabaseResource.GLOBAL_SCOPE_SLUG, Access.READ).kind())
+            .isEqualTo(ScopeDirectory.KIND_GLOBAL);
+    }
+
+    @Test
+    void the_private_scope_is_one_container_per_tenant_and_not_one_per_author() {
+        assertThat(directory.resolve(SubstrateDatabaseResource.SECOND_SUBJECT,
+                SubstrateDatabaseResource.PRIVATE_SCOPE_SLUG, Access.READ).scopeId())
+            .as("a second member of the same tenant reaches the SAME private scope. "
+                + "Privacy sits one level down, on the entry's owner — which is why the "
+                + "same address means different data for two callers, deliberately")
+            .isEqualTo(directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
+                SubstrateDatabaseResource.PRIVATE_SCOPE_SLUG, Access.READ).scopeId());
+    }
+
+    @Test
+    void a_locked_scope_reads_and_refuses_the_write_as_locked() {
+        assertThat(directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
+                SubstrateDatabaseResource.LOCKED_SCOPE_SLUG, Access.READ).locked())
+            .as("reading a locked scope is unaffected; the lock is about writing")
+            .isTrue();
+
+        assertThatThrownBy(() -> directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
+            SubstrateDatabaseResource.LOCKED_SCOPE_SLUG, Access.WRITE))
+            .isInstanceOfSatisfying(MemoryException.class, e -> assertThat(e.reason())
+                .as("the lock is checked BEFORE the write right, and the order is "
+                    + "load-bearing: the view derives can_write as NOT locked AND …, so "
+                    + "checking the write right first would make SCOPE_LOCKED a code "
+                    + "that exists and can never be produced")
+                .isEqualTo(MemoryException.Reason.SCOPE_LOCKED));
+    }
+
+    @Test
+    void a_muted_member_reads_and_is_refused_the_shared_write_as_read_only() {
+        assertThat(directory.resolve(SubstrateDatabaseResource.MUTED_SUBJECT,
+                SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ).canWrite())
+            .as("a muted member keeps the scope and loses the write right in it")
+            .isFalse();
+
+        assertThatThrownBy(() -> directory.resolve(SubstrateDatabaseResource.MUTED_SUBJECT,
+            SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.WRITE))
+            .isInstanceOfSatisfying(MemoryException.class, e ->
+                assertThat(e.reason()).isEqualTo(MemoryException.Reason.SCOPE_READ_ONLY));
+
+        assertThat(directory.resolve(SubstrateDatabaseResource.MUTED_SUBJECT,
+                SubstrateDatabaseResource.PRIVATE_SCOPE_SLUG, Access.WRITE).canWrite())
+            .as("and the mute does not reach the member's own private scope, which is "
+                + "what MemberWritePolicy says and what the view's derivation carries")
+            .isTrue();
     }
 }

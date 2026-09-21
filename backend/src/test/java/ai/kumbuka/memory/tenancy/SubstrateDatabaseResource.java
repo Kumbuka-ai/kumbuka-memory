@@ -123,17 +123,39 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
     public static final String PLATFORM_SCHEMA = "platform";
     public static final String DIRECTORY_VIEW = "scope_access";
 
-    /** The scope the directory publishes to the probing subject. */
-    public static final String PROBE_SCOPE_SLUG = "probe-scope";
-    public static final String PROBE_SUBJECT = "probe-subject";
-
     /**
-     * The tenancy axis and the scope under test. Fixed rather than random so
-     * that the value in a failure message can be recognised, and matched to
-     * the same two values in the test configuration.
+     * The population every probe in this suite reads against.
+     *
+     * <p>One of each scope kind the contract publishes, plus a locked project
+     * scope, plus a second tenant that no query under {@link #TENANT_ID} may
+     * ever return. Three subjects: the ordinary member, a second member of the
+     * same tenant (which is what makes a private entry's owner check
+     * falsifiable), and a muted member (which is what makes the missing write
+     * right reachable at all).
+     *
+     * <p>Fixed values rather than random ones, so that a value in a failure
+     * message can be recognised and matched to the configuration.
      */
+    public static final String PROBE_SCOPE_SLUG   = "probe-scope";
+    public static final String LOCKED_SCOPE_SLUG  = "locked-scope";
+    public static final String PRIVATE_SCOPE_SLUG = "private";
+    public static final String GLOBAL_SCOPE_SLUG  = "global";
+    public static final String OTHER_TENANT_SCOPE_SLUG = "beta-project";
+
+    public static final String PROBE_SUBJECT  = "probe-subject";
+    public static final String SECOND_SUBJECT = "second-subject";
+    public static final String MUTED_SUBJECT  = "muted-subject";
+    public static final String OTHER_TENANT_SUBJECT = "carol-subject";
+
     public static final String TENANT_ID = "00000000-0000-0000-0000-000000000001";
-    public static final String SCOPE_ID  = "00000000-0000-0000-0000-000000000010";
+    public static final String OTHER_TENANT_ID = "00000000-0000-0000-0000-000000000002";
+
+    public static final String SCOPE_ID         = "00000000-0000-0000-0000-000000000010";
+    public static final String LOCKED_SCOPE_ID  = "00000000-0000-0000-0000-000000000011";
+    public static final String PRIVATE_SCOPE_ID = "00000000-0000-0000-0000-000000000012";
+    public static final String GLOBAL_SCOPE_ID  = "00000000-0000-0000-0000-000000000013";
+    public static final String OTHER_TENANT_SCOPE_ID =
+        "00000000-0000-0000-0000-000000000020";
 
     private static PostgreSQLContainer<?> postgres;
 
@@ -223,20 +245,35 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
     private void stagePlatformDirectory(Statement s) throws SQLException {
         createRole(s, PLATFORM_ROLE, "NOSUPERUSER NOBYPASSRLS");
 
+        // The base tables as `kumbuka-server` v0.10.0 has them after V24: the
+        // scope's content lock and its author, and the member's mute. The
+        // shape is reconstructed rather than imported — building the core's
+        // chain here would be the coupling the architecture forbids — and it
+        // is reconstructed COLUMN FOR COLUMN, because a substrate publishing
+        // a column the core does not have would let a probe pass against a
+        // contract no deployment offers.
+        //
+        // The one deviation is the schema the base tables sit in: `public`
+        // here, `platform` there since V23. That is this substrate's own
+        // arrangement and predates the contract; nothing in the published
+        // shape depends on it.
         s.execute("""
             CREATE TABLE IF NOT EXISTS public.scope (
                 id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id uuid NOT NULL,
                 slug text NOT NULL,
                 kind text NOT NULL,
-                archived boolean NOT NULL DEFAULT false)
+                archived boolean NOT NULL DEFAULT false,
+                locked boolean NOT NULL DEFAULT false,
+                created_by text)
             """);
         s.execute("""
             CREATE TABLE IF NOT EXISTS public.user_account (
                 id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id uuid NOT NULL,
                 subject text NOT NULL,
-                status text NOT NULL DEFAULT 'active')
+                status text NOT NULL DEFAULT 'active',
+                muted boolean NOT NULL DEFAULT false)
             """);
 
         for (String table : new String[] {"scope", "user_account"}) {
@@ -250,15 +287,37 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
 
         s.execute("CREATE SCHEMA IF NOT EXISTS " + PLATFORM_SCHEMA);
         s.execute("REVOKE ALL ON SCHEMA " + PLATFORM_SCHEMA + " FROM PUBLIC");
+
+        // The V24 form of the contract, predicate for predicate as the core
+        // publishes it: seven columns, no kind filter, `can_write` derived
+        // rather than stored, and the author clause that binds a private scope
+        // to its author where one is recorded without blanking out the
+        // autorless per-tenant one.
+        //
+        // Measured against the core's own chain V1..V24 on 2026-09-21, as the
+        // role kumbuka_memory: the column list is
+        // scope_id,tenant_id,slug,archived,kind,locked,can_write; all three
+        // kinds are answered; the private scope appears once per tenant and
+        // therefore for every active member; a muted member keeps can_write on
+        // the private scope and loses it everywhere else; and a scope of
+        // another tenant answers no rows.
         s.execute("""
             CREATE OR REPLACE VIEW platform.scope_access AS
-                SELECT sc.id AS scope_id, sc.tenant_id, sc.slug, sc.archived
-                FROM public.scope sc
-                JOIN public.user_account ua ON ua.tenant_id = sc.tenant_id
-                WHERE sc.kind = 'project'
-                  AND sc.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+                SELECT s.id        AS scope_id,
+                       s.tenant_id AS tenant_id,
+                       s.slug      AS slug,
+                       s.archived  AS archived,
+                       s.kind      AS kind,
+                       s.locked    AS locked,
+                       (NOT s.locked AND (s.kind = 'private' OR NOT ua.muted)) AS can_write
+                FROM public.scope s
+                JOIN public.user_account ua ON ua.tenant_id = s.tenant_id
+                WHERE s.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
                   AND ua.subject  = NULLIF(current_setting('app.subject',   true), '')
                   AND ua.status   = 'active'
+                  AND (s.kind <> 'private'
+                       OR s.created_by IS NULL
+                       OR s.created_by = NULLIF(current_setting('app.subject', true), ''))
             """);
 
         // The owner-normalisation sweep, in the one respect this suite cares
@@ -273,16 +332,43 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
         // already knows about, in its own migration. PlatformFixture issues
         // them once the role exists, which is also the order a deployment has.
 
-        // One project scope, and a subject that is an active member of its tenant.
+        // Tenant A: four scopes, one of each kind plus a locked one, and three
+        // members — the ordinary one, a second one, and a muted one.
         s.execute("SELECT set_config('app.tenant_id', '" + TENANT_ID + "', false)");
-        s.execute("INSERT INTO public.scope (id, tenant_id, slug, kind) "
-            + "SELECT '" + SCOPE_ID + "', '" + TENANT_ID + "', '" + PROBE_SCOPE_SLUG + "', 'project' "
-            + "WHERE NOT EXISTS (SELECT 1 FROM public.scope WHERE id = '" + SCOPE_ID + "')");
-        s.execute("INSERT INTO public.user_account (tenant_id, subject) "
-            + "SELECT '" + TENANT_ID + "', '" + PROBE_SUBJECT + "' "
-            + "WHERE NOT EXISTS (SELECT 1 FROM public.user_account "
-            + "WHERE subject = '" + PROBE_SUBJECT + "')");
+        stageScope(s, SCOPE_ID,         PROBE_SCOPE_SLUG,   "project", false);
+        stageScope(s, LOCKED_SCOPE_ID,  LOCKED_SCOPE_SLUG,  "project", true);
+        stageScope(s, PRIVATE_SCOPE_ID, PRIVATE_SCOPE_SLUG, "private", false);
+        stageScope(s, GLOBAL_SCOPE_ID,  GLOBAL_SCOPE_SLUG,  "global",  false);
+        stageMember(s, PROBE_SUBJECT,  false);
+        stageMember(s, SECOND_SUBJECT, false);
+        stageMember(s, MUTED_SUBJECT,  true);
+
+        // Tenant B: the rows no query under tenant A may ever return. They are
+        // a second estate in the same database, which is the only arrangement
+        // in which the tenant boundary is a claim rather than an assumption.
+        s.execute("SELECT set_config('app.tenant_id', '" + OTHER_TENANT_ID + "', false)");
+        stageScope(s, OTHER_TENANT_SCOPE_ID, OTHER_TENANT_SCOPE_SLUG, "project", false);
+        stageMember(s, OTHER_TENANT_SUBJECT, false);
         s.execute("RESET app.tenant_id");
+    }
+
+    /** One scope of the bound tenant. Autorless, as a fresh chain produces them. */
+    private static void stageScope(Statement s, String id, String slug, String kind,
+                                   boolean locked) throws SQLException {
+        s.execute("INSERT INTO public.scope (id, tenant_id, slug, kind, locked) "
+            + "SELECT '" + id + "', NULLIF(current_setting('app.tenant_id', true), '')::uuid, '"
+            + slug + "', '" + kind + "', " + locked + " "
+            + "WHERE NOT EXISTS (SELECT 1 FROM public.scope WHERE id = '" + id + "')");
+    }
+
+    /** One active member of the bound tenant. */
+    private static void stageMember(Statement s, String subject, boolean muted)
+            throws SQLException {
+        s.execute("INSERT INTO public.user_account (tenant_id, subject, muted) "
+            + "SELECT NULLIF(current_setting('app.tenant_id', true), '')::uuid, '"
+            + subject + "', " + muted + " "
+            + "WHERE NOT EXISTS (SELECT 1 FROM public.user_account "
+            + "WHERE subject = '" + subject + "')");
     }
 
     private Connection adminConnection() throws SQLException {
