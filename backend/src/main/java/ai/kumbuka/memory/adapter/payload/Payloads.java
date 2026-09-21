@@ -327,20 +327,32 @@ public final class Payloads {
         public static final String NOT_FOUND = "NOT_FOUND";
 
         /**
-         * The one message, as a constant rather than a format.
+         * The one message, as a constant rather than a format — and the
+         * platform's own text rather than one of this service's making.
+         *
+         * <p>Transcribed character for character from
+         * {@code RouterException.NOT_FOUND_MESSAGE} in
+         * {@code Kumbuka-ai/platform}, {@code origin/main} at {@code 91d6a3d},
+         * {@code router/src/main/java/ai/kumbuka/router/surface/RouterException.java},
+         * read 2026-09-21. DEC-0042 collapses the class "whether a service or
+         * the router produced the answer", and a caller comparing two refusals
+         * would read a text of this service's own as saying which hop answered,
+         * and so which schemes have a service behind them at all — the
+         * enumeration oracle ADR-0011 exists against. The worklist and the
+         * dispatch service carry the same text, for the same reason.
          *
          * <p>Anything interpolated into it — a slug, an address, a count —
          * would make the answers differ in the bytes, which is exactly the
-         * enumeration oracle the single code exists to close. It names what to
-         * check without naming which of the cases happened.
+         * enumeration oracle the single code exists to close. So it names what
+         * to check without naming which of the cases happened: whether no entry
+         * stands there, or it stands in a scope this caller cannot enter, or it
+         * is another author's private entry. The answer is deliberately the
+         * same for all three, because one that told them apart would let a
+         * caller map what it may not see.
          */
         static final String NOT_FOUND_MESSAGE =
-            "there is nothing at this address for this caller. Either no entry stands "
-                + "there, or it stands in a scope this caller cannot enter, or it is "
-                + "another author's private entry — the answer is deliberately the same "
-                + "for all of them, because one that told them apart would let a caller "
-                + "map what it may not see. Check the address, and check that the scope "
-                + "is one this caller belongs to.";
+            "nothing is addressed here. Check the address, and that you are a member of "
+                + "the scope it names.";
 
         /**
          * The reasons that answer as the not-found class.

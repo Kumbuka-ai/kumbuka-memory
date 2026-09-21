@@ -30,6 +30,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * into it, a slug or an address or a count, would reintroduce the difference
  * the single code exists to close.
  *
+ * <h2>Why the message is also read against a literal</h2>
+ *
+ * The comparisons below hold for ANY message, so long as both answers carry
+ * the same one — including a message of this service's own invention. DEC-0042
+ * collapses the class "whether a service or the router produced the answer", so
+ * the class is only closed if this service spells the message the way the other
+ * hop does. That is a second expectation, and it cannot be taken from the
+ * artefact it checks: the literal in {@link #PLATFORM_NOT_FOUND_MESSAGE} is
+ * transcribed from the platform's source by hand, never read from
+ * {@code Payloads.Refusal.NOT_FOUND_MESSAGE}.
+ *
  * <h2>Why the technical address is probed separately every time</h2>
  *
  * It is the form where no scope is checked before the row is found. Every way
@@ -46,6 +57,25 @@ class IsolationIT {
 
     private static final String FOREIGN_KEY = "decision.beta-storage";
     private static final String PRIVATE_KEY = "decision.my-own-note";
+
+    /**
+     * The not-found message of the OTHER hop, transcribed by hand.
+     *
+     * <p>Source: {@code Kumbuka-ai/platform}, {@code origin/main} at
+     * {@code 91d6a3d},
+     * {@code router/src/main/java/ai/kumbuka/router/surface/RouterException.java}
+     * line 35, constant {@code NOT_FOUND_MESSAGE}, read 2026-09-21.
+     *
+     * <p>Typed out rather than imported from
+     * {@code Payloads.Refusal.NOT_FOUND_MESSAGE}: an expectation read from the
+     * artefact it checks expects whatever that artefact happens to say, and
+     * this one exists precisely to catch the artefact drifting from the
+     * platform. Its remedy is the same for all three collapsed cases, which is
+     * why one text can serve them.
+     */
+    private static final String PLATFORM_NOT_FOUND_MESSAGE =
+        "nothing is addressed here. Check the address, and that you are a member of "
+            + "the scope it names.";
 
     @BeforeAll
     static void grantDirectoryAccess() {
@@ -88,6 +118,15 @@ class IsolationIT {
             .as("and the technical address, where no scope is checked before the row is "
                 + "looked for, arrives at the same bytes by a different route")
             .isEqualTo(absent.asString());
+
+        theMessageIsThePlatformsOwn(canonical,
+            "and the text those bytes carry is the platform's own. The comparisons "
+                + "above would hold just as well for a message this service invented, "
+                + "and a caller reading one would know which hop answered");
+        theMessageIsThePlatformsOwn(technical, "on the technical address as well");
+        theMessageIsThePlatformsOwn(absent,
+            "and on the address that names nothing — the answer the other two are "
+                + "held against, so its own text has to be checked, not assumed");
     }
 
     // ==================================================================
@@ -130,6 +169,13 @@ class IsolationIT {
                 + "two callers, deliberately")
             .isEqualTo(absent.asString());
         assertThat(technical.asString()).isEqualTo(absent.asString());
+
+        theMessageIsThePlatformsOwn(canonical,
+            "A3 on the wire is the platform's own text too: the case reaches the "
+                + "refusal by a third route, through the statement that filters the "
+                + "row, and still answers in the words the router would use");
+        theMessageIsThePlatformsOwn(technical, "on the technical address as well");
+        theMessageIsThePlatformsOwn(absent, "and on the address that names nothing");
     }
 
     @Test
@@ -151,6 +197,19 @@ class IsolationIT {
                 + "per scope AND author — and each caller reads their own at the one "
                 + "address. That is the contract, not a collision")
             .isEqualTo("the second subject's own note");
+    }
+
+    /**
+     * The {@code message} of one refusal, against the transcribed literal.
+     *
+     * <p>Held in one place because the expectation is one expectation: three
+     * answers on two address forms, and the text is the same for every one of
+     * them or the class is not collapsed.
+     */
+    private static void theMessageIsThePlatformsOwn(Response answer, String as) {
+        assertThat(answer.jsonPath().getString("message"))
+            .as(as)
+            .isEqualTo(PLATFORM_NOT_FOUND_MESSAGE);
     }
 
     private static UUID plantPrivateEntryOfTheProbeSubject() {
