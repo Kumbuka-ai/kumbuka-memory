@@ -68,7 +68,14 @@ public class TenantMigrationCallback extends BaseCallback {
 
     @Override
     public void handle(Event event, Context context) {
-        String tenantId = ConfigProvider.getConfig().getValue("memory.tenant-id", String.class);
+        // Through the guard rather than through the config directly. The
+        // migration run is the earlier and more damaging of the two entries —
+        // V4 seeds a row for the configured tenant — so this is where a
+        // missing or empty value has to be refused, and refusing it in one
+        // place is what keeps the two entries agreeing about what counts as
+        // set.
+        String tenantId =
+            TenancyConfigurationGuard.requireConfigured(ConfigProvider.getConfig()).toString();
         // is_local = true scopes the binding to the transaction Flyway runs
         // the migration in, so it cannot outlive the migration on a pooled
         // connection. Parameterised rather than concatenated: a configured

@@ -71,6 +71,29 @@ class ServiceRolePrivilegeIT {
     private static final Set<String> PERMITTED = Set.of("SELECT", "INSERT", "UPDATE", "DELETE");
 
     /**
+     * The tables the runtime role may only read, and why the set is not empty.
+     *
+     * <p>{@code digest_preference} carries the estate's choice of which kinds
+     * of entry a digest puts content in front of. No verb writes it — changing
+     * it is an operator act against the database — and the absence of the
+     * grant is what makes that true rather than merely intended: a defect in
+     * the service cannot write the table even if somebody added the code.
+     *
+     * <p>Written as a literal set rather than derived from the migration. An
+     * expectation read out of the artefact it is checking agrees with it by
+     * construction and can never disagree.
+     */
+    private static final Set<String> READ_ONLY_TABLES = Set.of("digest_preference");
+
+    /** What a read-only table of this schema grants the runtime role. */
+    private static final Set<String> READ_ONLY_PERMITTED = Set.of("SELECT");
+
+    /** What the named table grants the runtime role, and nothing besides. */
+    private static Set<String> permittedOn(String table) {
+        return READ_ONLY_TABLES.contains(table) ? READ_ONLY_PERMITTED : PERMITTED;
+    }
+
+    /**
      * Everything {@code has_table_privilege} can be asked about a table.
      *
      * <p>The list is written out rather than derived, because the question is
@@ -119,10 +142,11 @@ class ServiceRolePrivilegeIT {
         assertThat(tables)
             .as("the probe must have had something to check, and both tables of the model "
                 + "must be among what it checked")
-            .contains("memory", "content_relation", HISTORY_TABLE);
+            .contains("memory", "content_relation", "digest_preference", HISTORY_TABLE);
 
         assertThat(defects)
-            .as("the runtime role %s may hold exactly %s on a domain table of schema %s, "
+            .as("the runtime role %s may hold exactly %s on a writable domain table of "
+                + "schema %s — and SELECT alone on " + READ_ONLY_TABLES + " — "
                 + "and nothing whatever on %s. TRUNCATE in particular bypasses row-level "
                 + "security independently of every policy, so a role holding it can cross "
                 + "the tenant boundary without any part of the isolation apparatus seeing "
@@ -200,7 +224,7 @@ class ServiceRolePrivilegeIT {
         try (Connection c = DriverManager.getConnection(url(),
                 SubstrateDatabaseResource.SERVICE_ROLE, SubstrateDatabaseResource.SERVICE_PASSWORD);
              Statement s = c.createStatement()) {
-            for (String table : List.of("memory", "content_relation")) {
+            for (String table : List.of("memory", "content_relation", "digest_preference")) {
                 try (ResultSet rs = s.executeQuery(
                         "SELECT count(*) FROM " + schema() + "." + table)) {
                     rs.next();
@@ -332,13 +356,14 @@ class ServiceRolePrivilegeIT {
             boolean history = HISTORY_TABLE.equals(table);
             for (String privilege : ALL_TABLE_PRIVILEGES) {
                 boolean held = holds(c, table, privilege);
-                boolean expected = !history && PERMITTED.contains(privilege);
+                boolean expected = !history && permittedOn(table).contains(privilege);
                 if (held && !expected) {
                     defects.add(schema() + "." + table + ": holds " + privilege
                         + " and must not" + (history
                             ? " — the history table belongs to the migrator and the runtime "
                                 + "role holds nothing on it"
-                            : " — permitted here is exactly " + PERMITTED));
+                            : " — permitted on " + table + " is exactly "
+                                + permittedOn(table)));
                 } else if (!held && expected) {
                     defects.add(schema() + "." + table + ": lacks " + privilege
                         + " and must hold it — the service cannot run without it");

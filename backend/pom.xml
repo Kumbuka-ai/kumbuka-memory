@@ -119,20 +119,36 @@
             <artifactId>quarkus-flyway</artifactId>
         </dependency>
 
-        <!--
-            Health. The only extension here that opens a port, and it opens it
-            for the orchestrator rather than for a caller: Compose restarts the
-            container on a failing check and holds a dependent back until the
-            check passes, and it can do neither without one. The readiness
-            check is not a formality — the extensions above contribute a
-            datasource probe to it, so "ready" means the service reached the
-            database as its own role, which is the failure this deployment is
-            most likely to have.
+        <!-- The verb surface. REST and nothing else: the assistant-facing
+             entry point of this platform is the router, and a per-service
+             protocol adapter would be a second entry point with no decision
+             behind it. Jackson because the answers are JSON and the shape is
+             declared by records rather than assembled by hand. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
 
-            It brings a HTTP server with it. That server carries the two health
-            routes and nothing else: there is no REST extension, so there is no
-            resource for it to serve, and no site snippet publishes it at the
-            edge.
+        <!-- Identity. A bearer resource server on the platform's one audience
+             (ADR-0034): the token is validated here, by this service, whether
+             or not something stood in front of it. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-oidc</artifactId>
+        </dependency>
+
+        <!--
+            Health. It opens its routes for the orchestrator rather than for a
+            caller: Compose restarts the container on a failing check and holds
+            a dependent back until the check passes, and it can do neither
+            without one. The readiness check is not a formality — the
+            extensions above contribute a datasource probe to it, so "ready"
+            means the service reached the database as its own role, which is
+            the failure this deployment is most likely to have.
         -->
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -143,6 +159,23 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The surface is probed over HTTP, end to end, because the outward
+             form is what the contract is about: a probe against the verb
+             surface class would measure the layer below the claim. -->
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- An identity without a realm. The probes are about what a subject
+             may reach, not about how a token is minted; standing up Keycloak
+             to answer the first question would make every one of them depend
+             on the second. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-test-security</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

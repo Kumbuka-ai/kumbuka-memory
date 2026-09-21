@@ -163,14 +163,23 @@ public class Memory {
     public Instant createdAt;
 
     /**
-     * Set at insert and, for now, not maintained on update.
+     * Written by the database default at insert; written by the verb on every
+     * change afterwards.
      *
-     * <p>There is no verb that updates an entry yet, so there is nothing for a
-     * maintenance trigger to fire on and one written now could not be observed
-     * working. Mapping this as generated on UPDATE today would announce a
-     * behaviour the schema does not have.
+     * <p>This is the entry's conflict token. A caller reads it, hands it back
+     * on the next write, and the write is refused when it is no longer the
+     * current one (DEC-0041) — so it has to move whenever the entry moves, and
+     * it has to move for exactly the writes that changed something. There is
+     * no maintenance trigger to do it: the schema carries none, and one added
+     * now would fire for a direct SQL writer as well, which would make a token
+     * change that no verb produced.
+     *
+     * <p>{@code insertable = false} keeps the insert on the database's clock
+     * together with {@code created_at}, so a fresh entry's two timestamps
+     * come from one source and are equal. {@code updatable = true} is what
+     * lets the verb move it afterwards.
      */
     @Generated(event = EventType.INSERT)
-    @Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
+    @Column(name = "updated_at", nullable = false, insertable = false)
     public Instant updatedAt;
 }
