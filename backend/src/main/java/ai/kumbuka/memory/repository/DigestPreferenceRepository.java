@@ -1,6 +1,7 @@
 package ai.kumbuka.memory.repository;
 
 import ai.kumbuka.memory.tenancy.TenantBound;
+import ai.kumbuka.memory.tenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -44,34 +45,83 @@ public class DigestPreferenceRepository {
      */
     public static final UUID DEFAULT_SCOPE = new UUID(0L, 0L);
 
+    /**
+     * The tenant id the platform's own selection stands under (V5).
+     *
+     * <p>The same value as {@link #DEFAULT_SCOPE} and a different statement:
+     * there it means "no scope in particular", here "no tenant in particular".
+     * Two constants rather than one used twice, because a reader of either
+     * call site should not have to work out which of the two meanings applies,
+     * and because the two could in principle be given different values without
+     * either reading becoming wrong.
+     *
+     * <p>Not a tenant, for the same reason it is not a scope: the platform
+     * allocates tenants with {@code gen_random_uuid()}.
+     */
+    public static final UUID PLATFORM_TENANT = new UUID(0L, 0L);
+
     @Inject EntityManager em;
+    @Inject TenantContext tenants;
 
     /**
-     * The selection for a scope: its own where it has one, the estate's
-     * default otherwise.
+     * The selection that governs a scope, in the order the estate's
+     * arrangement implies.
      *
-     * <p>One statement, because the precedence is part of the question. Two
-     * reads with a fallback in Java would be the same rule written where a
-     * reader has to reconstruct it, and would cost a round trip for every
-     * digest of a scope that has no row of its own — which is every scope, in
-     * an estate that never set one.
+     * <p>Three candidates, most specific first:
      *
-     * <p>Empty means the default row is missing too, which V4 makes impossible
-     * to reach by accident: it verifies its own seed and raises if it wrote
-     * nothing. The caller therefore treats empty as a defect and not as "no
-     * preference".
+     * <ol>
+     *   <li>this tenant's row for this scope — a scope that was given its own
+     *       selection;</li>
+     *   <li>this tenant's row for no scope in particular — the estate's own
+     *       default, which is what V4 seeds;</li>
+     *   <li>the platform's row for no tenant and no scope in particular — what
+     *       V5 seeds, and what serves every tenant that came into existence
+     *       after this database was migrated.</li>
+     * </ol>
+     *
+     * <h2>Why the order is written out rather than left to the rows</h2>
+     *
+     * Three rows can match and exactly one answer is right. Without the
+     * explicit ordering the answer would be whichever row the executor
+     * happened to return first — stable in a test, stable right up until an
+     * autovacuum or a plan change moved it, and then wrong for one tenant in
+     * production with nothing in the estate having changed. An estate that set
+     * its own selection would silently get the platform's.
+     *
+     * <h2>One statement rather than a fallback in Java</h2>
+     *
+     * Unchanged from V4's arrangement and for the same reason: the precedence
+     * is part of the question. Written as up to three reads with a fallback
+     * between them it would be the same rule in a place a reader has to
+     * reconstruct it, and would cost up to three round trips for the common
+     * case — a tenant with no row of its own, which after V5 is the expected
+     * state rather than a defect.
+     *
+     * <p>Empty now means all three are missing, which is a database whose V4
+     * and V5 seeds both failed. Both verify themselves and raise, so the
+     * caller still treats empty as a defect and not as "no preference".
      */
     @Transactional
     public Optional<Selection> forScope(UUID scopeId) {
+        UUID tenant = tenants.current();
+
         List<?> rows = em.createNativeQuery("""
                 SELECT types, include_global
                   FROM memory.digest_preference
-                 WHERE scope_id IN (:scope, :fallback)
-                 ORDER BY (scope_id = :scope) DESC
+                 WHERE (tenant_id = :tenant   AND scope_id = :scope)
+                    OR (tenant_id = :tenant   AND scope_id = :noScope)
+                    OR (tenant_id = :platform AND scope_id = :noScope)
+                 ORDER BY CASE
+                            WHEN tenant_id = :tenant AND scope_id = :scope THEN 1
+                            WHEN tenant_id = :tenant                       THEN 2
+                            ELSE                                                3
+                          END
                  LIMIT 1
                 """)
+            .setParameter("tenant", tenant)
             .setParameter("scope", scopeId)
-            .setParameter("fallback", DEFAULT_SCOPE)
+            .setParameter("noScope", DEFAULT_SCOPE)
+            .setParameter("platform", PLATFORM_TENANT)
             .getResultList();
 
         if (rows.isEmpty()) {
