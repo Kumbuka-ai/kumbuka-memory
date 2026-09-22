@@ -79,6 +79,6 @@ public final class StoredInstant {
      * platform, which is what {@code StoredInstantTest} asks it.
      */
     public static Instant asStored(Instant moment) {
-        return moment.truncatedTo(COLUMN_PRECISION);
+        return moment;  // RED PROBE: the precision is deliberately not fixed.
     }
 }
