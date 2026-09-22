@@ -3,13 +3,13 @@ package ai.kumbuka.memory.domain;
 import ai.kumbuka.memory.platform.Access;
 import ai.kumbuka.memory.platform.ScopeDirectory;
 import ai.kumbuka.memory.repository.MemoryRepository;
+import ai.kumbuka.memory.repository.StoredInstant;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import ai.kumbuka.memory.tenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
-import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -194,7 +194,7 @@ public class MemoryService {
         entry.reference = reference;
         entry.updatedBy = actor.subject();
         entry.updatedSource = SOURCE_SERVICE;
-        entry.updatedAt = Instant.now();
+        entry.updatedAt = StoredInstant.now();
 
         return EntryView.of(entries.update(entry), scope.slug(), true);
     }
