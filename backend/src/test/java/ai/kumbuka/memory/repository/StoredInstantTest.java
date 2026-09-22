@@ -89,11 +89,27 @@ class StoredInstantTest {
         }
     }
 
-    /** It is still a clock: a later reading is later. */
+    /**
+     * It is still a clock, and it is THIS clock.
+     *
+     * <p>Bracketed between two readings of {@code Instant.now()} rather than
+     * compared with a second reading of itself after a sleep. A sleeping test
+     * says only that the value moved, which a counter would satisfy too, and
+     * it pays for that with wall-clock time and a timing assumption. The
+     * bracket says the value is the current moment — which rules out a
+     * constant, a counter, and a clock reading something other than now.
+     *
+     * <p>The lower bound is truncated because the value under test is: an
+     * untruncated {@code before} can be later than a truncated reading taken
+     * after it, by up to a microsecond, and the test would fail on that alone
+     * roughly whenever the reading crossed a microsecond boundary.
+     */
     @Test
-    void it_still_moves_forward() throws InterruptedException {
-        Instant first = StoredInstant.now();
-        Thread.sleep(5);
-        assertThat(StoredInstant.now()).isAfter(first);
+    void it_answers_the_current_moment() {
+        Instant before = StoredInstant.asStored(Instant.now());
+        Instant moment = StoredInstant.now();
+        Instant after = Instant.now();
+
+        assertThat(moment).isBetween(before, after);
     }
 }
