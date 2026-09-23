@@ -178,6 +178,12 @@ public class Memory {
      * together with {@code created_at}, so a fresh entry's two timestamps
      * come from one source and are equal. {@code updatable = true} is what
      * lets the verb move it afterwards.
+     *
+     * <p>A verb that moves it takes the moment from
+     * {@link ai.kumbuka.memory.repository.StoredInstant}, never from
+     * {@code Instant.now()} directly: this column keeps microseconds and a
+     * platform clock may offer more, and the difference is the token. The
+     * reasoning is there rather than repeated here.
      */
     @Generated(event = EventType.INSERT)
     @Column(name = "updated_at", nullable = false, insertable = false)

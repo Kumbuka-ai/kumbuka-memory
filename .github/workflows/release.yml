@@ -243,5 +243,7 @@ jobs:
 
           Configuration is environment variables with a \`MEMORY_\` prefix; see the README for the full set. Two connections are configured separately: the service's own unprivileged role and the migrating role. The service role's password must be rotated away from the migration's placeholder BEFORE the service first connects — after the first connection a rotation is a repair rather than a precondition.
 
-          The service has no caller surface. It serves health at \`/q/health\` on port 8080 for the orchestrator, and nothing else.
+          The service answers callers over REST, under \`/api\`, on port 8080. Whether the edge reaches that port is a deployment's decision and is made in the stack, not here. Health is served beside that surface, at \`/q/health\`, for the orchestrator.
+
+          The verbs are deliberately not listed here. They change faster than a pipeline file does, and a list that has gone stale is worse than none; what a given release carries is in the source at its tag.
           "

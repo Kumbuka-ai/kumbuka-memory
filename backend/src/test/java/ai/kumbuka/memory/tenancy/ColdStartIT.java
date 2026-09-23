@@ -75,8 +75,14 @@ class ColdStartIT {
                 .as("one tenant policy per table — a table with row-level security "
                     + "enabled and no policy is closed rather than isolated, which is a "
                     + "service that cannot run. V4's table carries its own, on the same "
-                    + "shape, because a new table without one would be exactly that")
+                    + "shape, because a new table without one would be exactly that. "
+                    + "V5 adds a SECOND policy on that one table, permissive and "
+                    + "FOR SELECT, which is how the platform's own row is readable by "
+                    + "every tenant and writable by none — listed here so that the "
+                    + "second policy is a stated part of the cold start rather than "
+                    + "something a reader discovers in the catalogue")
                 .containsExactly("content_relation_tenant_isolation",
+                    "digest_preference_platform_default",
                     "digest_preference_tenant_isolation", "memory_tenant_isolation");
 
             assertThat(scalar(c, "SELECT count(*) FROM pg_trigger t "
