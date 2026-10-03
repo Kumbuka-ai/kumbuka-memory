@@ -34,6 +34,19 @@ RUN mvn -B -ntp package -DskipTests
 
 # ---------------------------------------------------------------------------
 
+# The application, and nothing else: the fast-jar layout at the root.
+#
+# TWO WAYS IN, ONE FILE. CI and the release never compile in this Dockerfile:
+# they run the suite in the job and pass its output as a named context,
+#   --build-context app=backend/target/quarkus-app
+# which REPLACES this stage, so neither it nor the Maven stage runs and the
+# image carries exactly the build the suite tested. Locally, `docker build`
+# with no context builds it from the Maven stage, as before.
+FROM scratch AS app
+COPY --from=build /work/target/quarkus-app/ /
+
+# ---------------------------------------------------------------------------
+
 FROM eclipse-temurin:21-jre-alpine
 
 # Patch the base image's OS packages before anything else lands.
@@ -50,10 +63,10 @@ FROM eclipse-temurin:21-jre-alpine
 RUN apk --no-cache upgrade
 WORKDIR /app
 
-COPY --from=build /work/target/quarkus-app/lib/     /app/lib/
-COPY --from=build /work/target/quarkus-app/*.jar    /app/
-COPY --from=build /work/target/quarkus-app/app/     /app/app/
-COPY --from=build /work/target/quarkus-app/quarkus/ /app/quarkus/
+COPY --from=app /lib/     /app/lib/
+COPY --from=app /*.jar    /app/
+COPY --from=app /app/     /app/app/
+COPY --from=app /quarkus/ /app/quarkus/
 
 # The health routes, and nothing else. There is no REST extension in this
 # service, so this port serves two paths under /q/health and 404s everything
