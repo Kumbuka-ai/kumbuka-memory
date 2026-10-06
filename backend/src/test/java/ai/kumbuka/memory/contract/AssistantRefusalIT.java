@@ -9,7 +9,6 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -189,6 +188,13 @@ class AssistantRefusalIT {
                 "key selector", "convention", "call", CREATE, "selector", "decision"));
     }
 
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_key_without_a_selector_is_selector_absent_and_names_the_key() {
+        assertRefusal(create("decision", "storage", "decision", "x"),
+            "SELECTOR_ABSENT", CREATE, literal(Map.of("call", CREATE, "key", "storage")));
+    }
+
     // ======================================================================
     // Writing
     // ======================================================================
@@ -364,22 +370,6 @@ class AssistantRefusalIT {
         assertRefusal(refusal, "ARGUMENT_INVALID", UPDATE,
             Map.of("n", "content", "call", UPDATE), "value", "why");
         assertThat(refusal.text()).doesNotContain("a list of secrets");
-    }
-
-    // ======================================================================
-    // Recorded departure: SELECTOR_ABSENT
-    // ======================================================================
-
-    @Test
-    @Disabled("The contract lists SELECTOR_ABSENT as raised on the generic surface only. "
-        + "The service raises it in its domain for a key without a dot whichever surface "
-        + "called, so the assistant surface answers it as the service does. Resume this "
-        + "probe when either the contract places SELECTOR_ABSENT on this surface (then "
-        + "delete it) or the domain answers a dotless key with KEY_MALFORMED.")
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
-    void a_key_without_a_selector_is_not_answered_with_a_generic_only_reason() {
-        assertThat(create("decision", "storage", "decision", "x").reason())
-            .isNotIn(Contract.genericOnlyReasons());
     }
 
     // ======================================================================

@@ -2,13 +2,17 @@ package ai.kumbuka.memory;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -61,6 +65,32 @@ import static org.assertj.core.api.Assertions.assertThat;
  * because {@code subject} and {@code title} are words inside them.
  * {@code selector} and {@code somebody} do not, because {@code actor} and
  * {@code body} are not words inside them — only letters.
+ *
+ * <h2>No exception reaches a log call</h2>
+ *
+ * Checking the arguments is not enough. An exception's message is text nobody
+ * in this service wrote: a database that refuses a row names the row, and the
+ * row holds an entry's content. Handed to the logger, an exception is printed
+ * with its message and the messages of its causes, by whatever format the
+ * deployment configures. So no log call may take an exception, in any form
+ * the logging libraries offer, and this is checked twice:
+ *
+ * <ul>
+ *   <li>in the compiled classes, where every method a class calls is named
+ *       with its parameter types. A call to a logging method that takes a
+ *       {@code Throwable} is refused whatever the exception is called and
+ *       wherever in the argument list it stands — before the format string,
+ *       after the message, beside a level;</li>
+ *   <li>in the source, for the forms the compiled signature cannot show: an
+ *       exception passed as a format parameter, its message, or one made on
+ *       the spot. These are typed as {@code Object} or {@code String} by the
+ *       time they are compiled.</li>
+ * </ul>
+ *
+ * <p>The typed reason of a refusal stays permitted, reached through the
+ * exception that carries it: {@code e.reason()} is a constant out of a
+ * closed set. Anything else built from an exception goes through a local
+ * first, which is where somebody has to decide what it holds.
  *
  * <h2>The cardinality trap</h2>
  *
@@ -121,7 +151,48 @@ class LogContentGuardTest {
     private static final int MINIMUM_ALLOWED_FIXTURE_LOG_CALLS = 13;
 
     private static final Pattern LOG_CALL = Pattern.compile(
-        "LOG\\.(trace|debug|info|warn|error)f?\\(([^;]*)\\)\\s*;", Pattern.DOTALL);
+        "LOG\\.(trace|debug|info|warn|error|fatal|log)[fv]?\\(([^;]*)\\)\\s*;",
+        Pattern.DOTALL);
+
+    /**
+     * The types a logging call can be made on. Every logging method these
+     * offer that takes an exception takes it as {@code Throwable}.
+     */
+    private static final Set<String> LOGGING_TYPES = Set.of(
+        "org/jboss/logging/Logger", "org/jboss/logging/BasicLogger",
+        "org/jboss/logging/DelegatingBasicLogger", "io/quarkus/logging/Log",
+        "org/jboss/logmanager/Logger", "java/util/logging/Logger", "java/lang/System$Logger");
+
+    private static final String THROWABLE = "Ljava/lang/Throwable;";
+
+    /** Below this the compiled check is not reading the classes it thinks it is. */
+    private static final int MINIMUM_CLASSES = 30;
+
+    /** Below this the compiled check is not finding the logging calls it should. */
+    private static final int MINIMUM_LOGGING_REFERENCES = 8;
+
+    /**
+     * A variable declared with an exception type: a parameter, a local, a
+     * field, a single-type catch, a loop variable.
+     */
+    private static final Pattern THROWABLE_DECLARED = Pattern.compile(
+        "\\b(?:[A-Z][A-Za-z0-9_$]*(?:Exception|Error)|Throwable)\\s+([a-z_$][A-Za-z0-9_$]*)"
+            + "\\s*[,)=;:]");
+
+    /** The variable of a catch clause, multi-catch included. */
+    private static final Pattern CATCH_VARIABLE = Pattern.compile(
+        "catch\\s*\\(\\s*(?:final\\s+)?[A-Za-z0-9_$.|\\s]+?\\s+([a-z_$][A-Za-z0-9_$]*)\\s*\\)");
+
+    /** An exception made inside the call. */
+    private static final Pattern THROWABLE_MADE = Pattern.compile(
+        "\\bnew\\s+(?:[A-Za-z0-9_$]+\\.)*[A-Z][A-Za-z0-9_$]*(?:Exception|Error|Throwable)\\s*\\(");
+
+    /** A message read off something, whatever it was read off. */
+    private static final Pattern MESSAGE_READ = Pattern.compile(
+        "\\.get(?:Localized)?Message\\s*\\(");
+
+    private static final Pattern STRING_LITERAL = Pattern.compile(
+        "\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])+'");
 
     /** An identifier as Java spells one. */
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*");
@@ -265,6 +336,97 @@ class LogContentGuardTest {
         }
     }
 
+    /**
+     * No compiled class of the main tree calls a logging method that takes an
+     * exception.
+     */
+    @Test
+    void no_compiled_class_hands_an_exception_to_a_logging_call() throws IOException {
+        Compiled compiled = scanCompiled(classRoot("classes"));
+
+        assertThat(compiled.classes())
+            .as("the compiled main tree must have been read. A walk over a directory "
+                + "without classes passes for every reason including the wrong ones")
+            .isGreaterThanOrEqualTo(MINIMUM_CLASSES);
+        assertThat(compiled.loggingReferences())
+            .as("the compiled check must have found logging calls at all, or it is not "
+                + "reading the constant pools it thinks it is")
+            .isGreaterThanOrEqualTo(MINIMUM_LOGGING_REFERENCES);
+
+        assertThat(compiled.offenders())
+            .as("a log call never takes an exception. An exception's message is text nobody "
+                + "in the service wrote, and a database's message names the row it "
+                + "rejected, which holds the content; the logger prints it with every "
+                + "cause. Log the reference and the shape of the failure instead")
+            .isEmpty();
+    }
+
+    /**
+     * The red state for every form a logging library takes an exception in,
+     * compiled. The fixture calls each of them, and each must be named.
+     */
+    @Test
+    void the_guard_catches_every_compiled_form_of_handing_over_an_exception()
+            throws IOException {
+        Compiled compiled = scanCompiled(classRoot("test-classes")
+            .resolve("ai/kumbuka/memory/fixture"));
+
+        for (String form : List.of("org/jboss/logging/Logger.errorf(Ljava/lang/Throwable;",
+                "org/jboss/logging/Logger.error(Ljava/lang/Object;Ljava/lang/Throwable;)",
+                "org/jboss/logging/Logger.log(Lorg/jboss/logging/Logger$Level;"
+                    + "Ljava/lang/Object;Ljava/lang/Throwable;)",
+                "org/jboss/logging/Logger.warnv(Ljava/lang/Throwable;",
+                "java/util/logging/Logger.log(Ljava/util/logging/Level;Ljava/lang/String;"
+                    + "Ljava/lang/Throwable;)")) {
+            assertThat(compiled.offenders())
+                .as("RED STATE, observed: the fixture calls %s, and it must be reported", form)
+                .anySatisfy(offence -> {
+                    assertThat(offence).startsWith("ThrowableLogFixture");
+                    assertThat(offence).contains(form);
+                });
+        }
+    }
+
+    /**
+     * The red state for the forms only the source shows: an exception as a
+     * format parameter, its message, one made on the spot, one caught in a
+     * multi-catch.
+     */
+    @Test
+    void the_guard_catches_an_exception_handed_over_as_a_parameter() throws IOException {
+        Findings findings = scan(forbiddenFixtureRoot());
+
+        for (String written : List.of("failure'", "failure.getMessage()'",
+                "String.valueOf(broken)'", "new IllegalStateException(")) {
+            assertThat(findings.offenders())
+                .as("RED STATE, observed: a log call handing over %s must be reported", written)
+                .anySatisfy(offence -> assertThat(offence)
+                    .startsWith("ThrowableLogFixture.java: LOG call hands over an exception '"
+                        + written));
+        }
+    }
+
+    /**
+     * The green counter-probe for the exception check: a typed reason read
+     * off a refusal, and a failure's frames assembled into a local first.
+     */
+    @Test
+    void the_guard_passes_a_typed_reason_and_a_failure_s_frames() throws IOException {
+        Compiled compiled = scanCompiled(classRoot("test-classes")
+            .resolve("ai/kumbuka/memory/fixture/allowed"));
+        assertThat(compiled.loggingReferences())
+            .as("the permitted fixture's classes must have been read")
+            .isPositive();
+        assertThat(compiled.offenders())
+            .as("none of the permitted fixtures hands an exception to a logging call")
+            .isEmpty();
+
+        assertThat(scan(allowedFixtureRoot()).offenders())
+            .as("a typed reason read off a refusal is on the permitted list, and so is a "
+                + "local the failure's frames were assembled into")
+            .isEmpty();
+    }
+
     private static Findings scan(Path root) throws IOException {
         List<String> offenders = new ArrayList<>();
         int total = 0;
@@ -273,10 +435,16 @@ class LogContentGuardTest {
             for (Path file : (Iterable<Path>) files
                     .filter(f -> f.toString().endsWith(".java"))::iterator) {
                 String source = Files.readString(file);
+                Set<String> throwables = throwablesDeclaredIn(source);
                 Matcher m = LOG_CALL.matcher(source);
                 while (m.find()) {
                     total++;
                     String call = m.group(2);
+                    String handedOver = exceptionIn(call, throwables);
+                    if (handedOver != null) {
+                        offenders.add(file.getFileName() + ": LOG call hands over an exception '"
+                            + handedOver + "' — " + call.strip());
+                    }
                     // The format string is quoted; only what follows it can be
                     // an argument, and only arguments can carry content.
                     String tail = call.substring(Math.max(call.lastIndexOf('"') + 1, 0));
@@ -375,6 +543,170 @@ class LogContentGuardTest {
             && identifier.chars().anyMatch(Character::isLetter);
     }
 
+    /** The names this source declares with an exception type. */
+    private static Set<String> throwablesDeclaredIn(String source) {
+        Set<String> names = new HashSet<>();
+        for (Pattern declared : List.of(THROWABLE_DECLARED, CATCH_VARIABLE)) {
+            Matcher m = declared.matcher(source);
+            while (m.find()) {
+                names.add(m.group(1));
+            }
+        }
+        return names;
+    }
+
+    /**
+     * The first argument of a log call that hands over an exception, or null.
+     *
+     * <p>An exception variable may appear only to read its typed reason;
+     * every other use — bare, as a parameter of a further call, through an
+     * accessor — is reported. Every argument is looked at, the ones before
+     * the format string included.
+     */
+    private static String exceptionIn(String call, Set<String> throwables) {
+        for (String argument : argumentsOf(call)) {
+            String code = STRING_LITERAL.matcher(argument).replaceAll("\"\"");
+            if (THROWABLE_MADE.matcher(code).find() || MESSAGE_READ.matcher(code).find()) {
+                return argument;
+            }
+            Matcher identifiers = IDENTIFIER.matcher(code);
+            while (identifiers.find()) {
+                boolean member = identifiers.start() > 0
+                    && code.charAt(identifiers.start() - 1) == '.';
+                if (!member && throwables.contains(identifiers.group())
+                        && !code.startsWith(".reason()", identifiers.end())) {
+                    return argument;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** A call's arguments, split at the commas that are not nested or quoted. */
+    private static List<String> argumentsOf(String call) {
+        List<String> arguments = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        Character quote = null;
+        for (int i = 0; i < call.length(); i++) {
+            char c = call.charAt(i);
+            if (quote != null) {
+                if (c == '\\') {
+                    i++;
+                } else if (c == quote) {
+                    quote = null;
+                }
+            } else if (c == '"' || c == '\'') {
+                quote = c;
+            } else if (c == '(' || c == '[' || c == '{') {
+                depth++;
+            } else if (c == ')' || c == ']' || c == '}') {
+                depth--;
+            } else if (c == ',' && depth == 0) {
+                arguments.add(call.substring(start, i).strip());
+                start = i + 1;
+            }
+        }
+        arguments.add(call.substring(start).strip());
+        return arguments;
+    }
+
+    /**
+     * Every class file under a root, read for the methods it calls on a
+     * logging type.
+     */
+    private static Compiled scanCompiled(Path root) throws IOException {
+        List<String> offenders = new ArrayList<>();
+        int classes = 0;
+        int references = 0;
+        try (Stream<Path> files = Files.walk(root)) {
+            for (Path file : (Iterable<Path>) files
+                    .filter(f -> f.toString().endsWith(".class"))::iterator) {
+                classes++;
+                for (String called : loggingCallsIn(file)) {
+                    references++;
+                    String parameters = called.substring(called.indexOf('('),
+                        called.indexOf(')') + 1);
+                    if (parameters.contains(THROWABLE)) {
+                        offenders.add(file.getFileName() + ": calls " + called);
+                    }
+                }
+            }
+        }
+        return new Compiled(classes, references, offenders);
+    }
+
+    /**
+     * The methods a class file names on a logging type, as
+     * {@code owner.name(descriptor)}.
+     *
+     * <p>Read off the constant pool, where every method a class calls is
+     * named with its owner and its descriptor. Reading the pool needs no
+     * library, and it is all this check needs: whether a logging method that
+     * takes a {@code Throwable} is called at all.
+     */
+    private static List<String> loggingCallsIn(Path classFile) throws IOException {
+        try (DataInputStream in = new DataInputStream(
+                new BufferedInputStream(Files.newInputStream(classFile)))) {
+            assertThat(in.readInt()).as("%s is a class file", classFile).isEqualTo(0xCAFEBABE);
+            in.readUnsignedShort();
+            in.readUnsignedShort();
+            int count = in.readUnsignedShort();
+            String[] utf8 = new String[count];
+            int[] className = new int[count];
+            int[][] method = new int[count][];
+            int[][] nameAndType = new int[count][];
+            for (int i = 1; i < count; i++) {
+                int tag = in.readUnsignedByte();
+                switch (tag) {
+                    case 1 -> utf8[i] = in.readUTF();
+                    case 3, 4 -> in.readInt();
+                    case 5, 6 -> {
+                        in.readLong();
+                        i++;
+                    }
+                    case 7 -> className[i] = in.readUnsignedShort();
+                    case 8, 16, 19, 20 -> in.readUnsignedShort();
+                    case 9, 17, 18 -> in.readInt();
+                    case 10, 11 -> method[i] = new int[] {in.readUnsignedShort(),
+                        in.readUnsignedShort()};
+                    case 12 -> nameAndType[i] = new int[] {in.readUnsignedShort(),
+                        in.readUnsignedShort()};
+                    case 15 -> {
+                        in.readUnsignedByte();
+                        in.readUnsignedShort();
+                    }
+                    default -> throw new IllegalStateException(
+                        "constant tag " + tag + " in " + classFile + " is not one this reader "
+                            + "knows, so the pool cannot be read past it");
+                }
+            }
+            List<String> called = new ArrayList<>();
+            for (int[] ref : method) {
+                if (ref == null) {
+                    continue;
+                }
+                String owner = utf8[className[ref[0]]];
+                if (LOGGING_TYPES.contains(owner)) {
+                    int[] signature = nameAndType[ref[1]];
+                    called.add(owner + "." + utf8[signature[0]] + utf8[signature[1]]);
+                }
+            }
+            return called;
+        }
+    }
+
+    private static Path classRoot(String classes) {
+        Path direct = Paths.get("target", classes);
+        Path fromRepoRoot = Paths.get("backend", "target", classes);
+        Path root = Files.isDirectory(direct) ? direct : fromRepoRoot;
+        assertThat(Files.isDirectory(root))
+            .as("compiled classes %s must exist — run from the module directory after "
+                + "compiling", root)
+            .isTrue();
+        return root;
+    }
+
     private static Path forbiddenFixtureRoot() {
         return sourceRoot("test").resolve("ai/kumbuka/memory/fixture");
     }
@@ -394,5 +726,8 @@ class LogContentGuardTest {
     }
 
     private record Findings(int total, List<String> offenders) {
+    }
+
+    private record Compiled(int classes, int loggingReferences, List<String> offenders) {
     }
 }
