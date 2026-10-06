@@ -213,10 +213,13 @@ class RawSqlArchitectureTest {
             .as("RED STATE, observed: with the exemptions withheld, the tenancy binding "
                 + "is native SQL outside the repository layer and must be reported")
             .anyMatch(offender -> offender.contains("TenantDatabaseBinding"));
-        assertThat(unreasonedUnder(sourceRoot("main"), Map.of()))
-            .as("RED STATE, observed: with no reason written, every class issuing native "
-                + "SQL must be reported")
-            .hasSize(NATIVE_SQL_REASONS.size());
+        List<String> unreasoned = unreasonedUnder(sourceRoot("main"), Map.of());
+        for (Class<?> reasoned : NATIVE_SQL_REASONS.keySet()) {
+            assertThat(unreasoned)
+                .as("RED STATE, observed: with no reason written, %s issues native SQL "
+                    + "and must be reported", reasoned.getSimpleName())
+                .anyMatch(offender -> offender.startsWith(reasoned.getName() + " "));
+        }
         assertThat(unreasonedUnder(sourceRoot("main"), Map.of(
                 ScopeAccessRepository.class, new Reasoned(5, "one statement short"))))
             .as("RED STATE, observed: a reason covering fewer occurrences than the class "
