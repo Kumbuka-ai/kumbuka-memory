@@ -88,10 +88,12 @@ class AssistantRefusalIT {
             .isEqualTo(absent.json().prettify().replaceAll("\"id\": \\d+", ""));
 
         assertThat(absent.message())
-            .as("the one fixed message the service already answers on its generic surface")
-            .isEqualTo(given().get("/api/" + SCOPE + "/convention/nothing-here")
-                .jsonPath().getString("message"));
-        assertThat(Contract.notFoundIsTheGenericSurfacesMessage()).isTrue();
+            .as("the fixed message of section 4.3")
+            .isEqualTo(Contract.notFoundMessage());
+        assertThat(given().get("/api/" + SCOPE + "/convention/nothing-here")
+                .jsonPath().getString("message"))
+            .as("which is the one the service answers on its generic surface")
+            .isEqualTo(Contract.notFoundMessage());
     }
 
     @Test

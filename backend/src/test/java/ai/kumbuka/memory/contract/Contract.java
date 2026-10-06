@@ -387,12 +387,6 @@ public final class Contract {
             .findFirst().orElseThrow().calls();
     }
 
-    /** The one fixed sentence section 4.3 refers to, which lives in the generic surface. */
-    public static boolean notFoundIsTheGenericSurfacesMessage() {
-        return flat().contains("the one fixed message the service already answers on its "
-            + "generic surface");
-    }
-
     private static void requireFound(int count, String what) {
         if (count == 0) {
             throw new IllegalStateException("no " + what + " were found in the contract copy");
