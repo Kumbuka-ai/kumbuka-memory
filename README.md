@@ -15,16 +15,40 @@ each of them hold.
 Since this release it also carries what a **deployment** needs: a container
 image, and a health endpoint for the orchestrator.
 
-**There is still no caller surface.** No MCP adapter, no REST resource, no
-identity configuration. How an independent service authenticates an MCP
-surface has no precedent in this platform and has to be designed rather than
-copied; half of that design would get decided in passing by an OIDC block
-written now. The service starts, migrates, holds its schema, and says whether
-it is alive. That is the whole of it.
+**Two caller surfaces, carrying the same six verbs** — create, read, update,
+withdraw, query and digest. An entry stands at `memory://<scope>/<selector>/<id>`
+and has no intermediate state: it is in force from the call that creates it
+until the call that withdraws it.
 
-So this deployment is deliberately **empty**: the schema, the role, the grants
-and the operator wall land before there is anything to lose, and the deploy
-path is exercised while nothing can break.
+- **The generic surface (REST)**, under `/api`. An address maps onto the path
+  (`/api/<scope>/<selector>/<id>`), the compound verbs are written in colon
+  notation (`:withdraw`, `:digest`), and the conflict token travels as `ETag`
+  and `If-Match`. This is the surface the platform's router calls.
+- **The assistant surface (MCP)**, at `/mcp`: JSON-RPC 2.0 speaking
+  `initialize`, `tools/list` and `tools/call`, with six tools `memory_create`,
+  `memory_read`, `memory_update`, `memory_withdraw`, `memory_query` and
+  `memory_digest`. It is what lets an installation without the router — the
+  community edition on its own — connect an assistant to its memory at all.
+
+On the assistant surface the tool list, the input schemas, the descriptions,
+the names offered as next steps and the catalogue of refusal reasons all come
+from **one declaration**, served at `GET /mcp/declaration`. Every input schema
+is closed at every level, so an argument the call does not declare is refused
+by name rather than dropped. Every refusal is `{ reason, message, data }`, and
+its message is built from the reason's declared pattern alone: no sentence from
+inside the service, no content of an entry and no value of a reference reaches
+the caller through it. A failure nobody foresaw answers `UNEXPECTED_FAILURE`
+with a report reference that stands in the log beside the failure. **The service
+does not start** when it can raise a reason the catalogue does not declare.
+
+Both surfaces are authenticated the same way: a bearer token validated by this
+service, the acting identity derived from its `sub` claim and never from an
+argument. What a caller may do is the platform's read contract, per scope.
+
+What the assistant surface does not do yet: it offers no discovery of its
+authorization server, so a client has to be configured with a token rather
+than connected by address alone; reading by technical address stays on the
+generic surface; and the service holds no relations between entries to carry.
 
 ## Configuration
 
@@ -44,6 +68,15 @@ here.
 | `MEMORY_MIGRATOR_PASSWORD` | `postgres` | |
 | `MEMORY_TENANT_ID` | `00000000-0000-0000-0000-000000000001` | The tenancy axis for this deployment. Read by the tenant resolver and by the Flyway callback that binds it for migrations carrying DML. Deployment identity, not a knob. |
 
+**Identity.** Both caller surfaces validate the same token against the same
+settings; the assistant surface adds none of its own.
+
+| Variable | Default | What it is |
+|---|---|---|
+| `MEMORY_OIDC_ISSUER` | `http://localhost:8180/realms/kumbuka` | The issuer whose tokens are accepted. |
+| `MEMORY_OIDC_CLIENT_ID` | `kumbuka-memory` | This service's client in that realm. |
+| `MEMORY_OIDC_AUDIENCE` | `https://platform.kumbuka.ai/mcp` | The audience a token must carry. |
+
 **Rotate the service role's password BEFORE the service first connects.** V2
 creates the role with a placeholder, and the placeholder is in this public
 repository. Rotating after the first connection is a repair; rotating before
@@ -61,8 +94,8 @@ named in the payload, because without it the route answers `UP` with an empty
 check list and an orchestrator would release a dependent on that answer.
 
 **The port is not published at the edge.** It is reachable on the stack's
-internal network and from nowhere else. Publishing it would expose a verb
-surface that does not exist.
+internal network and from nowhere else. It carries both caller surfaces as well
+as the health routes.
 
 ## Building and testing
 

@@ -30,13 +30,13 @@ import java.util.UUID;
  *
  * <h2>Why this layer exists at all</h2>
  *
- * Only one protocol reaches it today — REST — and there will be no MCP adapter
- * in this service: the router is the assistant-facing entry point and a
- * per-service adapter is a later question. So this is not a layer earning its
- * keep by serving two callers. What it earns is that the address grammar, the
- * predicate vocabulary and the next-step table are not in the resource class,
- * where they would be indistinguishable from HTTP concerns and would move with
- * the next change to one.
+ * Two protocols reach it: REST, which the router calls, and MCP, which an
+ * assistant calls directly where there is no router in front of the service.
+ * Both call these methods and no others, so a verb behaves the same whichever
+ * surface it was called through. What the layer also earns is that the
+ * address grammar, the predicate vocabulary and the next-step table are not in
+ * a resource class, where they would be indistinguishable from the concerns of
+ * one protocol and would move with the next change to it.
  *
  * <h2>What belongs here and what does not</h2>
  *
