@@ -63,6 +63,8 @@ class IdentityConfigurationGuardTest {
         assertThatThrownBy(() -> IdentityConfigurationGuard.verify(configOf(
                 IdentityConfigurationGuard.PRINCIPAL_CLAIM_KEY, "preferred_username",
                 IdentityConfigurationGuard.AUDIENCE_KEY, "https://platform.kumbuka.ai/mcp")))
+            .as("RED STATE, observed: a principal resolved from a claim other than the "
+                + "subject must refuse the start")
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining(IdentityConfigurationGuard.PRINCIPAL_CLAIM_KEY)
             .as("and the message says why, because an operator reading it has to decide "
