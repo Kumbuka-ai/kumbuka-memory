@@ -7,28 +7,33 @@
     <!--
         The memory service — a single Quarkus module.
 
-        WHAT IS DELIBERATELY ABSENT, AND WHY THE DEPENDENCY LIST IS THE PLACE
-        THAT SAYS SO
+        TWO CALLER SURFACES, AND NO DEPENDENCY FOR EITHER BEYOND REST
 
-        There is no REST extension and no OIDC extension, because this service
-        has no caller surface yet. How an independent service authenticates an
-        MCP surface has no precedent in this platform and has to be designed
-        rather than copied; a dependency added now "because it will be needed"
-        would carry configuration, and configuration is where such a design
-        gets decided by accident. The seam arrives whole or not at all.
+        The service carries its six verbs on two surfaces. The generic one is
+        REST under /api, and it is what the platform's router calls. The
+        assistant one is MCP at /mcp: JSON-RPC 2.0 written by hand over the
+        same quarkus-rest, with its tool list, schemas, descriptions and
+        refusal catalogue derived from one declaration in the code. It exists
+        because an installation without the router reaches a service only
+        through the service's own adapter, and the community edition must be
+        usable by an assistant on its own. A protocol library would have been
+        a second dependency with configuration of its own, for a server side
+        that fits in one class, and a second opinion about the schemas
+        between the declaration and the caller — so there is none.
 
-        THE HEALTH EXTENSION IS THE ONE EXCEPTION, AND IT IS NOT A CALLER
-        SURFACE. It was absent for the same reason as the others while the
-        service had no deployment; it is here now because the service is
-        deployed, and an orchestrator that cannot ask a container whether it
-        is alive restarts it on a guess. What arrives with it is a liveness
-        and readiness probe on a port reachable only from inside the stack —
-        no route is published at the edge, and answering "am I up" decides
-        nothing about how a verb surface will authenticate.
+        Both surfaces are a bearer resource server on the platform's one
+        audience through quarkus-oidc (ADR-0034); the assistant surface adds
+        no setting of its own.
 
-        What is here is the substrate: a schema, a database role, a migration
-        chain, the tenancy axis and the read contract with the platform
-        service — plus the tests that observe each of them holding.
+        THE HEALTH EXTENSION IS NOT A CALLER SURFACE. It is here because the
+        service is deployed, and an orchestrator that cannot ask a container
+        whether it is alive restarts it on a guess. What arrives with it is a
+        liveness and readiness probe; answering "am I up" decides nothing
+        about how a verb surface authenticates.
+
+        Underneath both surfaces is the substrate: a schema, a database role,
+        a migration chain, the tenancy axis and the read contract with the
+        platform service — plus the tests that observe each of them holding.
 
         DELIBERATELY ONE MODULE. The service publishes no frozen interface to
         a second edition today, so a second module would carry no contract and
@@ -119,11 +124,10 @@
             <artifactId>quarkus-flyway</artifactId>
         </dependency>
 
-        <!-- The verb surface. REST and nothing else: the assistant-facing
-             entry point of this platform is the router, and a per-service
-             protocol adapter would be a second entry point with no decision
-             behind it. Jackson because the answers are JSON and the shape is
-             declared by records rather than assembled by hand. -->
+        <!-- Both verb surfaces. REST directly, and MCP as JSON-RPC over the
+             same stack: the assistant surface needs no library of its own.
+             Jackson because the answers are JSON and the shape is declared by
+             records rather than assembled by hand. -->
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest</artifactId>

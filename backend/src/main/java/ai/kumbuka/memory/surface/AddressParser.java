@@ -144,6 +144,32 @@ public final class AddressParser {
     }
 
     /**
+     * The three parts of a complete address, as a caller writes it whole.
+     *
+     * <p>The assistant surface takes an address as one argument rather than as
+     * path segments, so it has to be split before the grammar above can judge
+     * its parts. Only the shape is checked here — the scheme and exactly three
+     * non-empty segments; whether each part is one this service stores is
+     * {@link #parse(Parts)}'s question, asked by the verb that receives them.
+     *
+     * @throws MemoryException {@code ADDRESS_MALFORMED} when the value is not
+     *         of the form {@code memory://<scope>/<selector>/<id>}
+     */
+    public static Parts complete(String address) {
+        String scheme = "memory://";
+        String[] segments = address == null || !address.startsWith(scheme)
+            ? new String[0]
+            : address.substring(scheme.length()).split("/", -1);
+        if (segments.length != 3 || segments[0].isEmpty() || segments[1].isEmpty()
+            || segments[2].isEmpty()) {
+            throw new MemoryException(MemoryException.Reason.ADDRESS_MALFORMED,
+                "an entry is addressed as memory://<scope>/<selector>/<id>, and this "
+                    + "value is not of that form.");
+        }
+        return new Parts(segments[0], segments[1], segments[2]);
+    }
+
+    /**
      * The entry a technical address names, where the caller wrote one.
      *
      * <p>{@code memory://<uuid>} carries no scope, so on this surface it
