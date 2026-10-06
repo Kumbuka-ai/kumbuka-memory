@@ -116,7 +116,7 @@ class AssistantSurfaceIT {
                 42)) {
             JsonPath answer = Mcp.rpc("tools/call", Map.of("name", read,
                 "arguments", notAnObject)).jsonPath();
-            assertThat(answer.getInt("error.code"))
+            assertThat(answer.<Object>get("error.code"))
                 .as("arguments = %s: no call yet, so an error of the protocol", notAnObject)
                 .isEqualTo(-32602);
             assertThat(answer.getMap("result"))
