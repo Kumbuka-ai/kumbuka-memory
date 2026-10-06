@@ -181,7 +181,8 @@ class LogContentGuardTest {
 
     /** The variable of a catch clause, multi-catch included. */
     private static final Pattern CATCH_VARIABLE = Pattern.compile(
-        "catch\\s*\\(\\s*(?:final\\s+)?[A-Za-z0-9_$.|\\s]+?\\s+([a-z_$][A-Za-z0-9_$]*)\\s*\\)");
+        "catch\\s*+\\(\\s*+(?:final\\s++)?[A-Za-z0-9_$.]++(?:\\s*+\\|\\s*+[A-Za-z0-9_$.]++)*+"
+            + "\\s++([a-z_$][A-Za-z0-9_$]*+)\\s*+\\)");
 
     /** An exception made inside the call. */
     private static final Pattern THROWABLE_MADE = Pattern.compile(
