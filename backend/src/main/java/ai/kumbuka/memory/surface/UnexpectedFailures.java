@@ -35,7 +35,7 @@ public final class UnexpectedFailures {
      * @param call    the tool the caller called
      * @param failure what went wrong
      */
-    public static String record(String call, Throwable failure) {
+    public static String logged(String call, Throwable failure) {
         String reportId = UUID.randomUUID().toString();
         LOG.errorf(failure, "unexpected failure on %s, report %s", call, reportId);
         return reportId;

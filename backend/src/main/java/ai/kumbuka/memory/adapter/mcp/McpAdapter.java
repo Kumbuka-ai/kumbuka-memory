@@ -84,6 +84,7 @@ public class McpAdapter {
 
     private static final String PROTOCOL_VERSION = "2025-06-18";
     private static final String JSONRPC = "2.0";
+    private static final String KEY_JSONRPC = "jsonrpc";
 
     private static final int PARSE_ERROR = -32700;
     private static final int INVALID_REQUEST = -32600;
@@ -116,7 +117,7 @@ public class McpAdapter {
         }
         Map<String, Object> request = objectOf(raw);
         Object id = request.get("id");
-        if (!JSONRPC.equals(request.get("jsonrpc"))) {
+        if (!JSONRPC.equals(request.get(KEY_JSONRPC))) {
             return error(id, INVALID_REQUEST, "The request is not a JSON-RPC 2.0 request.");
         }
         if (!request.containsKey("id")) {
@@ -185,7 +186,7 @@ public class McpAdapter {
             return answered(verb, args);
         } catch (RuntimeException failure) {
             return refused(Refusals.unexpected(verb, args,
-                UnexpectedFailures.record(verb.call(), failure)));
+                UnexpectedFailures.logged(verb.call(), failure)));
         }
     }
 
@@ -195,7 +196,7 @@ public class McpAdapter {
             return transaction.run(() -> content(invoke(verb, in), false));
         } catch (CallException e) {
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(Refusals.of(verb, e, args, seen(verb, args, null)));
+            return refused(Refusals.of(verb, e, seen(verb, args, null)));
         } catch (MemoryException e) {
             ReasonCatalogue.Reason reason =
                 ReasonCatalogue.of(ReasonCatalogue.wireCode(e.reason().name()));
@@ -204,7 +205,7 @@ public class McpAdapter {
                 // the read contract could not be bound for, above all — is a
                 // failure this surface did not foresee, and is answered as one.
                 return refused(Refusals.unexpected(verb, args,
-                    UnexpectedFailures.record(verb.call(), e)));
+                    UnexpectedFailures.logged(verb.call(), e)));
             }
             LOG.debugf("assistant refusal: %s", e.reason());
             return refused(Refusals.of(verb, e, reason, args, seen(verb, args, e)));
@@ -270,9 +271,12 @@ public class McpAdapter {
                 return Optional.empty();
             }
         }
-        Object address = Refusals.takesAddress(verb)
-            ? args.get(Names.ADDRESS)
-            : e == null ? null : e.data().get(MemoryException.ADDRESS);
+        Object address = null;
+        if (Refusals.takesAddress(verb)) {
+            address = args.get(Names.ADDRESS);
+        } else if (e != null) {
+            address = e.data().get(MemoryException.ADDRESS);
+        }
         if (!(address instanceof String complete)) {
             return Optional.empty();
         }
@@ -312,7 +316,7 @@ public class McpAdapter {
 
     private static Response result(Object id, Object payload) {
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("jsonrpc", JSONRPC);
+        envelope.put(KEY_JSONRPC, JSONRPC);
         envelope.put("id", id);
         envelope.put("result", payload);
         return Response.ok(envelope).build();
@@ -320,7 +324,7 @@ public class McpAdapter {
 
     private static Response error(Object id, int code, String message) {
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("jsonrpc", JSONRPC);
+        envelope.put(KEY_JSONRPC, JSONRPC);
         envelope.put("id", id);
         envelope.put("error", Map.of("code", code, "message", message));
         return Response.ok(envelope).build();

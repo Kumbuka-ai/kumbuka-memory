@@ -58,8 +58,7 @@ final class Refusals {
     // ======================================================================
 
     /** A refusal the argument check made. */
-    static Payloads.Refusal of(AssistantVerb verb, CallException e, Map<String, Object> args,
-                               Optional<EntryView> seen) {
+    static Payloads.Refusal of(AssistantVerb verb, CallException e, Optional<EntryView> seen) {
         ReasonCatalogue.Reason reason = ReasonCatalogue.of(e.reason().name());
         Map<String, String> values = new LinkedHashMap<>(e.values());
         values.put(ReasonCatalogue.CALL, verb.call());
@@ -219,7 +218,7 @@ final class Refusals {
             return string(args.get(Names.ADDRESS));
         }
         if (verb == AssistantVerb.CREATE && scope != null && key != null
-            && key.indexOf(EntryAddress.SEPARATOR) > 0) {
+            && hasSelector(key)) {
             return EntryAddress.ofKey(scope, key).canonical();
         }
         return null;
@@ -247,6 +246,12 @@ final class Refusals {
         return partsOf(args)
             .map(p -> p.selector() + EntryAddress.SEPARATOR + p.id())
             .orElse(null);
+    }
+
+    /** Whether a key carries a non-empty selector before its first dot. */
+    private static boolean hasSelector(String key) {
+        int dot = key.indexOf(EntryAddress.SEPARATOR);
+        return dot != -1 && dot != 0;
     }
 
     private static Optional<AddressParser.Parts> partsOf(Map<String, Object> args) {
