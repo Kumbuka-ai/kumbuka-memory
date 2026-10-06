@@ -55,6 +55,7 @@ class TenancyConfigurationGuardTest {
     @Test
     void a_configuration_with_no_tenant_refuses_the_start_and_names_the_key() {
         assertThatThrownBy(() -> TenancyConfigurationGuard.requireConfigured(configOf()))
+            .as("RED STATE, observed: a configuration with no tenant must refuse the start")
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining(TenancyConfigurationGuard.TENANT_KEY)
             .hasMessageContaining("not set")

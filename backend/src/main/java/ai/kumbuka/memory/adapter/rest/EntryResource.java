@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.security.Authenticated;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.PATCH;
@@ -71,10 +72,18 @@ import java.util.UUID;
  * <p>The acts themselves are in {@link VerbSurface}. This class holds their
  * HTTP expression and nothing else, so an addition here would be an addition
  * with no act behind it.
+ *
+ * <h2>Why the class carries a transaction</h2>
+ *
+ * {@code @TenantBound} binds the tenant inside a transaction and quietly does
+ * nothing outside one. Every method here calls exactly one verb of the
+ * surface, which joins this transaction rather than opening its own, so the
+ * binding the annotation promises now happens where it is written.
  */
 @Path("/api")
 @Authenticated
 @TenantBound
+@Transactional
 @Produces(MediaType.APPLICATION_JSON)
 public class EntryResource {
 
