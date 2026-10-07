@@ -59,6 +59,16 @@ public class ThrowableLogFixture {
         LOG.infof("call failed: %s", failure.getMessage());
     }
 
+    /** The message, after a semicolon inside the format string, which ends nothing. */
+    public void itsMessagePastASemicolon(RuntimeException failure) {
+        LOG.errorf("commit failed; report %s", failure.getMessage());
+    }
+
+    /** The exception reached through an accessor other than its typed reason. */
+    public void throughAnAccessor(RuntimeException failure) {
+        LOG.debugf("call failed: %s", failure.getCause());
+    }
+
     /** An exception caught in a multi-catch, turned into text. */
     public void caughtAndPrinted(Runnable call) {
         try {

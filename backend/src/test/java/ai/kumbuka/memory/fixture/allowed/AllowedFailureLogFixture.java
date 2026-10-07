@@ -29,6 +29,15 @@ public class AllowedFailureLogFixture {
         LOG.debugf("refused: %s", refused.reason());
     }
 
+    /**
+     * The typed reason again, behind a literal holding a comma and the
+     * variable's own name. Split at that comma, the literal would fall apart
+     * and its words would be read as code.
+     */
+    public void theTypedReasonBehindACommaInALiteral(RefusalException refused) {
+        LOG.debugf("refused, refused: %s", refused.reason());
+    }
+
     public void theShapeOfAFailure(RuntimeException failure) {
         String frames = failure.getClass().getName();
         LOG.errorf("unexpected failure on %s%s", "memory_read", frames);

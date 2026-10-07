@@ -18,6 +18,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
 /**
  * A guard on what a log line may carry.
@@ -72,25 +73,82 @@ import static org.assertj.core.api.Assertions.assertThat;
  * in this service wrote: a database that refuses a row names the row, and the
  * row holds an entry's content. Handed to the logger, an exception is printed
  * with its message and the messages of its causes, by whatever format the
- * deployment configures. So no log call may take an exception, in any form
- * the logging libraries offer, and this is checked twice:
+ * deployment configures. So no log call may take an exception.
+ *
+ * <p>This guard is a tripwire for that habit. It catches the call at the
+ * moment somebody writes it. It is not a proof of what the log contains: code
+ * outside this service, running in the same process, logs on its own, and
+ * what reaches the log is decided where the log is written, not here. What it
+ * sees is checked in two places:
  *
  * <ul>
  *   <li>in the compiled classes, where every method a class calls is named
  *       with its parameter types. A call to a logging method that takes a
  *       {@code Throwable} is refused whatever the exception is called and
  *       wherever in the argument list it stands — before the format string,
- *       after the message, beside a level;</li>
- *   <li>in the source, for the forms the compiled signature cannot show: an
- *       exception passed as a format parameter, its message, or one made on
- *       the spot. These are typed as {@code Object} or {@code String} by the
- *       time they are compiled.</li>
+ *       after the message, beside a level, through the platform's own
+ *       logging;</li>
+ *   <li>in the source, for the forms the compiled signature cannot show,
+ *       because they are typed as {@code Object} or {@code String} by the time
+ *       they are compiled. A log call there is a call on a logger named
+ *       {@code LOG}, read from its opening parenthesis to the parenthesis
+ *       that closes it. Quoted text is followed with its escapes and nesting
+ *       is followed by depth, so a semicolon or a parenthesis inside a
+ *       literal does not end the call, and a comma inside one does not end
+ *       an argument. Every place such a call begins is either read
+ *       to its end or reported with its file and line. Within the call, any
+ *       argument is reported that makes an exception on the spot, reads a
+ *       message off anything with {@code getMessage()}, or names a variable
+ *       declared with an exception type — bare, inside a further call, or
+ *       through any accessor but {@code reason()}. A variable counts as
+ *       declared with an exception type when it is a parameter, a local, a
+ *       field or a loop variable of {@code Throwable}, {@code Exception},
+ *       {@code Error} or a type whose name ends in either of the last two; or
+ *       when it is the variable of a catch clause, whatever its types are
+ *       called, with or without {@code final}, with or without annotations
+ *       before them, with one type or several, on one line or over
+ *       several.</li>
  * </ul>
+ *
+ * <p>What the source check does not see, named so that a green build is not
+ * read as more than it is:
+ *
+ * <ul>
+ *   <li>a lambda parameter without a type: {@code failure -> LOG.errorf("%s",
+ *       failure)};</li>
+ *   <li>a variable declared with {@code var}, a loop variable included;</li>
+ *   <li>a variable not declared with an exception type: one declared as
+ *       {@code Object}, as an interface, through a type parameter, or in
+ *       another file, a superclass's field among them — names are collected
+ *       per file;</li>
+ *   <li>an exception's text put into a local first, {@code String why =
+ *       failure.getMessage()}, and the local logged;</li>
+ *   <li>a helper method that returns that text;</li>
+ *   <li>a logger held under any name other than {@code LOG};</li>
+ *   <li>an annotation on a catch clause whose argument itself holds a
+ *       parenthesis;</li>
+ *   <li>a comment inside a log call. It is read as code, so a quotation mark,
+ *       an apostrophe or a bracket in it can move where the call is read to
+ *       end, and a call written in a comment is read as a call;</li>
+ *   <li>a text block inside a log call. It is read as a run of ordinary
+ *       literals, and a quotation mark inside it is misread the same way;</li>
+ *   <li>code outside this service that logs on its own.</li>
+ * </ul>
+ *
+ * <p>These are named rather than closed one pattern at a time. Each further
+ * pattern would be a further promise, and the gap they share — syntax the
+ * patterns do not know — stays open however many are added.
  *
  * <p>The typed reason of a refusal stays permitted, reached through the
  * exception that carries it: {@code e.reason()} is a constant out of a
  * closed set. Anything else built from an exception goes through a local
  * first, which is where somebody has to decide what it holds.
+ *
+ * <p>The console is the other door out. A printed stack trace carries the
+ * same messages, and standard output and standard error leave the container
+ * by the same road as the log. So the main sources may not name
+ * {@code printStackTrace}, {@code System.err} or {@code System.out} at all,
+ * looked for as text, as written there.
  *
  * <h2>The cardinality trap</h2>
  *
@@ -146,13 +204,17 @@ class LogContentGuardTest {
      * transition, status, typed reason, duration, scope id; the address is
      * left out because its admission is undecided here — plus the typed
      * reason written as a constant for each of the six reason names that
-     * collide with the forbidden list.
+     * collide with the forbidden list, plus the selector once more behind a
+     * semicolon inside its literal.
      */
-    private static final int MINIMUM_ALLOWED_FIXTURE_LOG_CALLS = 13;
+    private static final int MINIMUM_ALLOWED_FIXTURE_LOG_CALLS = 14;
 
-    private static final Pattern LOG_CALL = Pattern.compile(
-        "LOG\\.(trace|debug|info|warn|error|fatal|log)[fv]?\\(([^;]*)\\)\\s*;",
-        Pattern.DOTALL);
+    /**
+     * Where a log call begins. Where it ends is found by reading on from
+     * here, see {@link #closeOf(String, int)}.
+     */
+    private static final Pattern LOG_CALL_START = Pattern.compile(
+        "LOG\\.(?:trace|debug|info|warn|error|fatal|log)[fv]?\\s*+\\(");
 
     /**
      * The types a logging call can be made on. Every logging method these
@@ -173,16 +235,36 @@ class LogContentGuardTest {
 
     /**
      * A variable declared with an exception type: a parameter, a local, a
-     * field, a single-type catch, a loop variable.
+     * field, a single-type catch, a loop variable. The type is
+     * {@code Throwable}, or a name ending in {@code Exception} or
+     * {@code Error}, those two themselves included.
      */
     private static final Pattern THROWABLE_DECLARED = Pattern.compile(
-        "\\b(?:[A-Z][A-Za-z0-9_$]*(?:Exception|Error)|Throwable)\\s+([a-z_$][A-Za-z0-9_$]*)"
-            + "\\s*[,)=;:]");
+        "\\b(?:[A-Z][A-Za-z0-9_$]*+(?<=Exception|Error)|Throwable)"
+            + "\\s++([a-z_$][A-Za-z0-9_$]*+)\\s*+[,)=;:]");
 
-    /** The variable of a catch clause, multi-catch included. */
+    /**
+     * What may stand before the types of a catch clause: {@code final}, and
+     * annotations with or without an argument list, in any order.
+     */
+    private static final String CATCH_MODIFIERS =
+        "(?:final\\s++|@[A-Za-z0-9_$.]++\\s*+(?:\\([^()]*+\\)\\s*+)?+)*+";
+
+    /**
+     * The variable of a catch clause, multi-catch included, whatever its
+     * types are called.
+     */
     private static final Pattern CATCH_VARIABLE = Pattern.compile(
-        "catch\\s*+\\(\\s*+(?:final\\s++)?[A-Za-z0-9_$.]++(?:\\s*+\\|\\s*+[A-Za-z0-9_$.]++)*+"
+        "catch\\s*+\\(\\s*+" + CATCH_MODIFIERS
+            + "[A-Za-z0-9_$.]++(?:\\s*+\\|\\s*+[A-Za-z0-9_$.]++)*+"
             + "\\s++([a-z_$][A-Za-z0-9_$]*+)\\s*+\\)");
+
+    /** Writing to the console, as the main sources would spell it. */
+    private static final Pattern CONSOLE = Pattern.compile(
+        "printStackTrace|System\\.err|System\\.out");
+
+    /** Below this the console check is not reading the tree it thinks it is. */
+    private static final int MINIMUM_SOURCE_FILES = 30;
 
     /** An exception made inside the call. */
     private static final Pattern THROWABLE_MADE = Pattern.compile(
@@ -248,6 +330,11 @@ class LogContentGuardTest {
                 + "for a deleted fixture or a stale pattern, and it is the reason this "
                 + "counter-probe would otherwise prove nothing")
             .isGreaterThanOrEqualTo(MINIMUM_ALLOWED_FIXTURE_LOG_CALLS);
+        assertThat(findings.read())
+            .as("the call with a semicolon inside its literal must have been read to its "
+                + "end. Cut at that semicolon it would not be a call at all, and its "
+                + "clean result below would be the clean result of nothing")
+            .contains("\"checked; selector '%s'\", selector");
 
         assertThat(findings.offenders())
             .as("every one of these is on the permitted list: a selector, a number, a "
@@ -390,15 +477,15 @@ class LogContentGuardTest {
 
     /**
      * The red state for the forms only the source shows: an exception as a
-     * format parameter, its message, one made on the spot, one caught in a
-     * multi-catch.
+     * format parameter, its message, the exception through an accessor, one
+     * made on the spot, one caught in a multi-catch.
      */
     @Test
     void the_guard_catches_an_exception_handed_over_as_a_parameter() throws IOException {
         Findings findings = scan(forbiddenFixtureRoot());
 
         for (String written : List.of("failure'", "failure.getMessage()'",
-                "String.valueOf(broken)'", "new IllegalStateException(")) {
+                "failure.getCause()'", "String.valueOf(broken)'", "new IllegalStateException(")) {
             assertThat(findings.offenders())
                 .as("RED STATE, observed: a log call handing over %s must be reported", written)
                 .anySatisfy(offence -> assertThat(offence)
@@ -428,19 +515,163 @@ class LogContentGuardTest {
             .isEmpty();
     }
 
+    /**
+     * Every place a log call begins is read to its end, or named.
+     *
+     * <p>A call the reading cannot close used to be a call that did not
+     * exist: it was neither counted nor checked, and the minimum count stayed
+     * green because the other calls were enough. So the number of places a
+     * call begins and the number of calls read are compared here, over the
+     * main tree and the permitted fixture, and the one place in the fixtures
+     * that cannot be closed has to come back by its file and line.
+     */
+    @Test
+    void every_place_a_log_call_begins_is_read_to_its_end_or_named() throws IOException {
+        for (Path root : List.of(sourceRoot("main"), allowedFixtureRoot())) {
+            Findings findings = scan(root);
+            assertThat(findings.unclosed())
+                .as("every log call under %s must be read to its end. A call that cannot "
+                    + "be is a call nothing checks", root)
+                .isEmpty();
+            assertThat(findings.read())
+                .as("as many log calls under %s must have been read as begin there", root)
+                .hasSize(findings.started());
+        }
+
+        Findings fixtures = scan(forbiddenFixtureRoot());
+        assertThat(fixtures.unclosed())
+            .as("RED STATE, observed: the fixture begins a log call that never closes, and "
+                + "the guard must name its file and line rather than pass over it")
+            .singleElement().asString().startsWith("UnclosedLogFixture.java:");
+        assertThat(fixtures.read())
+            .as("every other place a log call begins in the fixtures must have been read")
+            .hasSize(fixtures.started() - 1);
+    }
+
+    /**
+     * The red state for a log call whose literal holds what used to end it:
+     * a semicolon, or a closing parenthesis before one. Each is named by its
+     * call, because each is reported only if it is read to its end.
+     *
+     * <p>This and the tests below assert softly: when one form stops being
+     * caught, every other form that stopped with it is named in the same
+     * run, rather than the first one hiding the rest.
+     */
+    @Test
+    void the_guard_reads_a_log_call_past_a_semicolon_or_a_parenthesis_in_a_literal()
+            throws IOException {
+        Findings findings = scan(forbiddenFixtureRoot());
+
+        assertSoftly(softly -> List.of(
+                "ForbiddenLogFixture.java: LOG call carries 'content' — "
+                    + "\"stored; content %s\", e.content",
+                "ThrowableLogFixture.java: LOG call hands over an exception "
+                    + "'failure.getMessage()' — \"commit failed; report %s\", failure.getMessage()",
+                "ForbiddenLogFixture.java: LOG call carries 'reference' — "
+                    + "\"step done); carrying %s\", e.reference")
+            .forEach(offence -> softly.assertThat(findings.offenders())
+                .as("RED STATE, observed: a log call with a semicolon inside its literal "
+                    + "must be read to its end and reported: %s", offence)
+                .contains(offence)));
+    }
+
+    /**
+     * The red state for variables declared with the types {@code Exception}
+     * and {@code Error} themselves, beside the forms the type check has always
+     * read.
+     */
+    @Test
+    void the_guard_knows_a_variable_declared_with_an_exception_type() throws IOException {
+        Findings findings = scan(forbiddenFixtureRoot());
+
+        assertSoftly(softly -> List.of("problem", "fault", "lastProblem", "trouble", "breach",
+                "pending")
+            .forEach(variable -> softly.assertThat(findings.offenders())
+                .as("RED STATE, observed: '%s' is declared with an exception type and "
+                    + "handed to a log call, and it must be reported", variable)
+                .anySatisfy(offence -> assertThat(offence)
+                    .startsWith("DeclaredLogFixture.java: LOG call hands over an exception '"
+                        + variable + "'"))));
+    }
+
+    /**
+     * The red state for the variable of a catch clause, in each way the
+     * clause is written. The fixture's exception types have names that end
+     * in neither {@code Exception} nor {@code Error}, so these are reported by
+     * the reading of the catch clause and by nothing else.
+     */
+    @Test
+    void the_guard_knows_the_variable_of_every_catch_clause() throws IOException {
+        Findings findings = scan(forbiddenFixtureRoot());
+
+        assertSoftly(softly -> List.of("slip", "stumble", "tumble", "lapse", "glitch",
+                "hiccup", "snag")
+            .forEach(variable -> softly.assertThat(findings.offenders())
+                .as("RED STATE, observed: '%s' is the variable of a catch clause and is "
+                    + "handed to a log call, and it must be reported", variable)
+                .anySatisfy(offence -> assertThat(offence)
+                    .startsWith("CaughtLogFixture.java: LOG call hands over an exception '"
+                        + variable + "'"))));
+    }
+
+    /**
+     * No main source writes to the console.
+     *
+     * <p>Read as text, without taking any call apart: the names alone are
+     * enough to refuse, and a check that has to understand a call is a check
+     * that can misread one.
+     */
+    @Test
+    void no_main_source_writes_to_the_console() throws IOException {
+        Console console = consoleIn(sourceRoot("main"));
+
+        assertThat(console.files())
+            .as("the main sources must have been read. A walk over a directory without "
+                + "sources passes for every reason including the wrong ones")
+            .isGreaterThanOrEqualTo(MINIMUM_SOURCE_FILES);
+        assertThat(console.offenders())
+            .as("nothing in the service writes to the console. A printed stack trace "
+                + "carries the exception's message and its causes' messages, and standard "
+                + "output and standard error leave the container by the same road as the log")
+            .isEmpty();
+    }
+
+    /** The red state for the console, one way of writing to it at a time. */
+    @Test
+    void the_guard_catches_every_way_of_writing_to_the_console() throws IOException {
+        Console console = consoleIn(forbiddenFixtureRoot());
+
+        assertSoftly(softly -> List.of("printStackTrace", "System.err", "System.out")
+            .forEach(written -> softly.assertThat(console.offenders())
+                .as("RED STATE, observed: the fixture names %s, and it must be reported", written)
+                .anySatisfy(offence -> {
+                    assertThat(offence).startsWith("ConsoleFixture.java:");
+                    assertThat(offence).endsWith(": " + written);
+                })));
+    }
+
     private static Findings scan(Path root) throws IOException {
         List<String> offenders = new ArrayList<>();
-        int total = 0;
+        List<String> read = new ArrayList<>();
+        List<String> unclosed = new ArrayList<>();
+        int started = 0;
 
         try (Stream<Path> files = Files.walk(root)) {
             for (Path file : (Iterable<Path>) files
                     .filter(f -> f.toString().endsWith(".java"))::iterator) {
                 String source = Files.readString(file);
                 Set<String> throwables = throwablesDeclaredIn(source);
-                Matcher m = LOG_CALL.matcher(source);
+                Matcher m = LOG_CALL_START.matcher(source);
                 while (m.find()) {
-                    total++;
-                    String call = m.group(2);
+                    started++;
+                    int open = m.end() - 1;
+                    int close = closeOf(source, open);
+                    if (close < 0) {
+                        unclosed.add(file.getFileName() + ":" + lineOf(source, m.start()));
+                        continue;
+                    }
+                    String call = source.substring(open + 1, close);
+                    read.add(call.strip());
                     String handedOver = exceptionIn(call, throwables);
                     if (handedOver != null) {
                         offenders.add(file.getFileName() + ": LOG call hands over an exception '"
@@ -457,7 +688,75 @@ class LogContentGuardTest {
                 }
             }
         }
-        return new Findings(total, offenders);
+        return new Findings(started, read, unclosed, offenders);
+    }
+
+    /**
+     * Where the call whose parenthesis opens at {@code open} closes, or -1.
+     *
+     * <p>Quoted text is skipped with its escapes, and every kind of bracket
+     * counts towards the depth. The call ends at the parenthesis that brings
+     * the depth back to zero. Another kind of bracket in that place, or the
+     * end of the source, means the call cannot be read to its end — and that
+     * is reported, never passed over.
+     */
+    private static int closeOf(String source, int open) {
+        int depth = 0;
+        for (int i = open; i < source.length(); i++) {
+            char c = source.charAt(i);
+            if (c == '"' || c == '\'') {
+                i = endOfLiteral(source, i);
+                if (i < 0) {
+                    return -1;
+                }
+            } else if (c == '(' || c == '[' || c == '{') {
+                depth++;
+            } else if (c == ')' || c == ']' || c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return c == ')' ? i : -1;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /** Where the literal whose quote stands at {@code start} closes, or -1. */
+    private static int endOfLiteral(String text, int start) {
+        char quote = text.charAt(start);
+        for (int i = start + 1; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\\') {
+                i++;
+            } else if (c == quote) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** The line, counted from one, that a position in a source falls on. */
+    private static int lineOf(String source, int position) {
+        return (int) source.substring(0, position).chars().filter(c -> c == '\n').count() + 1;
+    }
+
+    /** Every place under a root that names a way of writing to the console. */
+    private static Console consoleIn(Path root) throws IOException {
+        List<String> offenders = new ArrayList<>();
+        int files = 0;
+        try (Stream<Path> walked = Files.walk(root)) {
+            for (Path file : (Iterable<Path>) walked
+                    .filter(f -> f.toString().endsWith(".java"))::iterator) {
+                files++;
+                String source = Files.readString(file);
+                Matcher m = CONSOLE.matcher(source);
+                while (m.find()) {
+                    offenders.add(file.getFileName() + ":" + lineOf(source, m.start()) + ": "
+                        + m.group());
+                }
+            }
+        }
+        return new Console(files, offenders);
     }
 
     /**
@@ -588,17 +887,14 @@ class LogContentGuardTest {
         List<String> arguments = new ArrayList<>();
         int depth = 0;
         int start = 0;
-        Character quote = null;
         for (int i = 0; i < call.length(); i++) {
             char c = call.charAt(i);
-            if (quote != null) {
-                if (c == '\\') {
-                    i++;
-                } else if (c == quote) {
-                    quote = null;
+            if (c == '"' || c == '\'') {
+                int end = endOfLiteral(call, i);
+                if (end < 0) {
+                    break;
                 }
-            } else if (c == '"' || c == '\'') {
-                quote = c;
+                i = end;
             } else if (c == '(' || c == '[' || c == '{') {
                 depth++;
             } else if (c == ')' || c == ']' || c == '}') {
@@ -726,7 +1022,19 @@ class LogContentGuardTest {
         return root;
     }
 
-    private record Findings(int total, List<String> offenders) {
+    /**
+     * What a scan saw: how many places a log call begins, the calls read to
+     * their end, the places that could not be, and the offences.
+     */
+    private record Findings(int started, List<String> read, List<String> unclosed,
+            List<String> offenders) {
+
+        int total() {
+            return read.size();
+        }
+    }
+
+    private record Console(int files, List<String> offenders) {
     }
 
     private record Compiled(int classes, int loggingReferences, List<String> offenders) {

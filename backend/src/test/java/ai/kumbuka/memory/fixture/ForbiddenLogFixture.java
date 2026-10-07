@@ -89,6 +89,20 @@ public class ForbiddenLogFixture {
         LOG.infof("changed by %s", e.actor());
     }
 
+    /** The content, after a semicolon inside the format string, which ends nothing. */
+    public void logTheContentPastASemicolon(Entryish e) {
+        LOG.infof("stored; content %s", e.content);
+    }
+
+    /**
+     * The reference, after a closing parenthesis and a semicolon inside the
+     * format string. Read up to the first semicolon, the call would seem to
+     * end inside the literal and to carry nothing.
+     */
+    public void logTheReferencePastAParenthesis(Entryish e) {
+        LOG.debugf("step done); carrying %s", e.reference);
+    }
+
     /** Stands in for the entity, so the fixture needs no domain import. */
     public static class Entryish {
         public String content = "an entry's content";
