@@ -62,12 +62,18 @@ import java.util.Optional;
  * identity derived from it by the same {@link CallerActor}. No argument of any
  * tool names an author, so none can forge one.
  *
- * <h2>Every path answers in the envelope</h2>
+ * <h2>A refused call answers in the envelope, a request that is no call as the protocol</h2>
  *
- * A refusal is a tool result marked as an error, carrying
- * {@code { reason, message, data }}. A failure nobody foresaw is
- * {@code UNEXPECTED_FAILURE} with a report reference that stands in the log
- * beside it — never a sentence of its own and never a bare 500.
+ * The refusal of a tool call is a tool result marked as an error, carrying
+ * {@code { reason, message, data }}. A failure nobody foresaw on a tool call
+ * is {@code UNEXPECTED_FAILURE} with a report reference that stands in the
+ * log beside it — never a sentence of its own and never a bare 500.
+ *
+ * <p>A request that is not a call of a tool is not refused in the envelope
+ * but answered as an error of the protocol: a body that is not JSON, a
+ * request that is not JSON-RPC 2.0, a method or a tool this server does not
+ * have, and {@code params} or {@code arguments} that are present and are not
+ * an object. There is no call yet whose refusal the envelope could describe.
  */
 @Path("/mcp")
 @Authenticated
@@ -129,7 +135,7 @@ public class McpAdapter {
             case "initialize" -> result(id, initialize());
             case "ping" -> result(id, Map.of());
             case "tools/list" -> result(id, Map.of("tools", tools()));
-            case "tools/call" -> call(id, objectOf(request.get("params")));
+            case "tools/call" -> call(id, request);
             default -> error(id, METHOD_NOT_FOUND, method + " is not a method of this server. "
                 + "It speaks initialize, ping, tools/list and tools/call.");
         };
@@ -162,7 +168,12 @@ public class McpAdapter {
             .toList();
     }
 
-    private Response call(Object id, Map<String, Object> params) {
+    private Response call(Object id, Map<String, Object> request) {
+        Map<String, Object> params = presentObject(request, "params");
+        if (params == null) {
+            return error(id, INVALID_PARAMS, "The params of tools/call are an object naming the "
+                + "tool and its arguments.");
+        }
         String tool = String.valueOf(params.get("name"));
         Optional<AssistantVerb> verb = AssistantVerb.byCall(tool);
         if (verb.isEmpty()) {
@@ -174,7 +185,14 @@ public class McpAdapter {
                     Arrays.stream(AssistantVerb.values()).map(AssistantVerb::call).toList())
                 + ".");
         }
-        return result(id, toolResult(verb.get(), objectOf(params.get("arguments"))));
+        Map<String, Object> args = presentObject(params, "arguments");
+        if (args == null) {
+            // Present and not an object: there are no named arguments to
+            // refuse one of, so this is no call yet.
+            return error(id, INVALID_PARAMS, "The arguments of " + tool + " are an object of "
+                + "named arguments.");
+        }
+        return result(id, toolResult(verb.get(), args));
     }
 
     // ======================================================================
@@ -198,9 +216,7 @@ public class McpAdapter {
             LOG.debugf("assistant refusal: %s", e.reason());
             return refused(Refusals.of(verb, e, seen(verb, args, null)));
         } catch (MemoryException e) {
-            ReasonCatalogue.Reason reason =
-                ReasonCatalogue.of(ReasonCatalogue.wireCode(e.reason().name()));
-            if (reason.reach() != ReasonCatalogue.Reach.BOTH) {
+            if (!foreseen(e)) {
                 // A reason of the generic surface arriving here — a session
                 // the read contract could not be bound for, above all — is a
                 // failure this surface did not foresee, and is answered as one.
@@ -208,8 +224,17 @@ public class McpAdapter {
                     UnexpectedFailures.logged(verb.call(), e)));
             }
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(Refusals.of(verb, e, reason, args, seen(verb, args, e)));
+            return refused(Refusals.of(verb, e, reasonOf(e), args, seen(verb, args, e)));
         }
+    }
+
+    /** Whether a refusal of the domain is one this surface answers as a refusal. */
+    private static boolean foreseen(MemoryException e) {
+        return reasonOf(e).reach() == ReasonCatalogue.Reach.BOTH;
+    }
+
+    private static ReasonCatalogue.Reason reasonOf(MemoryException e) {
+        return ReasonCatalogue.of(ReasonCatalogue.wireCode(e.reason().name()));
     }
 
     private Object invoke(AssistantVerb verb, CallArguments in) {
@@ -283,7 +308,18 @@ public class McpAdapter {
         try {
             return Optional.of(verbs.read(caller.current(), AddressParser.complete(complete))
                 .entry());
-        } catch (RuntimeException notVisible) {
+        } catch (MemoryException refused) {
+            if (!foreseen(refused)) {
+                UnexpectedFailures.logged(verb.call(), refused);
+            }
+            // Otherwise the read's own refusal: the caller may not see the
+            // entry, or there is none.
+            return Optional.empty();
+        } catch (RuntimeException failure) {
+            // Not an answer about visibility but a failure nobody foresaw. It
+            // is logged as one; the caller still gets the refusal of the call,
+            // without the state of an entry nobody could read.
+            UnexpectedFailures.logged(verb.call(), failure);
             return Optional.empty();
         }
     }
@@ -330,9 +366,18 @@ public class McpAdapter {
         return Response.ok(envelope).build();
     }
 
+    /**
+     * A member of a JSON object that is itself an object: absent is the empty
+     * object, and present but not an object is null.
+     */
+    private static Map<String, Object> presentObject(Map<String, Object> in, String name) {
+        return in.containsKey(name) ? objectOf(in.get(name)) : Map.of();
+    }
+
+    /** The value as an object, or null when it is not one. */
     @SuppressWarnings("unchecked")
     private static Map<String, Object> objectOf(Object value) {
-        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
     }
 
     private static void putIfPresent(Map<String, String> into, String name, String value) {

@@ -175,6 +175,23 @@ public final class Contract {
     }
 
     // ======================================================================
+    // Section 4.3 — the not-found refusal
+    // ======================================================================
+
+    /** The fixed message of {@code NOT_FOUND}: the fenced block of section 4.3. */
+    public static String notFoundMessage() {
+        String section = between(text(), "### 4.3", "### 4.4");
+        String fence = "```";
+        int open = section.indexOf(fence);
+        int close = open < 0 ? -1 : section.indexOf(fence, open + fence.length());
+        if (close < 0) {
+            throw new IllegalStateException("section 4.3 of the contract carries no fenced "
+                + "message");
+        }
+        return section.substring(open + fence.length(), close).strip();
+    }
+
+    // ======================================================================
     // Section 4.4 — the refusals
     // ======================================================================
 
@@ -368,12 +385,6 @@ public final class Contract {
         return nextTable().stream()
             .filter(r -> r.about().contains(released ? "released" : "kept"))
             .findFirst().orElseThrow().calls();
-    }
-
-    /** The one fixed sentence section 4.3 refers to, which lives in the generic surface. */
-    public static boolean notFoundIsTheGenericSurfacesMessage() {
-        return flat().contains("the one fixed message the service already answers on its "
-            + "generic surface");
     }
 
     private static void requireFound(int count, String what) {

@@ -18,9 +18,9 @@ The memory service is the one service of the platform that had no assistant surf
 An installation without the router reaches a service only through that service's own adapter, so
 without one the memory of a community installation cannot be used by an assistant at all.
 
-The generic surface (REST) keeps its verbs, its answers and its refusals exactly as they are. Where
-it departs from the rules this contract follows, the departure is recorded in section 8 and is not
-changed by this contract.
+The generic surface (REST) keeps its verbs, its answers and its refusals exactly as they are, and
+so does everything behind it. Where the generic surface departs from the rules this contract
+follows, the departure is recorded in section 8 and is not changed by this contract.
 
 ## 1. What the service holds
 
@@ -131,9 +131,15 @@ carries the entry as this caller's own read would answer it (DEC-0041).
 ### 4.3 The one deliberately indistinguishable refusal
 
 An entry that does not exist, an entry this caller may not see and a scope that cannot be resolved
-are answered alike: reason `NOT_FOUND`, the one fixed message the service already answers on its
-generic surface, and `data` carrying `attempted` and nothing else. Reason, message, data and the
-way the refusal is transported are identical whichever of the three is the cause (DEC-0042).
+are answered alike: reason `NOT_FOUND`, the fixed message
+
+```
+nothing is addressed here. Check the address, and that you are a member of the scope it names.
+```
+
+which is the one the service answers on its generic surface, and `data` carrying `attempted` and
+nothing else. Reason, message, data and the way the refusal is transported are identical whichever
+of the three is the cause (DEC-0042).
 
 ### 4.4 Refusals of this surface
 
@@ -144,12 +150,12 @@ way the refusal is transported are identical whichever of the three is the cause
 | `SCOPE_READ_ONLY` | `<call> is not possible in scope <scope>: you may read this scope but not write to it.` | `<read>`, `<query>`, `<digest>` |
 | `ADDRESS_MALFORMED` | `<value> is not an address this service carries. An entry stands at memory://<scope>/<selector>/<id>.` | correct the address |
 | `KEY_MALFORMED` | `<key> is not a key this service stores. A key is <selector>.<id> in lowercase letters, digits, dots and hyphens.` | correct the key |
+| `SELECTOR_ABSENT` | `<call> names no selector for <key>. A key is <selector>.<id>, and the part before its first dot is the selector the entry stands under.` | write the key as <selector>.<id> |
 | `SELECTOR_RESERVED` | `The selector <selector> is reserved for entries the service lays down itself.` | use another selector |
 | `SELECTOR_MISMATCHED` | `The key <key> begins with the selector <key selector>, but <call> names the selector <selector>.` | make the two agree |
 | `ALREADY_EXISTS` | `<call> is not possible: an entry already stands at <address>. Change it with <update>.` | `<read>`, then `<update>` |
 | `CONFLICT_TOKEN_STALE` | `<call> is not possible on <address>: the entry was changed since you read it. Read it again with <read> and repeat the call with the new conflict token.` | `<read>`, then repeat |
 | `UPDATE_EMPTY` | `<call> on <address> names nothing to change. It can change content, type and reference.` | supply one of the three |
-| `FIELD_IMMUTABLE` | `<field> of <address> is fixed for the life of the entry and cannot be changed by <call>.` | leave the field out |
 | `TYPE_UNKNOWN` | `<value> is not a type of entry. The types are: <list>.` | use one of the list |
 | `CONTENT_ABSENT` | `<call> needs content: an entry without content is not stored.` | supply content |
 | `CONTENT_OVERSIZE` | `The content is <n> characters long. An entry holds at most <limit>.` | shorten it, or split it into several entries |
@@ -164,11 +170,13 @@ way the refusal is transported are identical whichever of the three is the cause
 
 On this surface the conflict token is a required argument wherever a call takes one, so its absence
 is answered as `ARGUMENT_MISSING`; an argument that narrows a query and is not declared is answered
-as `ARGUMENT_UNKNOWN`. A failure the service did not foresee, including a session the read contract
-could not be bound for, is answered as `UNEXPECTED_FAILURE` and never as a sentence of its own.
+as `ARGUMENT_UNKNOWN`; and a field that is fixed for the life of an entry is not an argument of any
+call here, so naming one is answered as `ARGUMENT_UNKNOWN` as well. A failure the service did not
+foresee, including a session the read contract could not be bound for, is answered as
+`UNEXPECTED_FAILURE` and never as a sentence of its own.
 
 Raised on the generic surface only, and declared in the catalogue all the same:
-`CONFLICT_TOKEN_MISSING`, `PREDICATE_UNKNOWN`, `SELECTOR_ABSENT`, `PAYLOAD_MALFORMED`,
+`CONFLICT_TOKEN_MISSING`, `PREDICATE_UNKNOWN`, `FIELD_IMMUTABLE`, `PAYLOAD_MALFORMED`,
 `VERB_NOT_CARRIED`, `ADDRESS_TRUNCATED`, `SESSION_NOT_BOUND`.
 
 A reason that is in neither list cannot be returned: the service refuses to start with an undeclared
@@ -245,14 +253,20 @@ that answer would drift from it, and a listed call that is then refused is what 
 - One declaration from which the tool list, the input schemas, the descriptions, the names in
   `next` and the reason catalogue are derived, served at `/mcp/declaration`.
 - An adapter at `/mcp` that speaks `initialize`, `tools/list` and `tools/call`, authenticated the
-  way the generic surface is, and that answers a refusal as a tool result marked as an error,
-  carrying the envelope of section 4.1.
+  way the generic surface is on every route it has, and that answers a refusal of a tool call as a
+  tool result marked as an error, carrying the envelope of section 4.1.
+- A request that is not a call of a tool -- a body that is not JSON, a method or a tool the adapter
+  does not have, `arguments` that are present and are not an object -- is answered as an error of
+  the protocol, and not in the envelope of section 4.1.
 - Input schemas closed at every level.
 - A reason catalogue covering every reason the service can raise on either surface, with the
   check at start that section 4.4 states.
 - `UNEXPECTED_FAILURE` on every path of this surface that can fail unforeseen, with the report
-  reference written to the log beside the failure.
-- No change to the generic surface.
+  reference written to the log beside the failure. The log receives the reference, the call, and
+  the types and stack frames of the failure and of its causes. It never receives a message of the
+  failure or of any cause: a database names the row it rejected, and that row holds the content.
+- No change to the generic surface, and none to what lies behind it: the domain, the repository,
+  the tenancy layer, the configuration and the schema answer as they did.
 
 ## 8. Open points and recorded departures
 
@@ -263,6 +277,13 @@ that answer would drift from it, and a listed call that is then refused is what 
 - **The code for a write to an occupied address is not decided platform-wide** (DEC-0042, "What
   this does not settle"). This contract declares the code the service answers today,
   `ALREADY_EXISTS`.
+- **A reference can be changed and cannot be removed.** The service has no way to express the
+  removal. On this surface an empty `reference` on `memory_update` is refused as
+  `ARGUMENT_INVALID` rather than accepted without effect.
+- **The selector may carry an underscore and the key may not**, so a selector with an underscore
+  never yields a key the service stores.
+- **No edition of the open core keeps the address on withdrawal.** The last row of the table in
+  section 6 is declared and cannot be observed there.
 - **The router's catalogue is not yet taken from this declaration.** Until it is, the descriptions
   on the two paths differ, and the router's `memory_query` does not carry the four narrowing
   arguments.

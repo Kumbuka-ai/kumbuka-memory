@@ -67,13 +67,12 @@ public final class ReasonCatalogue {
     /**
      * The one message the not-found class carries.
      *
-     * <p>The generic surface's text, character for character, because the
-     * contract fixes it as "the one fixed message the service already answers
-     * on its generic surface": a second wording would tell a caller which
+     * <p>The contract fixes the wording in section 4.3, and the generic
+     * surface answers the same text: a second wording would tell a caller which
      * surface answered, and through that which hop it reached. It is held here
      * as well as there because this package may not reach into an adapter; a
-     * probe asserts the two are the same text, and another that both surfaces
-     * answer it.
+     * probe holds both against the contract's text, and another asserts that
+     * both surfaces answer it.
      */
     public static final String NOT_FOUND_MESSAGE =
         "nothing is addressed here. Check the address, and that you are a member of "
@@ -145,6 +144,10 @@ public final class ReasonCatalogue {
             "{key} is not a key this service stores. A key is <selector>.<id> in lowercase "
                 + "letters, digits, dots and hyphens.",
             "correct the key");
+        repeat(declared, "SELECTOR_ABSENT",
+            "{call} names no selector for {key}. A key is <selector>.<id>, and the part "
+                + "before its first dot is the selector the entry stands under.",
+            "write the key as <selector>.<id>");
         repeat(declared, "SELECTOR_RESERVED",
             "The selector {selector} is reserved for entries the service lays down itself.",
             "use another selector");
@@ -166,10 +169,6 @@ public final class ReasonCatalogue {
             "{call} on {address} names nothing to change. It can change content, type and "
                 + "reference.",
             "supply one of the three");
-        repeat(declared, "FIELD_IMMUTABLE",
-            "{field} of {address} is fixed for the life of the entry and cannot be changed by "
-                + "{call}.",
-            "leave the field out");
         repeat(declared, "TYPE_UNKNOWN",
             "{value} is not a type of entry. The types are: {types}.",
             "use one of the list");
@@ -210,15 +209,6 @@ public final class ReasonCatalogue {
                 + "Nothing was changed. Report reference {report}.",
             "report the reference", List.of(), false, Reach.BOTH));
 
-        // Raised by the domain whatever the surface: a key without a dot has
-        // no selector. The contract lists this reason as the generic
-        // surface's only; the service raises it on both, and this surface
-        // answers what the service does rather than renaming it.
-        repeat(declared, "SELECTOR_ABSENT",
-            "{call} names no selector for {key}. A key is <selector>.<id>, and the part "
-                + "before its first dot is the selector the entry stands under.",
-            "write the key as <selector>.<id>");
-
         // --- the generic surface's own -------------------------------------
         generic(declared, "CONFLICT_TOKEN_MISSING",
             "{call} on {address} needs the conflict token of the latest read, and none "
@@ -227,6 +217,12 @@ public final class ReasonCatalogue {
         generic(declared, "PREDICATE_UNKNOWN",
             "{call} carries no predicate named {name}.",
             "correct the name");
+        // A field fixed for the life of an entry is no argument of any call on
+        // the assistant surface, so naming one there is ARGUMENT_UNKNOWN.
+        generic(declared, "FIELD_IMMUTABLE",
+            "{field} of {address} is fixed for the life of the entry and cannot be changed by "
+                + "{call}.",
+            "leave the field out");
         generic(declared, "PAYLOAD_MALFORMED",
             "The body of {call} is not the JSON it takes.",
             "correct the body");

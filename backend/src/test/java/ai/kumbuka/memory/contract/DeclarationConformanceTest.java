@@ -129,11 +129,6 @@ class DeclarationConformanceTest {
     @Test
     void the_generic_surface_s_reasons_are_marked_as_its_own() {
         for (String code : Contract.genericOnlyReasons()) {
-            if ("SELECTOR_ABSENT".equals(code)) {
-                // The service raises it on both surfaces; the departure is
-                // recorded in the refusal probes, which skip their clause.
-                continue;
-            }
             assertThat(ReasonCatalogue.byCode().get(code).reach())
                 .as("%s is raised on the generic surface only", code)
                 .isEqualTo(ReasonCatalogue.Reach.GENERIC);

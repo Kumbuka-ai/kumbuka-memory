@@ -34,12 +34,17 @@ On the assistant surface the tool list, the input schemas, the descriptions,
 the names offered as next steps and the catalogue of refusal reasons all come
 from **one declaration**, served at `GET /mcp/declaration`. Every input schema
 is closed at every level, so an argument the call does not declare is refused
-by name rather than dropped. Every refusal is `{ reason, message, data }`, and
-its message is built from the reason's declared pattern alone: no sentence from
-inside the service, no content of an entry and no value of a reference reaches
-the caller through it. A failure nobody foresaw answers `UNEXPECTED_FAILURE`
-with a report reference that stands in the log beside the failure. **The service
-does not start** when it can raise a reason the catalogue does not declare.
+by name rather than dropped. Every refusal of a tool call is
+`{ reason, message, data }`, and its message is built from the reason's declared
+pattern alone: no sentence from inside the service, no content of an entry and
+no value of a reference reaches the caller through it. A request that is not a
+call of a tool — a body that is not JSON, an unknown method or tool, `arguments`
+that are not an object — is answered as a JSON-RPC protocol error instead. A
+failure nobody foresaw answers `UNEXPECTED_FAILURE` with a report reference that
+stands in the log beside the failure; the log line carries the types and stack
+frames of the failure and its causes and never their messages, because a
+database's message can quote the row it rejected. **The service does not start**
+when it can raise a reason the catalogue does not declare.
 
 Both surfaces are authenticated the same way: a bearer token validated by this
 service, the acting identity derived from its `sub` claim and never from an

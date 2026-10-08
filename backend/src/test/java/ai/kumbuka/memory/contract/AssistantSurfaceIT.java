@@ -110,6 +110,37 @@ class AssistantSurfaceIT {
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void arguments_that_are_present_and_not_an_object_are_a_protocol_error() {
+        String read = Contract.toolFor("read");
+        for (Object notAnObject : List.of("memory://" + SCOPE + "/convention/x", List.of(1),
+                42)) {
+            JsonPath answer = Mcp.rpc("tools/call", Map.of("name", read,
+                "arguments", notAnObject)).jsonPath();
+            assertThat(answer.<Object>get("error.code"))
+                .as("arguments = %s: no call yet, so an error of the protocol", notAnObject)
+                .isEqualTo(-32602);
+            assertThat(answer.getMap("result"))
+                .as("and not a refusal in the envelope")
+                .isNull();
+        }
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void missing_arguments_are_the_empty_object() {
+        String digest = Contract.toolFor("digest");
+        JsonPath answer = Mcp.rpc("tools/call", Map.of("name", digest)).jsonPath();
+        assertThat(answer.getMap("error"))
+            .as("no arguments at all is a call with none")
+            .isNull();
+        assertThat(answer.getBoolean("result.isError")).isTrue();
+        assertThat(answer.getString("result.structuredContent.reason"))
+            .as("refused for the argument it lacks, in the envelope")
+            .isEqualTo("ARGUMENT_MISSING");
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void a_notification_is_accepted_without_an_answer() {
         Response answer = Mcp.post(Map.of("jsonrpc", "2.0",
             "method", "notifications/initialized"));
@@ -122,6 +153,13 @@ class AssistantSurfaceIT {
         assertThat(Mcp.rpc("tools/list", Map.of()).statusCode())
             .as("no token, no answer — on both surfaces alike")
             .isEqualTo(given().get("/api/" + SCOPE).statusCode())
+            .isEqualTo(401);
+    }
+
+    @Test
+    void the_declaration_is_authenticated_as_the_rest_of_the_surface_is() {
+        assertThat(given().get(Mcp.PATH + "/declaration").statusCode())
+            .as("no token, no declaration: the surface is authenticated on every route")
             .isEqualTo(401);
     }
 

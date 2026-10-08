@@ -17,10 +17,12 @@ public class FailingCallerActor extends CallerActor {
 
     public static final String FAILING_SUBJECT = "failing-subject";
 
+    public static final String DEFECT = "the identity derivation broke";
+
     @Override
     public Actor current() {
         if (identity != null && FAILING_SUBJECT.equals(identity.getPrincipal().getName())) {
-            throw new IllegalStateException("the identity derivation broke");
+            throw new IllegalStateException(DEFECT);
         }
         return super.current();
     }

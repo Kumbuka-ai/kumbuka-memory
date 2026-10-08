@@ -45,6 +45,15 @@ public class AllowedLogFixture {
         LOG.debugf("checking selector '%s'", selector);
     }
 
+    /**
+     * A selector again, after a semicolon inside the format string. The
+     * semicolon ends nothing, so the call is read to its end and still
+     * carries nothing but the selector.
+     */
+    public void logASelectorPastASemicolon(String selector) {
+        LOG.debugf("checked; selector '%s'", selector);
+    }
+
     /** A number. A count of things, carrying nothing about any of them. */
     public void logANumber(int number) {
         LOG.debugf("page of %d", number);
