@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -196,8 +203,10 @@ class AssistantSurfaceIT {
 
         Mcp.Result listing = Mcp.call(Contract.toolFor("query"), args("scope", SCOPE));
         assertThat(listing.isError()).isFalse();
-        assertThat(listing.structured()).containsOnlyKeys("entries", "truncated", "total",
-            "page_size", "cursor", "order", "unaddressable");
+        assertThat(listing.structured())
+            .as("section 3: next_cursor is the one continuation, and on the last page it is "
+                + "absent rather than null")
+            .containsOnlyKeys("entries", "page_size", "unaddressable");
         List<Map<String, Object>> entries = listing.json()
             .getList("result.structuredContent.entries");
         assertThat(entries).hasSize(2);
@@ -210,6 +219,35 @@ class AssistantSurfaceIT {
         assertThat(narrowed.strings("entries.address"))
             .as("each declared narrowing argument has the effect its declaration states")
             .containsExactly("memory://" + SCOPE + "/decision/storage-engine");
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void query_pages_with_next_cursor_in_the_order_and_direction_asked() {
+        create("decision.alpha", "decision", "first");
+        create("decision.beta", "decision", "second");
+        create("decision.gamma", "decision", "third");
+
+        List<String> seen = new java.util.ArrayList<>();
+        String cursor = null;
+        int pages = 0;
+        do {
+            Map<String, Object> asked = new java.util.LinkedHashMap<>(args("scope", SCOPE,
+                "selector", "decision", "sort", "id", "direction", "desc", "page_size", 2));
+            if (cursor != null) {
+                asked.put("after", cursor);
+            }
+            Mcp.Result page = Mcp.call(Contract.toolFor("query"), asked);
+            assertThat(page.isError()).as("%s", page).isFalse();
+            seen.addAll(page.strings("entries.fields.key"));
+            cursor = page.string("next_cursor");
+            pages++;
+        } while (cursor != null && pages < 5);
+
+        assertThat(pages).as("three entries in pages of two").isEqualTo(2);
+        assertThat(seen)
+            .as("section 5: sort and direction have the effect their declaration states")
+            .containsExactly("decision.gamma", "decision.beta", "decision.alpha");
     }
 
     @Test

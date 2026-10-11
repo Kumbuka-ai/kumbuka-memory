@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -308,6 +315,29 @@ class AssistantRefusalIT {
     void a_cursor_not_handed_out_is_cursor_malformed() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "after", "!!not-a-cursor")),
             "CURSOR_MALFORMED", QUERY, Map.of("value", "!!not-a-cursor"));
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_cursor_handed_out_for_another_selector_is_cursor_foreign() {
+        create("decision", "decision.one", "decision", "first");
+        create("decision", "decision.two", "decision", "second");
+        String cursor = Mcp.call(QUERY, args("scope", SCOPE, "selector", "decision",
+            "page_size", 1)).string("next_cursor");
+        assertThat(cursor).as("a first page of one out of two hands out a cursor").isNotNull();
+
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "selector", "convention",
+                "after", cursor)),
+            "CURSOR_FOREIGN", QUERY, Map.of("value", cursor));
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void an_order_this_verb_does_not_declare_is_sort_undeclared() {
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "sort", "content")),
+            "SORT_UNDECLARED", QUERY, Map.of("value", "content", "call", QUERY));
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "direction", "sideways")),
+            "SORT_UNDECLARED", QUERY, Map.of("value", "sideways", "call", QUERY));
     }
 
     // ======================================================================

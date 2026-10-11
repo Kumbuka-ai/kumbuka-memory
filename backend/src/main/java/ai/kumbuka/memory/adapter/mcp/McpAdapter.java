@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.mcp;
 
 import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
@@ -272,6 +279,8 @@ public class McpAdapter {
         putIfPresent(asked, Names.TYPE, in.top(Names.TYPE));
         putIfPresent(asked, Names.TEXT, in.top(Names.TEXT));
         putIfPresent(asked, Names.AFTER, in.top(Names.AFTER));
+        putIfPresent(asked, Names.SORT, in.top(Names.SORT));
+        putIfPresent(asked, Names.DIRECTION, in.top(Names.DIRECTION));
         putIfPresent(asked, Names.PAGE_SIZE, in.number(Names.PAGE_SIZE));
         return asked;
     }

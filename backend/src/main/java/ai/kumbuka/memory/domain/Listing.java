@@ -1,37 +1,29 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 import java.util.List;
 
 /**
- * One page of a query, and everything needed to know it is not the whole set.
+ * One page of a query, and the one member that says whether more follows.
  *
- * <p>Nothing here is silently applied. The page size that was actually served,
- * the total the predicate matches, whether there is more, the cursor that
- * fetches it, and the order the entries are in all travel with the entries —
- * because a listing that carried only the entries would be indistinguishable
- * from a complete answer, and a caller cannot ask a question it does not know
- * it has.
+ * <p>{@code nextCursor} is the continuation and the only one. Present, it is
+ * what to pass as {@code after} for the page that follows; absent, this page
+ * is the last. The page used to say the same thing three times — a flag, a
+ * total and a cursor — and a caller reading the flag could disagree with one
+ * reading the cursor the first time the two were computed apart.
  *
- * @param entries      the page, in {@link #order}
- * @param total        how many entries the predicate matches, cursor excluded
- * @param truncated    whether more entries follow this page
- * @param cursor       what to pass as {@code after} for the next page, or null
- * @param pageSize     how many entries this page was allowed to carry
+ * @param entries       the page, in the order the query asked for
+ * @param nextCursor    what to pass as {@code after} for the next page, or
+ *                      null when this page is the last
+ * @param pageSize      how many entries this page was allowed to carry
  * @param unaddressable how many entries of the scope this surface cannot show
  */
-public record Listing(List<EntryView> entries, long total, boolean truncated,
-                      String cursor, int pageSize, long unaddressable) {
-
-    /**
-     * The order, named in the answer.
-     *
-     * <p>Named rather than merely deterministic: a caller paging with a cursor
-     * is relying on an order, and one it has to infer from two pages is one it
-     * will infer wrongly the first time a page is homogeneous.
-     */
-    public static final String KEY_ASCENDING = "key ascending";
-
-    public String order() {
-        return KEY_ASCENDING;
-    }
+public record Listing(List<EntryView> entries, String nextCursor, int pageSize,
+                      long unaddressable) {
 }

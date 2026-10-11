@@ -4,6 +4,13 @@ title: "The memory service's assistant surface: six verbs under the service's ow
 created: 2026-10-06
 domain: memory
 ---
+<!--
+Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+SPDX-License-Identifier: AGPL-3.0-only
+This file is part of Kumbuka and is licensed under the GNU Affero
+General Public License v3.0 only. See the LICENSE file in the
+repository root for the full licence text.
+-->
 
 # The memory service's assistant surface
 
@@ -83,7 +90,10 @@ name, including an argument nested in `fields`; and every argument a call declar
 its declaration states.
 
 A **listing** (`memory_query`) carries `entries`, each in the shape above, and beside them
-`truncated`, `total`, `page_size`, `cursor`, `order` and `unaddressable`.
+`page_size`, `next_cursor` and `unaddressable`. `next_cursor` is the one continuation: present, it
+is what `after` takes for the next page; absent, the page is the last. It is bound to the scope,
+the selector, the type and text, the sort and the direction it was handed out for, and is refused
+for any other.
 
 A **withdrawal** answers with `address`, `outcome` (`destroyed` or `tombstoned`),
 `address_released` and `next`.
@@ -162,6 +172,8 @@ of the three is the cause (DEC-0042).
 | `REFERENCE_CREDENTIAL_BEARING` | `The reference carries a credential and is not stored. Remove the user information and every secret parameter from the URL.` | correct the reference |
 | `PAGE_SIZE_REJECTED` | `page_size = <value> is not valid for <call>: it is a whole number from 1 to <max>.` | correct the value |
 | `CURSOR_MALFORMED` | `after = <value> is not a cursor <query> handed out.` | repeat `<query>` without `after` |
+| `CURSOR_FOREIGN` | `after = <value> was handed out by <query> for another scope, selector, type, text, sort or direction.` | repeat `<query>` without `after` |
+| `SORT_UNDECLARED` | `<value> is not an order <call> declares: sort is id or created_at, direction is asc or desc.` | correct the value |
 | `ACTOR_UNKNOWN` | `The token is valid but names no subject to act as.` | authenticate as a subject |
 | `ARGUMENT_UNKNOWN` | `<call> has no argument named <n>. Its arguments are: <list>.` | correct the name |
 | `ARGUMENT_MISSING` | `<call> needs <n>: <what it is>.` | supply it |
@@ -221,8 +233,10 @@ Top-level: `address`, `conflict_token`. Callable by anyone who may write to the 
 > nothing. Use it to find an address.
 
 Top-level: `scope`, optional `selector`, optional `type`, optional `text` (a text the entry must
-contain), optional `after` (the cursor of the previous page), optional `page_size` (1 to 200,
-default 50). Callable by anyone who may read the scope.
+contain), optional `after` (the next cursor of the previous page), optional `sort` (id or
+created_at, default id; created_at carries the key as second key), optional `direction` (asc or
+desc, default asc), optional `page_size` (1 to 200, default 50). Callable by anyone who may read
+the scope.
 
 **`memory_digest`**
 > Returns everything in force in a scope, whole and grouped by type, with a tally per type. Changes

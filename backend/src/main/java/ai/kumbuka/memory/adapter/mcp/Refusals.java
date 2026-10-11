@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.mcp;
 
 import ai.kumbuka.memory.adapter.payload.Payloads;
@@ -195,7 +202,8 @@ final class Refusals {
         return switch (e.reason()) {
             case TYPE_UNKNOWN -> firstOffender != null ? firstOffender : typeOf(args);
             case PAGE_SIZE_REJECTED -> string(args.get(Names.PAGE_SIZE));
-            case CURSOR_MALFORMED -> string(args.get(Names.AFTER));
+            case CURSOR_MALFORMED, CURSOR_FOREIGN -> string(args.get(Names.AFTER));
+            case SORT_UNDECLARED -> firstOffender;
             case ADDRESS_MALFORMED -> takesAddress(verb)
                 ? string(args.get(Names.ADDRESS))
                 : targetOf(verb, args);

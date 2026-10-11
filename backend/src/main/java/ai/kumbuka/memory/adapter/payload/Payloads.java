@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.payload;
 
 import ai.kumbuka.memory.domain.DigestView;
@@ -173,6 +180,11 @@ public final class Payloads {
     /**
      * A page of entries, with every reason it might not be the whole set.
      *
+     * <p>{@code next_cursor} is the one continuation: present, it is what to
+     * pass as {@code after} for the next page; absent — not null, absent — the
+     * page is the last. Serialised only when there is one, so that "is there
+     * more" has one spelling and not two.
+     *
      * <p>{@code unaddressable} is not padding. An entry whose key carries no
      * selector has no address on this surface, so it cannot be listed — and a
      * listing that dropped it silently would be lying about its own
@@ -181,18 +193,14 @@ public final class Payloads {
      */
     public record ListingResponse(
         @JsonProperty("entries") List<ListedEntry> entries,
-        @JsonProperty("truncated") boolean truncated,
-        @JsonProperty("total") long total,
         @JsonProperty("page_size") int pageSize,
-        @JsonProperty("cursor") String cursor,
-        @JsonProperty("order") String order,
+        @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL) String nextCursor,
         @JsonProperty("unaddressable") long unaddressable) {
 
         public static ListingResponse of(Listing listing) {
             return new ListingResponse(
                 listing.entries().stream().map(ListedEntry::of).toList(),
-                listing.truncated(), listing.total(), listing.pageSize(),
-                listing.cursor(), listing.order(), listing.unaddressable());
+                listing.pageSize(), listing.nextCursor(), listing.unaddressable());
         }
     }
 

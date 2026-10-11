@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.platform.Access;
@@ -10,7 +17,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -246,27 +252,39 @@ public class MemoryService {
      * afterwards: a query without one reads the whole scope, which is what a
      * caller that does not yet know the estate's selectors needs in order to
      * find out what they are.
+     *
+     * <p>A cursor is held against the query it is handed to only after the
+     * scope is resolved. Its form is decidable without a scope, its binding is
+     * not: it names the scope by slug, and a scope this caller may not enter
+     * is the single not-found before anything is said about a cursor.
      */
     @Transactional
     public Listing query(Actor actor, String scopeSlug, String selector, QueryFilter filter) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
 
+        PageCursor.Binding binding = new PageCursor.Binding(scope.slug(), selector,
+            PageCursor.fingerprint(filter.type(), filter.text()), filter.sort(),
+            filter.direction());
+        PageCursor after = filter.after() == null ? null : PageCursor.decode(filter.after());
+        if (after != null && !after.binding().equals(binding)) {
+            throw foreign();
+        }
+
         MemoryRepository.Page page = entries.page(new MemoryRepository.PageRequest(
-            scope.scopeId(), selector, filter.type(), filter.text(),
-            decodeCursor(filter.after()), filter.pageSize(), actor.subject()));
+            scope.scopeId(), selector, actor.subject(), filter, after));
 
         boolean writable = writable(scope);
         List<EntryView> views = page.entries().stream()
             .map(entry -> EntryView.of(entry, scope.slug(), writable))
             .toList();
 
-        String cursor = page.more() && !views.isEmpty()
-            ? encodeCursor(views.get(views.size() - 1).key())
-            : null;
-
-        return new Listing(views, page.total(), page.more(), cursor, filter.pageSize(),
-            page.unaddressable());
+        String next = null;
+        if (page.more() && !page.entries().isEmpty()) {
+            Memory last = page.entries().get(page.entries().size() - 1);
+            next = new PageCursor(binding, last.key, last.createdAt).encode();
+        }
+        return new Listing(views, next, filter.pageSize(), page.unaddressable());
     }
 
     // ======================================================================
@@ -387,38 +405,20 @@ public class MemoryService {
         return !scope.locked() && scope.canWrite();
     }
 
-    // ======================================================================
-    // The cursor
-    // ======================================================================
-
     /**
-     * The cursor is the last key of a page, encoded so it is not mistaken for
-     * a value to construct.
+     * A cursor handed out for another query.
      *
-     * <p>Base64url of the key and nothing more. It is not a secret and is not
-     * treated as one — what the encoding buys is that a caller reads it as an
-     * opaque token handed back, rather than as a field it may compose itself
-     * and then depend on the order of.
+     * <p>Refused rather than applied. Applied, the position of one listing
+     * continues another one: measured on the cursor this replaced, a cursor
+     * from one selector answered zero entries on another and read exactly
+     * like the end of a listing.
      */
-    private static String encodeCursor(String key) {
-        return Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-    }
-
-    private static String decodeCursor(String cursor) {
-        if (cursor == null || cursor.isBlank()) {
-            return null;
-        }
-        try {
-            return new String(Base64.getUrlDecoder().decode(cursor),
-                java.nio.charset.StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException malformed) {
-            throw new MemoryException(MemoryException.Reason.CURSOR_MALFORMED,
-                "this is not a cursor this verb handed out. A cursor is taken from the "
-                    + "'cursor' member of a previous page and passed back unchanged; it "
-                    + "is not composed by the caller. Start again without one to get the "
-                    + "first page.");
-        }
+    private static MemoryException foreign() {
+        return new MemoryException(MemoryException.Reason.CURSOR_FOREIGN,
+            "this cursor was handed out for another query — another scope, selector, "
+                + "type, text, order or direction. A cursor continues the listing it came "
+                + "from and no other. Repeat the query without 'after' to read this one from "
+                + "its first page.");
     }
 
     /**

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.MemoryException;
@@ -190,6 +197,15 @@ public final class ReasonCatalogue {
             "after = {value} is not a cursor {query} handed out.",
             "repeat {query} without after",
             AssistantVerb.QUERY);
+        put(declared, "CURSOR_FOREIGN",
+            "after = {value} was handed out by {query} for another scope, selector, type, "
+                + "text, sort or direction.",
+            "repeat {query} without after",
+            AssistantVerb.QUERY);
+        repeat(declared, "SORT_UNDECLARED",
+            "{value} is not an order {call} declares: sort is id or created_at, direction is "
+                + "asc or desc.",
+            "correct the value");
         put(declared, "ACTOR_UNKNOWN",
             "The token is valid but names no subject to act as.",
             "authenticate as a subject");

@@ -1,7 +1,17 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.repository;
 
 import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.Memory;
+import ai.kumbuka.memory.domain.PageCursor;
+import ai.kumbuka.memory.domain.QueryFilter;
+import ai.kumbuka.memory.domain.SortKey;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -35,7 +45,7 @@ import java.util.UUID;
  * {@code owner_subject} is the author. A private entry is its author's alone.
  * That filter is applied in the statement rather than after it, because a read
  * that fetched and then discarded would answer a page short of what it
- * promised and would report a total that counts rows the caller may not see.
+ * promised.
  *
  * <h2>No Panache, and no native SQL</h2>
  *
@@ -65,6 +75,9 @@ public class MemoryRepository {
 
     /** The rows this edition considers to be in force. */
     private static final String IN_FORCE = "m.isHead = true AND m.isDeleted = false";
+
+    /** The character that makes the next one in a {@code LIKE} pattern stand for itself. */
+    static final char LIKE_ESCAPE = '!';
 
     /** A private row is its author's alone; a shared row is everyone's in the scope. */
     private static final String VISIBLE =
@@ -178,19 +191,30 @@ public class MemoryRepository {
 
     /**
      * One page of a scope, optionally narrowed to a selector, a type and a
-     * substring of the content.
+     * substring of the content, in the order the request names.
      *
-     * <p>The selector is matched as a key prefix — {@code selector.} — because
-     * the selector is not stored: it is the part of the key before the first
-     * dot, and a prefix match on the key with the dot included is exactly that
-     * and cannot also match a longer selector beginning with the same letters.
+     * <p>The selector is matched on the generated {@code selector} column (V6),
+     * by equality. It used to be a {@code LIKE} on the key with the selector
+     * as prefix, and a selector may carry {@code _}, which {@code LIKE} reads
+     * as "any one character": selector {@code a_b} listed the entries of
+     * {@code a-b}. An equality has no characters of its own.
      *
-     * <p>One row beyond the page is fetched rather than counted, so that "there
-     * is more" is known without a second statement. The row is dropped before
-     * the page is returned.
+     * <p>The text is still a {@code LIKE}, because a substring is what it
+     * means, and the caller's text is escaped first so that {@code %} and
+     * {@code _} in it stand for themselves.
+     *
+     * <p>Keyset, never offset: the page continues after the cursor's sort
+     * values, so an entry laid down or withdrawn between two pages moves no
+     * other entry from one page to the next. The key is the last sort key in
+     * every order, which makes the order total and the continuation exact.
+     *
+     * <p>One row beyond the page is fetched rather than counted, so that
+     * "there is more" is known without a second statement. The row is dropped
+     * before the page is returned.
      */
     @Transactional
     public Page page(PageRequest request) {
+        QueryFilter filter = request.filter();
         StringBuilder where = new StringBuilder(
             "m.scopeId = :" + SCOPE + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE);
         Map<String, Object> bound = new java.util.LinkedHashMap<>();
@@ -198,51 +222,75 @@ public class MemoryRepository {
         bound.put(CALLER, request.caller());
 
         if (request.selector() != null) {
-            where.append(AND).append("m.key LIKE :prefix");
-            bound.put("prefix", request.selector() + ".%");
+            where.append(AND).append("m.selector = :selector");
+            bound.put("selector", request.selector());
         }
-        if (request.type() != null) {
+        if (filter.type() != null) {
             where.append(AND).append("m.type = :type");
-            bound.put("type", request.type().wire());
+            bound.put("type", filter.type().wire());
         }
-        if (request.text() != null) {
-            where.append(AND).append("LOWER(m.content) LIKE :text");
-            bound.put("text", "%" + request.text().toLowerCase(Locale.ROOT) + "%");
+        if (filter.text() != null) {
+            where.append(AND).append("LOWER(m.content) LIKE :text ESCAPE '")
+                .append(LIKE_ESCAPE).append('\'');
+            bound.put("text", "%" + likeLiteral(filter.text().toLowerCase(Locale.ROOT)) + "%");
         }
         if (request.after() != null) {
-            where.append(AND).append("m.key > :after");
-            bound.put("after", request.after());
+            where.append(AND).append(keysetAfter(filter.sort(), filter.direction()));
+            bound.put("afterKey", request.after().key());
+            if (filter.sort() == SortKey.CREATED_AT) {
+                bound.put("afterAt", request.after().createdAt());
+            }
         }
 
-        var rows = em.createQuery(
-            "SELECT m FROM Memory m WHERE " + where + " ORDER BY m.key ASC", Memory.class);
+        var rows = em.createQuery("SELECT m FROM Memory m WHERE " + where
+            + " ORDER BY " + orderBy(filter.sort(), filter.direction()), Memory.class);
         bound.forEach(rows::setParameter);
         List<Memory> found = new ArrayList<>(
-            rows.setMaxResults(request.pageSize() + 1).getResultList());
+            rows.setMaxResults(filter.pageSize() + 1).getResultList());
 
-        boolean more = found.size() > request.pageSize();
+        boolean more = found.size() > filter.pageSize();
         if (more) {
             found.remove(found.size() - 1);
         }
+        return new Page(found, more, unaddressableIn(request.scopeId(), request.caller()));
+    }
 
-        // The total is the whole matching set, cursor clause excluded: a total
-        // that shrank as the caller paged would be a different number every
-        // page and could not be what "how many are there" means.
-        StringBuilder countWhere = new StringBuilder(where);
-        int cursorClause = countWhere.indexOf(AND + "m.key > :after");
-        if (cursorClause >= 0) {
-            countWhere.delete(cursorClause, countWhere.length());
-        }
-        var counted = em.createQuery(
-            "SELECT COUNT(m) FROM Memory m WHERE " + countWhere, Long.class);
-        bound.forEach((name, value) -> {
-            if (!"after".equals(name)) {
-                counted.setParameter(name, value);
-            }
-        });
+    /** The order of a listing, the key always last so that no two rows tie. */
+    private static String orderBy(SortKey sort, SortKey.Direction direction) {
+        String way = direction == SortKey.Direction.ASC ? " ASC" : " DESC";
+        return switch (sort) {
+            case ID -> "m.key" + way;
+            case CREATED_AT -> "m.createdAt" + way + ", m.key" + way;
+        };
+    }
 
-        return new Page(found, counted.getSingleResult(), more,
-            unaddressableIn(request.scopeId(), request.caller()));
+    /**
+     * The rows strictly after the cursor's position, in the listing's order.
+     *
+     * <p>Spelled out as a disjunction rather than a row comparison: it says
+     * the same thing, and it is what every JPQL engine takes.
+     */
+    private static String keysetAfter(SortKey sort, SortKey.Direction direction) {
+        String beyond = direction == SortKey.Direction.ASC ? " > " : " < ";
+        return switch (sort) {
+            case ID -> "m.key" + beyond + ":afterKey";
+            case CREATED_AT -> "(m.createdAt" + beyond + ":afterAt"
+                + " OR (m.createdAt = :afterAt AND m.key" + beyond + ":afterKey))";
+        };
+    }
+
+    /**
+     * A text made to stand for itself inside a {@code LIKE} pattern.
+     *
+     * <p>The escape character is doubled first, then the two wildcards are
+     * escaped; in the other order the escape added before a wildcard would
+     * itself be doubled.
+     */
+    static String likeLiteral(String text) {
+        String escape = String.valueOf(LIKE_ESCAPE);
+        return text.replace(escape, escape + escape)
+            .replace("%", escape + "%")
+            .replace("_", escape + "_");
     }
 
     /**
@@ -333,16 +381,22 @@ public class MemoryRepository {
     /**
      * What a page was asked for.
      *
-     * <p>A record rather than seven parameters: the rule sheet's parameter
-     * count is four, and a query that grows a predicate should grow a field
-     * here rather than another argument at every call site.
+     * <p>A record rather than a parameter list: the rule sheet's parameter
+     * count is four, and a query that grows a predicate grows a field of the
+     * filter rather than another argument at every call site.
+     *
+     * @param scopeId  the resolved scope
+     * @param selector the selector, or null for the whole scope
+     * @param caller   the subject whose private entries are visible
+     * @param filter   type, text, order, direction and page size
+     * @param after    the position to continue after, or null for the first page
      */
-    public record PageRequest(UUID scopeId, String selector, EntryType type, String text,
-                              String after, int pageSize, String caller) {
+    public record PageRequest(UUID scopeId, String selector, String caller, QueryFilter filter,
+                              PageCursor after) {
     }
 
-    /** One page, with everything a caller needs to know it is not the whole set. */
-    public record Page(List<Memory> entries, long total, boolean more, long unaddressable) {
+    /** One page, whether more follows it, and what this surface cannot show. */
+    public record Page(List<Memory> entries, boolean more, long unaddressable) {
     }
 
     /** How many entries of one type there are, and how long they are together. */

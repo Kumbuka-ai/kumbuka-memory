@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.tenancy.StringUuidConverter;
@@ -105,6 +112,20 @@ public class Memory {
     /** Optional address for the entry: lower-case kebab, optionally dotted. */
     @Column(name = "key")
     public String key;
+
+    /**
+     * The part of the key before its first dot, derived by the database (V6).
+     *
+     * <p>Never written: the column is {@code GENERATED ALWAYS}, so the value
+     * is the key's and cannot disagree with it. It exists so that a listing
+     * narrowed to a selector is an equality an index can serve, rather than a
+     * {@code LIKE} on the key in which the selector's own characters would be
+     * read as a pattern. Read back after the insert, like {@code created_at},
+     * so that the entity carries it whenever it carries a key.
+     */
+    @Generated(event = EventType.INSERT)
+    @Column(name = "selector", insertable = false, updatable = false)
+    public String selector;
 
     @Column(name = "content", nullable = false)
     public String content;

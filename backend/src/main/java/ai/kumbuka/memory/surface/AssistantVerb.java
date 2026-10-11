@@ -1,8 +1,16 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.QueryFilter;
+import ai.kumbuka.memory.domain.SortKey;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -94,7 +102,14 @@ public enum AssistantVerb {
                 "the type whose entries alone are listed", Descriptions.TYPE_ENUM),
             Argument.top(Names.TEXT, Argument.STRING, false, "a text the entry must contain"),
             Argument.top(Names.AFTER, Argument.STRING, false,
-                "the cursor of the previous page, exactly as that page handed it out"),
+                "the next_cursor of the previous page, exactly as that page handed it out"),
+            Argument.top(Names.SORT, Argument.STRING, false,
+                "the order of the listing, id or created_at; id when left out",
+                Map.of("enum", SortKey.wireNames(), "default", QueryFilter.DEFAULT_SORT.wire())),
+            Argument.top(Names.DIRECTION, Argument.STRING, false,
+                "which way the order runs, asc or desc; asc when left out",
+                Map.of("enum", SortKey.Direction.wireNames(),
+                    "default", QueryFilter.DEFAULT_DIRECTION.wire())),
             Argument.top(Names.PAGE_SIZE, Argument.INTEGER, false,
                 "how many entries one page carries, a whole number from 1 to "
                     + QueryFilter.MAX_PAGE_SIZE + ", " + QueryFilter.DEFAULT_PAGE_SIZE
@@ -210,6 +225,8 @@ public enum AssistantVerb {
         public static final String REFERENCE = "reference";
         public static final String TEXT = "text";
         public static final String AFTER = "after";
+        public static final String SORT = "sort";
+        public static final String DIRECTION = "direction";
         public static final String PAGE_SIZE = "page_size";
         public static final String TYPES = "types";
 

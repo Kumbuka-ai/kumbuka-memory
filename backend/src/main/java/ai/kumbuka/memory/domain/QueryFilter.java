@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 /**
@@ -9,10 +16,19 @@ package ai.kumbuka.memory.domain;
  *
  * @param type     the kind of entry, or null for every kind
  * @param text     a substring of the content, case-insensitively, or null
- * @param after    the cursor a previous page handed out, or null for the first
- * @param pageSize how many entries this page carries at most
+ * @param after     the cursor a previous page handed out, or null for the first
+ * @param sort      the order the entries are read in
+ * @param direction which way that order runs
+ * @param pageSize  how many entries this page carries at most
  */
-public record QueryFilter(EntryType type, String text, String after, int pageSize) {
+public record QueryFilter(EntryType type, String text, String after, SortKey sort,
+                          SortKey.Direction direction, int pageSize) {
+
+    /** The order a caller gets without asking: by key. */
+    public static final SortKey DEFAULT_SORT = SortKey.ID;
+
+    /** The direction a caller gets without asking: ascending. */
+    public static final SortKey.Direction DEFAULT_DIRECTION = SortKey.Direction.ASC;
 
     /** The page size a caller gets without asking. */
     public static final int DEFAULT_PAGE_SIZE = 50;
@@ -33,7 +49,7 @@ public record QueryFilter(EntryType type, String text, String after, int pageSiz
                     + pageSize + " is outside that. The request is refused rather than "
                     + "reduced to the limit: a page silently made smaller than the one "
                     + "asked for is how a caller comes to believe it has seen everything. "
-                    + "Ask for at most " + MAX_PAGE_SIZE + " and page with the cursor "
+                    + "Ask for at most " + MAX_PAGE_SIZE + " and page with the 'next_cursor' "
                     + "the answer carries.");
         }
     }

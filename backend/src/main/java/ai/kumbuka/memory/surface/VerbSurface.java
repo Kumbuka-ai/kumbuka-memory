@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.Actor;
@@ -13,6 +20,7 @@ import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
 import ai.kumbuka.memory.domain.Patch;
 import ai.kumbuka.memory.domain.QueryFilter;
+import ai.kumbuka.memory.domain.SortKey;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -24,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * The six verbs, once, for every protocol that reaches them.
@@ -57,7 +66,7 @@ public class VerbSurface {
      * one, which is the failure a caller cannot see and cannot ask about.
      */
     private static final Set<String> PREDICATES =
-        Set.of("type", "text", "after", "page_size");
+        Set.of("type", "text", "after", "sort", "direction", "page_size");
 
     @Inject MemoryService memory;
     @Inject DigestService digests;
@@ -202,7 +211,31 @@ public class VerbSurface {
             typeOf(asked.get("type")),
             blankToNull(asked.get("text")),
             blankToNull(asked.get("after")),
+            declared(asked.get("sort"), SortKey::of, QueryFilter.DEFAULT_SORT),
+            declared(asked.get("direction"), SortKey.Direction::of,
+                QueryFilter.DEFAULT_DIRECTION),
             pageSizeOf(asked.get("page_size")));
+    }
+
+    /**
+     * An order or a direction, refused by name when this verb does not declare it.
+     *
+     * <p>Two orders and two directions, and no field beyond them, on either
+     * surface. An order over an undeclared field is refused rather than
+     * replaced by the default: a listing silently read in another order is
+     * one a caller continues believing it knows where it stands.
+     */
+    private static <T> T declared(String asked, Function<String, Optional<T>> of, T absent) {
+        if (asked == null || asked.isBlank()) {
+            return absent;
+        }
+        return of.apply(asked).orElseThrow(() -> MemoryException.offending(
+            MemoryException.Reason.SORT_UNDECLARED,
+            "'" + asked + "' is not an order this verb declares. 'sort' is one of "
+                + SortKey.wireNames() + " and 'direction' one of "
+                + SortKey.Direction.wireNames() + "; an order over a creation moment always "
+                + "carries the key as its second key.",
+            List.of(asked)));
     }
 
     private static EntryType typeOf(String asked) {

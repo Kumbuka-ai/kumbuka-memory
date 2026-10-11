@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 import java.util.LinkedHashMap;
@@ -108,6 +115,10 @@ public class MemoryException extends RuntimeException {
         PAGE_SIZE_REJECTED,
         /** The cursor is not one this verb handed out. */
         CURSOR_MALFORMED,
+        /** The cursor was handed out for another query: scope, selector, filter or order. */
+        CURSOR_FOREIGN,
+        /** The order or its direction is not one this verb declares. */
+        SORT_UNDECLARED,
 
         // --- the caller ------------------------------------------------------
 

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.rest;
 
 import ai.kumbuka.memory.adapter.payload.Payloads;
@@ -127,7 +134,8 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
                 // scope is resolved, precisely because it discloses nothing.
                 case ADDRESS_MALFORMED, KEY_MALFORMED, SELECTOR_ABSENT,
                      SELECTOR_MISMATCHED, UPDATE_EMPTY, CONTENT_ABSENT,
-                     CONTENT_OVERSIZE, PAGE_SIZE_REJECTED, CURSOR_MALFORMED -> 400;
+                     CONTENT_OVERSIZE, PAGE_SIZE_REJECTED, CURSOR_MALFORMED,
+                     CURSOR_FOREIGN, SORT_UNDECLARED -> 400;
 
                 // Not this caller. SCOPE_READ_ONLY is not a 404: the caller
                 // can already see this scope — the directory answered for it —
