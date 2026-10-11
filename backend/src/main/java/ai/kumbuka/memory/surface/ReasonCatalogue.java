@@ -50,6 +50,9 @@ public final class ReasonCatalogue {
 
     // --- the placeholders, spelled once ------------------------------------
 
+    /** The remedy of every refusal about one value the caller can simply correct. */
+    private static final String CORRECT_THE_VALUE = "correct the value";
+
     public static final String CALL = "call";
     public static final String ADDRESS = "address";
     public static final String SCOPE = "scope";
@@ -192,7 +195,7 @@ public final class ReasonCatalogue {
         repeat(declared, "PAGE_SIZE_REJECTED",
             "page_size = {value} is not valid for {call}: it is a whole number from 1 to "
                 + "{max}.",
-            "correct the value");
+            CORRECT_THE_VALUE);
         put(declared, "CURSOR_MALFORMED",
             "after = {value} is not a cursor {query} handed out.",
             "repeat {query} without after",
@@ -205,7 +208,7 @@ public final class ReasonCatalogue {
         repeat(declared, "SORT_UNDECLARED",
             "{value} is not an order {call} declares: sort is id or created_at, direction is "
                 + "asc or desc.",
-            "correct the value");
+            CORRECT_THE_VALUE);
         put(declared, "ACTOR_UNKNOWN",
             "The token is valid but names no subject to act as.",
             "authenticate as a subject");
@@ -217,7 +220,7 @@ public final class ReasonCatalogue {
             "supply it");
         repeat(declared, "ARGUMENT_INVALID",
             "{name} = {value} is not valid for {call}: {why}.",
-            "correct the value");
+            CORRECT_THE_VALUE);
         declared.put("UNEXPECTED_FAILURE", new Reason("UNEXPECTED_FAILURE",
             "{call} on {address} failed unexpectedly. This is a defect, not a rule. Nothing "
                 + "was changed. Report reference {report}.",

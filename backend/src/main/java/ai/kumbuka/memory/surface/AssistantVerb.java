@@ -105,17 +105,18 @@ public enum AssistantVerb {
                 "the next_cursor of the previous page, exactly as that page handed it out"),
             Argument.top(Names.SORT, Argument.STRING, false,
                 "the order of the listing, id or created_at; id when left out",
-                Map.of("enum", SortKey.wireNames(), "default", QueryFilter.DEFAULT_SORT.wire())),
+                Map.of("enum", SortKey.wireNames(),
+                    Descriptions.DEFAULT, QueryFilter.DEFAULT_SORT.wire())),
             Argument.top(Names.DIRECTION, Argument.STRING, false,
                 "which way the order runs, asc or desc; asc when left out",
                 Map.of("enum", SortKey.Direction.wireNames(),
-                    "default", QueryFilter.DEFAULT_DIRECTION.wire())),
+                    Descriptions.DEFAULT, QueryFilter.DEFAULT_DIRECTION.wire())),
             Argument.top(Names.PAGE_SIZE, Argument.INTEGER, false,
                 "how many entries one page carries, a whole number from 1 to "
                     + QueryFilter.MAX_PAGE_SIZE + ", " + QueryFilter.DEFAULT_PAGE_SIZE
                     + " when left out",
                 Map.of("minimum", 1, "maximum", QueryFilter.MAX_PAGE_SIZE,
-                    "default", QueryFilter.DEFAULT_PAGE_SIZE))),
+                    Descriptions.DEFAULT, QueryFilter.DEFAULT_PAGE_SIZE))),
         List.of()),
 
     DIGEST("memory_digest",
@@ -236,6 +237,8 @@ public enum AssistantVerb {
 
     private static final class Descriptions {
 
+        /** The JSON-schema keyword for the value an omitted argument takes. */
+        static final String DEFAULT = "default";
         static final String SCOPE = "the scope, by its name";
         static final String ADDRESS =
             "the complete address of the entry, memory://<scope>/<selector>/<id>";
