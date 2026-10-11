@@ -53,8 +53,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       insertion between two pages sees one entry twice;</li>
  *   <li>binding check removed from {@code MemoryService.query}: the four
  *       foreign-cursor probes answer 200;</li>
- *   <li>text unescaped in its {@code LIKE}: {@code 5%} matches {@code 50}, and
- *       without the escape character doubled {@code of 5!} matches {@code of 5%}.
+ *   <li>text unescaped in its {@code LIKE}: {@code 5%} matches {@code 50}; and
+ *       with only the escape character left undoubled, {@code really!} no longer
+ *       finds {@code really! and then more}.
  *       The selector's own narrowing is probed in {@code SelectorNarrowingIT}.</li>
  * </ul>
  */
@@ -377,6 +378,8 @@ class QueryIT {
             "metric.number", "decision", "a share of 50 and more"));
         SurfaceFixture.plant(SurfaceFixture.Planted.shared(SubstrateDatabaseResource.SCOPE_ID,
             "metric.under", "decision", "snake_case and nothing else"));
+        SurfaceFixture.plant(SurfaceFixture.Planted.shared(SubstrateDatabaseResource.SCOPE_ID,
+            "metric.bang", "decision", "really! and then more"));
 
         assertThat(textMatches("5%"))
             .as("'%' in the text is a percent sign, not 'anything'")
@@ -384,9 +387,10 @@ class QueryIT {
         assertThat(textMatches("e_c"))
             .as("'_' in the text is an underscore, not 'any one character'")
             .containsExactly("metric.under");
-        assertThat(textMatches("of 5!"))
-            .as("and the escape character itself stands for itself")
-            .isEmpty();
+        assertThat(textMatches("really!"))
+            .as("and the escape character itself stands for itself: undoubled, it would "
+                + "escape the closing wildcard and the substring would become a suffix")
+            .containsExactly("metric.bang");
     }
 
     @Test
