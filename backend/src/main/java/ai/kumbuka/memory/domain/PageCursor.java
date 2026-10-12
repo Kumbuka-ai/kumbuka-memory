@@ -72,6 +72,9 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
     private static final String SEPARATOR = "\n";
     private static final int LINES = 8;
 
+    /** The argument a cursor travels in, and the one its refusals name. */
+    public static final String AFTER = "after";
+
     /** How many hexadecimal digits of a digest the cursor keeps. */
     private static final int FINGERPRINT_DIGITS = 16;
 
@@ -180,10 +183,11 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
     }
 
     private static MemoryException malformed() {
-        return new MemoryException(MemoryException.Reason.CURSOR_MALFORMED,
+        return MemoryException.offending(MemoryException.Reason.CURSOR_MALFORMED,
             "this is not a cursor this verb handed out. A cursor is taken from the "
                 + "'next_cursor' member of a previous page and passed back unchanged as "
                 + "'after'; it is not composed by the caller. Start again without one to get "
-                + "the first page.");
+                + "the first page.",
+            List.of(AFTER));
     }
 }

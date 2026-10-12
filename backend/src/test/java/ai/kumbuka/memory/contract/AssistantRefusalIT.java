@@ -336,8 +336,14 @@ class AssistantRefusalIT {
     void an_order_this_verb_does_not_declare_is_sort_undeclared() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "sort", "content")),
             "SORT_UNDECLARED", QUERY, Map.of("value", "content", "call", QUERY));
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_direction_that_is_neither_of_the_two_is_argument_invalid() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "direction", "sideways")),
-            "SORT_UNDECLARED", QUERY, Map.of("value", "sideways", "call", QUERY));
+            "ARGUMENT_INVALID", QUERY,
+            Map.of("n", "direction", "value", "sideways", "call", QUERY), "why");
     }
 
     // ======================================================================
@@ -385,13 +391,24 @@ class AssistantRefusalIT {
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void a_value_of_the_wrong_kind_is_argument_invalid() {
-        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "page_size", "fifty")),
-            "ARGUMENT_INVALID", QUERY, Map.of("n", "page_size", "call", QUERY),
-            "value", "why");
         assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
                 token(ADDRESS), "fields", "content")),
             "ARGUMENT_INVALID", UPDATE, Map.of("n", "fields", "call", UPDATE),
             "value", "why");
+    }
+
+    /**
+     * A page size of the wrong kind is not {@code ARGUMENT_INVALID}: every page
+     * size the verb cannot take is {@code PAGE_SIZE_REJECTED} (ADR-0049), on
+     * this surface as on the generic one.
+     */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_page_size_of_the_wrong_kind_is_page_size_rejected() {
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "page_size", "fifty")),
+            "PAGE_SIZE_REJECTED", QUERY, Map.of("call", QUERY), "value", "max");
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "page_size", 7.5)),
+            "PAGE_SIZE_REJECTED", QUERY, Map.of("value", "7.5", "call", QUERY), "max");
     }
 
     @Test

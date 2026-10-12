@@ -18,12 +18,18 @@ import java.util.List;
  * total and a cursor — and a caller reading the flag could disagree with one
  * reading the cursor the first time the two were computed apart.
  *
- * @param entries       the page, in the order the query asked for
+ * <p>It does not repeat the request. The page size it was asked in is the
+ * caller's own value, and an answer that echoed it would be a second place to
+ * read it from (ADR-0049).
+ *
+ * @param objects       the page, in the order the query asked for
  * @param nextCursor    what to pass as {@code after} for the next page, or
  *                      null when this page is the last
- * @param pageSize      how many entries this page was allowed to carry
  * @param unaddressable how many entries of the scope this surface cannot show
  */
-public record Listing(List<EntryView> entries, String nextCursor, int pageSize,
-                      long unaddressable) {
+public record Page(List<EntryView> objects, String nextCursor, long unaddressable) {
+
+    public Page {
+        objects = List.copyOf(objects);
+    }
 }

@@ -1,5 +1,13 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.mcp;
 
+import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.surface.Argument;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallException;
@@ -28,6 +36,12 @@ import java.util.Set;
  * still not acceptable — a page size of a thousand, a type that is not one of
  * the six — is not judged here: the verb judges it, and refuses with the
  * service's own reason, so that both surfaces refuse it the same way.
+ *
+ * <p>The page size is the one argument whose wrong kind is not
+ * {@code ARGUMENT_INVALID}. Every page size the verb cannot take — out of
+ * range, not a number, not a whole one — is {@code PAGE_SIZE_REJECTED}
+ * (ADR-0049), on this surface as on the generic one, where a query parameter
+ * has no kind to be wrong in.
  */
 final class CallArguments {
 
@@ -127,6 +141,9 @@ final class CallArguments {
                 argument.name() + " is declared with a type the check does not know");
         };
         if (why != null) {
+            if (AssistantVerb.Names.PAGE_SIZE.equals(argument.name())) {
+                throw PageRequest.pageSizeRejected(shown(argument.name(), value));
+            }
             throw CallException.invalid(argument.name(), shown(argument.name(), value), why);
         }
     }

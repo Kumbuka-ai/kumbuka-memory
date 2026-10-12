@@ -65,7 +65,7 @@ class ForeignTenantCursorIT {
     private static final String OTHER_GLOBAL_SCOPE_ID = "00000000-0000-0000-0000-000000000021";
 
     private static final String SCOPE = SubstrateDatabaseResource.GLOBAL_SCOPE_SLUG;
-    private static final String KEYS = "entries.fields.key";
+    private static final String KEYS = "objects.fields.key";
 
     private final SwitchableTenant tenant = new SwitchableTenant();
 

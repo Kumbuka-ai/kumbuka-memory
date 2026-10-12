@@ -260,20 +260,21 @@ public class MemoryService {
      * single not-found before anything is said about a cursor.
      */
     @Transactional
-    public Listing query(Actor actor, String scopeSlug, String selector, QueryFilter filter) {
+    public Page query(Actor actor, String scopeSlug, String selector, QueryFilter filter,
+                      PageRequest request) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
 
         PageCursor.Binding binding = new PageCursor.Binding(PageCursor.mark(scope.scopeId()), selector,
-            PageCursor.fingerprint(filter.type(), filter.text()), filter.sort(),
-            filter.direction());
-        PageCursor after = filter.after() == null ? null : PageCursor.decode(filter.after());
+            PageCursor.fingerprint(filter.type(), filter.text()), request.sort(),
+            request.direction());
+        PageCursor after = request.after() == null ? null : PageCursor.decode(request.after());
         if (after != null && !after.binding().equals(binding)) {
             throw foreign();
         }
 
-        MemoryRepository.Page page = entries.page(new MemoryRepository.PageRequest(
-            scope.scopeId(), selector, actor.subject(), filter, after));
+        MemoryRepository.Rows page = entries.page(new MemoryRepository.Keyset(
+            scope.scopeId(), selector, actor.subject(), filter, request, after));
 
         boolean writable = writable(scope);
         List<EntryView> views = page.entries().stream()
@@ -285,7 +286,7 @@ public class MemoryService {
             Memory last = page.entries().get(page.entries().size() - 1);
             next = new PageCursor(binding, last.key, last.createdAt).encode();
         }
-        return new Listing(views, next, filter.pageSize(), page.unaddressable());
+        return new Page(views, next, page.unaddressable());
     }
 
     // ======================================================================
@@ -415,11 +416,12 @@ public class MemoryService {
      * like the end of a listing.
      */
     private static MemoryException foreign() {
-        return new MemoryException(MemoryException.Reason.CURSOR_FOREIGN,
+        return MemoryException.offending(MemoryException.Reason.CURSOR_FOREIGN,
             "this cursor was handed out for another query — another scope, selector, "
                 + "type, text, order or direction. A cursor continues the listing it came "
                 + "from and no other. Repeat the query without 'after' to read this one from "
-                + "its first page.");
+                + "its first page.",
+            List.of(PageCursor.AFTER));
     }
 
     /**

@@ -206,9 +206,9 @@ class AssistantSurfaceIT {
         assertThat(listing.structured())
             .as("section 3: next_cursor is the one continuation, and on the last page it is "
                 + "absent rather than null")
-            .containsOnlyKeys("entries", "page_size", "unaddressable");
+            .containsOnlyKeys("objects", "unaddressable");
         List<Map<String, Object>> entries = listing.json()
-            .getList("result.structuredContent.entries");
+            .getList("result.structuredContent.objects");
         assertThat(entries).hasSize(2);
         for (Map<String, Object> entry : entries) {
             assertThat(entry).containsOnlyKeys("address", "fields", "conflict_token", "next");
@@ -216,7 +216,7 @@ class AssistantSurfaceIT {
 
         Mcp.Result narrowed = Mcp.call(Contract.toolFor("query"), args("scope", SCOPE,
             "type", "decision", "text", "postgres", "page_size", 1));
-        assertThat(narrowed.strings("entries.address"))
+        assertThat(narrowed.strings("objects.address"))
             .as("each declared narrowing argument has the effect its declaration states")
             .containsExactly("memory://" + SCOPE + "/decision/storage-engine");
     }
@@ -239,7 +239,7 @@ class AssistantSurfaceIT {
             }
             Mcp.Result page = Mcp.call(Contract.toolFor("query"), asked);
             assertThat(page.isError()).as("%s", page).isFalse();
-            seen.addAll(page.strings("entries.fields.key"));
+            seen.addAll(page.strings("objects.fields.key"));
             cursor = page.string("next_cursor");
             pages++;
         } while (cursor != null && pages < 5);
@@ -327,7 +327,7 @@ class AssistantSurfaceIT {
 
         String scope = address.substring("memory://".length(), address.indexOf('/', 10));
         Mcp.Result listed = Mcp.call(Contract.toolFor("query"), args("scope", scope));
-        assertThat(listed.strings("entries[0].next.call"))
+        assertThat(listed.strings("objects[0].next.call"))
             .as("an entry in a listing offers what the same entry read alone offers")
             .containsExactlyElementsOf(offered);
 

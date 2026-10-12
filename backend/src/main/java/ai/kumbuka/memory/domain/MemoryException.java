@@ -107,9 +107,16 @@ public class MemoryException extends RuntimeException {
         /** The provenance pointer carries a credential. */
         REFERENCE_CREDENTIAL_BEARING,
 
+        // --- the call --------------------------------------------------------
+
+        /** The call names an argument it does not declare. */
+        ARGUMENT_UNKNOWN,
+        /** The call carries an argument whose value is not one it takes. */
+        ARGUMENT_INVALID,
+
         // --- reading ---------------------------------------------------------
 
-        /** The query names a predicate this verb does not carry. */
+        /** The call names a filter field the scope does not declare. */
         PREDICATE_UNKNOWN,
         /** The page size is outside what this verb serves. */
         PAGE_SIZE_REJECTED,
@@ -117,7 +124,7 @@ public class MemoryException extends RuntimeException {
         CURSOR_MALFORMED,
         /** The cursor was handed out for another query: scope, selector, filter or order. */
         CURSOR_FOREIGN,
-        /** The order or its direction is not one this verb declares. */
+        /** The order is not one this verb declares. */
         SORT_UNDECLARED,
 
         // --- the caller ------------------------------------------------------
@@ -126,7 +133,10 @@ public class MemoryException extends RuntimeException {
         ACTOR_UNKNOWN
     }
 
-    /** The key under which a refusal names the objects that caused it. */
+    /**
+     * The key under which a refusal names what caused it. For a refusal of an
+     * argument that is the argument's name, never its value (DEC-0042).
+     */
     public static final String OFFENDERS = "offenders";
 
     /** The key under which a refusal names a complete address. */

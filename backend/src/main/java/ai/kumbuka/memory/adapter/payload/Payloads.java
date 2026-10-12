@@ -9,10 +9,10 @@ package ai.kumbuka.memory.adapter.payload;
 
 import ai.kumbuka.memory.domain.DigestView;
 import ai.kumbuka.memory.domain.EntryView;
-import ai.kumbuka.memory.domain.Listing;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
+import ai.kumbuka.memory.domain.Page;
 import ai.kumbuka.memory.domain.Patch;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.VerbSurface;
@@ -180,6 +180,10 @@ public final class Payloads {
     /**
      * A page of entries, with every reason it might not be the whole set.
      *
+     * <p>The entries stand under {@code objects}, the one name every list of
+     * the platform carries them under, and the request is not repeated
+     * (ADR-0049): the page size a caller asked in is its own value.
+     *
      * <p>{@code next_cursor} is the one continuation: present, it is what to
      * pass as {@code after} for the next page; absent — not null, absent — the
      * page is the last. Serialised only when there is one, so that "is there
@@ -191,16 +195,15 @@ public final class Payloads {
      * completeness. {@code create} refuses such a key, so a non-zero number
      * here is a statement about data that arrived from somewhere else.
      */
-    public record ListingResponse(
-        @JsonProperty("entries") List<ListedEntry> entries,
-        @JsonProperty("page_size") int pageSize,
+    public record PageResponse(
+        @JsonProperty("objects") List<ListedEntry> objects,
         @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL) String nextCursor,
         @JsonProperty("unaddressable") long unaddressable) {
 
-        public static ListingResponse of(Listing listing) {
-            return new ListingResponse(
-                listing.entries().stream().map(ListedEntry::of).toList(),
-                listing.pageSize(), listing.nextCursor(), listing.unaddressable());
+        public static PageResponse of(Page page) {
+            return new PageResponse(
+                page.objects().stream().map(ListedEntry::of).toList(),
+                page.nextCursor(), page.unaddressable());
         }
     }
 

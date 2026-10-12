@@ -8,8 +8,8 @@
 package ai.kumbuka.memory.adapter.payload;
 
 import ai.kumbuka.memory.domain.EntryView;
-import ai.kumbuka.memory.domain.Listing;
 import ai.kumbuka.memory.domain.MemoryService;
+import ai.kumbuka.memory.domain.Page;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -53,19 +53,19 @@ public final class AssistantPayloads {
     /**
      * A page of entries, with every reason it might not be the whole set.
      *
-     * <p>{@code next_cursor} is absent on the last page, as on the generic
-     * surface ({@link Payloads.ListingResponse}).
+     * <p>The same members as on the generic surface
+     * ({@link Payloads.PageResponse}): {@code objects}, {@code next_cursor}
+     * absent on the last page, and {@code unaddressable}.
      */
-    public record ListingAnswer(
-        @JsonProperty("entries") List<EntryAnswer> entries,
-        @JsonProperty("page_size") int pageSize,
+    public record PageAnswer(
+        @JsonProperty("objects") List<EntryAnswer> objects,
         @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL) String nextCursor,
         @JsonProperty("unaddressable") long unaddressable) {
 
-        public static ListingAnswer of(Listing listing) {
-            return new ListingAnswer(
-                listing.entries().stream().map(EntryAnswer::of).toList(),
-                listing.pageSize(), listing.nextCursor(), listing.unaddressable());
+        public static PageAnswer of(Page page) {
+            return new PageAnswer(
+                page.objects().stream().map(EntryAnswer::of).toList(),
+                page.nextCursor(), page.unaddressable());
         }
     }
 

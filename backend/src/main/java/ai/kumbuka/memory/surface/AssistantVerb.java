@@ -9,7 +9,7 @@ package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.MemoryService;
-import ai.kumbuka.memory.domain.QueryFilter;
+import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.domain.SortKey;
 
 import java.util.ArrayList;
@@ -106,17 +106,17 @@ public enum AssistantVerb {
             Argument.top(Names.SORT, Argument.STRING, false,
                 "the order of the listing, id or created_at; id when left out",
                 Map.of("enum", SortKey.wireNames(),
-                    Descriptions.DEFAULT, QueryFilter.DEFAULT_SORT.wire())),
+                    Descriptions.DEFAULT, PageRequest.DEFAULT_SORT.wire())),
             Argument.top(Names.DIRECTION, Argument.STRING, false,
                 "which way the order runs, asc or desc; asc when left out",
                 Map.of("enum", SortKey.Direction.wireNames(),
-                    Descriptions.DEFAULT, QueryFilter.DEFAULT_DIRECTION.wire())),
+                    Descriptions.DEFAULT, PageRequest.DEFAULT_DIRECTION.wire())),
             Argument.top(Names.PAGE_SIZE, Argument.INTEGER, false,
                 "how many entries one page carries, a whole number from 1 to "
-                    + QueryFilter.MAX_PAGE_SIZE + ", " + QueryFilter.DEFAULT_PAGE_SIZE
+                    + PageRequest.MAX_PAGE_SIZE + ", " + PageRequest.DEFAULT_PAGE_SIZE
                     + " when left out",
-                Map.of("minimum", 1, "maximum", QueryFilter.MAX_PAGE_SIZE,
-                    Descriptions.DEFAULT, QueryFilter.DEFAULT_PAGE_SIZE))),
+                Map.of("minimum", 1, "maximum", PageRequest.MAX_PAGE_SIZE,
+                    Descriptions.DEFAULT, PageRequest.DEFAULT_PAGE_SIZE))),
         List.of()),
 
     DIGEST("memory_digest",

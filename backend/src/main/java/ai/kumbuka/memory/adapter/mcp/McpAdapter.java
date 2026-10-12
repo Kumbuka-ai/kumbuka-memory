@@ -8,6 +8,7 @@
 package ai.kumbuka.memory.adapter.mcp;
 
 import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
+import ai.kumbuka.memory.adapter.payload.AssistantRefusals;
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.Actor;
 import ai.kumbuka.memory.domain.EntryView;
@@ -210,7 +211,7 @@ public class McpAdapter {
         try {
             return answered(verb, args);
         } catch (RuntimeException failure) {
-            return refused(Refusals.unexpected(verb, args,
+            return refused(AssistantRefusals.unexpected(verb, args,
                 UnexpectedFailures.logged(verb.call(), failure)));
         }
     }
@@ -221,17 +222,18 @@ public class McpAdapter {
             return transaction.run(() -> content(invoke(verb, in), false));
         } catch (CallException e) {
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(Refusals.of(verb, e, seen(verb, args, null)));
+            return refused(AssistantRefusals.of(verb, e, seen(verb, args, null)));
         } catch (MemoryException e) {
             if (!foreseen(e)) {
                 // A reason of the generic surface arriving here — a session
                 // the read contract could not be bound for, above all — is a
                 // failure this surface did not foresee, and is answered as one.
-                return refused(Refusals.unexpected(verb, args,
+                return refused(AssistantRefusals.unexpected(verb, args,
                     UnexpectedFailures.logged(verb.call(), e)));
             }
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(Refusals.of(verb, e, reasonOf(e), args, seen(verb, args, e)));
+            return refused(AssistantRefusals.of(verb, e, reasonOf(e), args,
+                seen(verb, args, e)));
         }
     }
 
@@ -260,7 +262,7 @@ public class McpAdapter {
                     Optional.ofNullable(in.field(Names.REFERENCE)))).entry());
             case WITHDRAW -> AssistantPayloads.WithdrawalAnswer.of(verbs.withdraw(actor,
                 AddressParser.complete(in.top(Names.ADDRESS)), in.top(Names.CONFLICT_TOKEN)));
-            case QUERY -> AssistantPayloads.ListingAnswer.of(verbs.query(actor,
+            case QUERY -> AssistantPayloads.PageAnswer.of(verbs.query(actor,
                 in.top(Names.SCOPE), in.top(Names.SELECTOR), narrowing(in)));
             case DIGEST -> Payloads.DigestResponse.of(verbs.digest(actor,
                 in.top(Names.SCOPE), in.list(Names.TYPES)));
@@ -306,7 +308,7 @@ public class McpAdapter {
             }
         }
         Object address = null;
-        if (Refusals.takesAddress(verb)) {
+        if (AssistantRefusals.takesAddress(verb)) {
             address = args.get(Names.ADDRESS);
         } else if (e != null) {
             address = e.data().get(MemoryException.ADDRESS);

@@ -89,11 +89,12 @@ URI, exactly as every call takes it.
 name, including an argument nested in `fields`; and every argument a call declares has the effect
 its declaration states.
 
-A **listing** (`memory_query`) carries `entries`, each in the shape above, and beside them
-`page_size`, `next_cursor` and `unaddressable`. `next_cursor` is the one continuation: present, it
-is what `after` takes for the next page; absent, the page is the last. It is bound to the scope,
-the selector, the type and text, the sort and the direction it was handed out for, and is refused
-for any other.
+A **listing** (`memory_query`) carries `objects`, each in the shape above, and beside them
+`next_cursor` and `unaddressable`; it does not repeat the page size it was asked in (ADR-0049).
+`next_cursor` is the one continuation: present, it is what `after` takes for the next page; absent,
+the page is the last. It is bound to the scope -- by its technical identity, so a scope of the same
+name in another estate is another scope --, the selector, the type and text, the sort and the
+direction it was handed out for, and is refused for any other.
 
 A **withdrawal** answers with `address`, `outcome` (`destroyed` or `tombstoned`),
 `address_released` and `next`.
@@ -119,8 +120,9 @@ carried type: `type` and `entries`, each with `address`, `key` and `content`), `
 }
 ```
 
-`data.attempted` is present on every refusal. `data.state` and `data.next` are present where the
-refusal concerns an entry this caller may see. A refusal of a stale conflict token additionally
+`data.attempted` is present on every refusal. A refusal of an argument of `memory_query` also
+carries `data.offenders`, naming the arguments and never their values (DEC-0042). `data.state` and
+`data.next` are present where the refusal concerns an entry this caller may see. A refusal of a stale conflict token additionally
 carries the entry as this caller's own read would answer it (DEC-0041).
 
 ### 4.2 Rules for every message
@@ -284,10 +286,17 @@ that answer would drift from it, and a listed call that is then refused is what 
 
 ## 8. Open points and recorded departures
 
-- **The generic surface departs from three rules and is left as it is.** Its messages are sentences
-  written inside the service rather than built from a pattern; its refusals carry no `attempted`
-  and no `next`; and it answers an undeclared narrowing argument as `PREDICATE_UNKNOWN`. Bringing
-  it into line changes what a running installation answers and is a decision of its own.
+- **The generic surface departs from two rules and is left as it is.** Its messages are sentences
+  written inside the service rather than built from a pattern, and its refusals carry no
+  `attempted` and no `next`. Bringing it into line changes what a running installation answers and
+  is a decision of its own. Its listing answers an undeclared argument as `ARGUMENT_UNKNOWN` (400),
+  as this surface does; `PREDICATE_UNKNOWN` remains for a parameter sent to an address that names
+  one entry.
+- **A hop in front of the service can ask the generic listing for this surface's projection.**
+  `GET` of a listing with the header `Kumbuka-Surface: assistant` answers as `memory_query` does
+  here: `next` names this surface's calls and a refusal is built from the patterns of section 4.4,
+  with the generic surface's HTTP status. Any other value of the header is refused as
+  `ARGUMENT_INVALID`. Only the listing reads the header so far.
 - **The code for a write to an occupied address is not decided platform-wide** (DEC-0042, "What
   this does not settle"). This contract declares the code the service answers today,
   `ALREADY_EXISTS`.

@@ -65,7 +65,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class QueryIT {
 
     private static final String SCOPE = SubstrateDatabaseResource.PROBE_SCOPE_SLUG;
-    private static final String KEYS = "entries.fields.key";
+    private static final String KEYS = "objects.fields.key";
 
     @BeforeAll
     static void grantDirectoryAccess() {
@@ -135,16 +135,15 @@ class QueryIT {
     void a_page_says_how_large_it_is_and_whether_more_follows() {
         Response page = call().get(API + "/" + SCOPE + "?page_size=5");
 
-        assertThat(page.jsonPath().getList("entries", Map.class)).hasSize(5);
-        assertThat(page.jsonPath().getInt("page_size"))
-            .as("the size actually served, so that a caller can see it was not reduced")
-            .isEqualTo(5);
+        assertThat(page.jsonPath().getList("objects", Map.class)).hasSize(5);
         assertThat(page.jsonPath().getString("next_cursor"))
             .as("more follows, so the one continuation member is there")
             .isNotBlank();
         assertThat(page.jsonPath().getMap("$"))
-            .as("next_cursor is the only continuation: no flag, no total, no order beside it")
-            .doesNotContainKeys("truncated", "total", "cursor", "order");
+            .as("next_cursor is the only continuation: no flag, no total, no order beside "
+                + "it, and the request is not repeated (ADR-0049)")
+            .doesNotContainKeys("truncated", "total", "cursor", "order", "page_size",
+                "entries");
         assertThat(page.jsonPath().getInt("unaddressable"))
             .as("and how many entries of the scope this surface cannot show at all — "
                 + "zero here, because create refuses a key with no selector")
@@ -316,14 +315,25 @@ class QueryIT {
     @Test
     void an_order_over_an_undeclared_field_is_refused_and_named() {
         Response byContent = call().get(API + "/" + SCOPE + "?sort=content");
+
+        assertThat(byContent.statusCode()).isEqualTo(400);
+        assertThat(byContent.jsonPath().getString("reason")).isEqualTo("SORT_UNDECLARED");
+        assertThat(byContent.jsonPath().getList("data.offenders", String.class))
+            .as("the argument, never its value (DEC-0042)")
+            .containsExactly("sort");
+    }
+
+    @Test
+    void a_direction_that_is_neither_of_the_two_is_an_invalid_argument() {
         Response sideways = call().get(API + "/" + SCOPE + "?direction=sideways");
 
-        for (Response answer : List.of(byContent, sideways)) {
-            assertThat(answer.statusCode()).isEqualTo(400);
-            assertThat(answer.jsonPath().getString("reason")).isEqualTo("SORT_UNDECLARED");
-        }
-        assertThat(byContent.jsonPath().getList("data.offenders", String.class))
-            .containsExactly("content");
+        assertThat(sideways.statusCode()).isEqualTo(400);
+        assertThat(sideways.jsonPath().getString("reason"))
+            .as("the two directions are the argument's value set, not an order a scope "
+                + "declares, so this is no SORT_UNDECLARED (ADR-0049)")
+            .isEqualTo("ARGUMENT_INVALID");
+        assertThat(sideways.jsonPath().getList("data.offenders", String.class))
+            .containsExactly("direction");
     }
 
     @Test
@@ -339,11 +349,14 @@ class QueryIT {
     }
 
     @Test
-    void a_predicate_this_verb_does_not_carry_is_refused_and_named() {
+    void an_argument_this_verb_does_not_take_is_refused_and_named() {
         Response answer = call().get(API + "/" + SCOPE + "?author=somebody");
 
-        assertThat(answer.statusCode()).isEqualTo(422);
-        assertThat(answer.jsonPath().getString("reason")).isEqualTo("PREDICATE_UNKNOWN");
+        assertThat(answer.statusCode())
+            .as("decidable without a scope: this service declares no filter fields per "
+                + "scope, so an unknown name is an unknown argument (DEC-0042)")
+            .isEqualTo(400);
+        assertThat(answer.jsonPath().getString("reason")).isEqualTo("ARGUMENT_UNKNOWN");
         assertThat(answer.jsonPath().getList("data.offenders", String.class))
             .as("a filter that is silently dropped answers with the whole set and looks "
                 + "exactly like a correct narrow one")

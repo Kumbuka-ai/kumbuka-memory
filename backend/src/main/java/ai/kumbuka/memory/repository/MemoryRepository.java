@@ -10,6 +10,7 @@ package ai.kumbuka.memory.repository;
 import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.Memory;
 import ai.kumbuka.memory.domain.PageCursor;
+import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.domain.QueryFilter;
 import ai.kumbuka.memory.domain.SortKey;
 import ai.kumbuka.memory.tenancy.TenantBound;
@@ -213,8 +214,9 @@ public class MemoryRepository {
      * before the page is returned.
      */
     @Transactional
-    public Page page(PageRequest request) {
+    public Rows page(Keyset request) {
         QueryFilter filter = request.filter();
+        PageRequest asked = request.page();
         StringBuilder where = new StringBuilder(
             "m.scopeId = :" + SCOPE + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE);
         Map<String, Object> bound = new java.util.LinkedHashMap<>();
@@ -235,24 +237,24 @@ public class MemoryRepository {
             bound.put("text", "%" + likeLiteral(filter.text().toLowerCase(Locale.ROOT)) + "%");
         }
         if (request.after() != null) {
-            where.append(AND).append(keysetAfter(filter.sort(), filter.direction()));
+            where.append(AND).append(keysetAfter(asked.sort(), asked.direction()));
             bound.put("afterKey", request.after().key());
-            if (filter.sort() == SortKey.CREATED_AT) {
+            if (asked.sort() == SortKey.CREATED_AT) {
                 bound.put("afterAt", request.after().createdAt());
             }
         }
 
         var rows = em.createQuery("SELECT m FROM Memory m WHERE " + where
-            + " ORDER BY " + orderBy(filter.sort(), filter.direction()), Memory.class);
+            + " ORDER BY " + orderBy(asked.sort(), asked.direction()), Memory.class);
         bound.forEach(rows::setParameter);
         List<Memory> found = new ArrayList<>(
-            rows.setMaxResults(filter.pageSize() + 1).getResultList());
+            rows.setMaxResults(asked.pageSize() + 1).getResultList());
 
-        boolean more = found.size() > filter.pageSize();
+        boolean more = found.size() > asked.pageSize();
         if (more) {
             found.remove(found.size() - 1);
         }
-        return new Page(found, more, unaddressableIn(request.scopeId(), request.caller()));
+        return new Rows(found, more, unaddressableIn(request.scopeId(), request.caller()));
     }
 
     /** The order of a listing, the key always last so that no two rows tie. */
@@ -388,15 +390,16 @@ public class MemoryRepository {
      * @param scopeId  the resolved scope
      * @param selector the selector, or null for the whole scope
      * @param caller   the subject whose private entries are visible
-     * @param filter   type, text, order, direction and page size
+     * @param filter   type and text
+     * @param page     order, direction and page size
      * @param after    the position to continue after, or null for the first page
      */
-    public record PageRequest(UUID scopeId, String selector, String caller, QueryFilter filter,
-                              PageCursor after) {
+    public record Keyset(UUID scopeId, String selector, String caller, QueryFilter filter,
+                         PageRequest page, PageCursor after) {
     }
 
-    /** One page, whether more follows it, and what this surface cannot show. */
-    public record Page(List<Memory> entries, boolean more, long unaddressable) {
+    /** The rows of one page, whether more follows them, and what this surface cannot show. */
+    public record Rows(List<Memory> entries, boolean more, long unaddressable) {
     }
 
     /** How many entries of one type there are, and how long they are together. */

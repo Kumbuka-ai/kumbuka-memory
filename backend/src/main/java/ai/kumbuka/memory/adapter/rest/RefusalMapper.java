@@ -97,6 +97,13 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
         @Override
         public Response toResponse(MemoryException e) {
+            if (e instanceof AssistantRefused assistant) {
+                LOG.debugf("assistant refusal: %s", e.reason().name());
+                return Response.status(statusOf(e.reason()))
+                    .type(MediaType.APPLICATION_JSON)
+                    .entity(assistant.refusal())
+                    .build();
+            }
             int status = statusOf(e.reason());
 
             // A 5xx is ours, not the caller's, and no retry of theirs fixes
@@ -126,16 +133,20 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
          * is a new refusal quietly becoming a 500 in a deployment nobody is
          * watching.
          */
-        private static int statusOf(MemoryException.Reason reason) {
+        static int statusOf(MemoryException.Reason reason) {
             return switch (reason) {
 
                 // The call is malformed, and no scope had to be known to say
                 // so. Grammar is the one family of check that runs before the
                 // scope is resolved, precisely because it discloses nothing.
+                // An unknown argument and an argument of the wrong value are
+                // here too: this service declares no filter fields per scope,
+                // so both are decided without one (DEC-0042).
                 case ADDRESS_MALFORMED, KEY_MALFORMED, SELECTOR_ABSENT,
                      SELECTOR_MISMATCHED, UPDATE_EMPTY, CONTENT_ABSENT,
                      CONTENT_OVERSIZE, PAGE_SIZE_REJECTED, CURSOR_MALFORMED,
-                     CURSOR_FOREIGN, SORT_UNDECLARED -> 400;
+                     CURSOR_FOREIGN, SORT_UNDECLARED, ARGUMENT_UNKNOWN,
+                     ARGUMENT_INVALID -> 400;
 
                 // Not this caller. SCOPE_READ_ONLY is not a 404: the caller
                 // can already see this scope — the directory answered for it —

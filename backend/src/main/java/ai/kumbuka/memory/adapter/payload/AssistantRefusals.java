@@ -5,16 +5,15 @@
  * General Public License v3.0 only. See the LICENSE file in the
  * repository root for the full licence text.
  */
-package ai.kumbuka.memory.adapter.mcp;
+package ai.kumbuka.memory.adapter.payload;
 
-import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
-import ai.kumbuka.memory.domain.QueryFilter;
+import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.surface.AddressParser;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.AssistantVerb.Names;
@@ -43,21 +42,31 @@ import java.util.Optional;
  *
  * <h2>What {@code data} carries</h2>
  *
- * {@code attempted} on every refusal. Where the refusal concerns an entry this
+ * {@code attempted} on every refusal. On a refusal of {@code memory_query}'s
+ * arguments also {@code offenders}, naming the arguments and never their
+ * values (DEC-0042) — on that verb alone for now, because aligning the other
+ * verbs' refusals is a change of its own. Where the refusal concerns an entry this
  * caller may see, also its {@code state} and {@code next}: the calls the
  * remedy names, each kept only if it would succeed for this caller, judged
  * from the same write right that decides an answer's {@code next}. A stale
  * conflict token additionally carries the entry as this caller's own read
  * would answer it (DEC-0041). {@code NOT_FOUND} carries {@code attempted}
  * and nothing else, so that its three causes cannot be told apart.
+ *
+ * <h2>Two ways in</h2>
+ *
+ * The service's own MCP adapter, and the generic surface called with
+ * {@code Kumbuka-Surface: assistant} by a hop that publishes these calls as
+ * assistant tools. Both build the refusal here, so the two cannot come to
+ * word one differently.
  */
-final class Refusals {
+public final class AssistantRefusals {
 
     private static final String ATTEMPTED = "attempted";
     private static final String STATE = "state";
     private static final String NEXT = "next";
 
-    private Refusals() {
+    private AssistantRefusals() {
     }
 
     // ======================================================================
@@ -65,11 +74,18 @@ final class Refusals {
     // ======================================================================
 
     /** A refusal the argument check made. */
-    static Payloads.Refusal of(AssistantVerb verb, CallException e, Optional<EntryView> seen) {
+    public static Payloads.Refusal of(AssistantVerb verb, CallException e,
+                                      Optional<EntryView> seen) {
         ReasonCatalogue.Reason reason = ReasonCatalogue.of(e.reason().name());
         Map<String, String> values = new LinkedHashMap<>(e.values());
         values.put(ReasonCatalogue.CALL, verb.call());
-        return envelope(verb, reason, ReasonCatalogue.message(reason, false, values), seen);
+        Payloads.Refusal refusal =
+            envelope(verb, reason, ReasonCatalogue.message(reason, false, values), seen);
+        String name = e.values().get(ReasonCatalogue.NAME);
+        if (name != null && e.reason() != CallException.Reason.UNEXPECTED_FAILURE) {
+            offendersOn(verb, refusal, List.of(name));
+        }
+        return refusal;
     }
 
     /**
@@ -78,9 +94,9 @@ final class Refusals {
      * @param reason the catalogue entry for its code, already known to be one
      *               this surface can return
      */
-    static Payloads.Refusal of(AssistantVerb verb, MemoryException e,
-                               ReasonCatalogue.Reason reason, Map<String, Object> args,
-                               Optional<EntryView> seen) {
+    public static Payloads.Refusal of(AssistantVerb verb, MemoryException e,
+                                      ReasonCatalogue.Reason reason, Map<String, Object> args,
+                                      Optional<EntryView> seen) {
         if (ReasonCatalogue.NOT_FOUND.equals(reason.code())) {
             return new Payloads.Refusal(reason.code(), ReasonCatalogue.NOT_FOUND_MESSAGE,
                 Map.of(ATTEMPTED, verb.call()));
@@ -92,12 +108,15 @@ final class Refusals {
             refusal.data().put(Names.CONFLICT_TOKEN, current.conflictToken());
             refusal.data().put(AssistantVerb.FIELDS, Payloads.EntryFields.of(current));
         }
+        if (e.data().get(MemoryException.OFFENDERS) instanceof List<?> offenders) {
+            offendersOn(verb, refusal, offenders);
+        }
         return refusal;
     }
 
     /** A failure nobody foresaw, already logged under {@code reportId}. */
-    static Payloads.Refusal unexpected(AssistantVerb verb, Map<String, Object> args,
-                                       String reportId) {
+    public static Payloads.Refusal unexpected(AssistantVerb verb, Map<String, Object> args,
+                                              String reportId) {
         ReasonCatalogue.Reason reason =
             ReasonCatalogue.of(CallException.Reason.UNEXPECTED_FAILURE.name());
         Map<String, String> values = new LinkedHashMap<>();
@@ -129,6 +148,17 @@ final class Refusals {
             data.put(NEXT, Payloads.NextPayload.of(remedyOn(verb, reason, entry)));
         });
         return new Payloads.Refusal(reason.code(), message, data);
+    }
+
+    /**
+     * The arguments a refusal of {@code memory_query} names. Not yet on the
+     * other verbs: their refusals are aligned with DEC-0042 on their own.
+     */
+    private static void offendersOn(AssistantVerb verb, Payloads.Refusal refusal,
+                                    List<?> offenders) {
+        if (verb == AssistantVerb.QUERY) {
+            refusal.data().put(MemoryException.OFFENDERS, List.copyOf(offenders));
+        }
     }
 
     /** The calls the remedy names that this caller can make on this entry. */
@@ -185,10 +215,13 @@ final class Refusals {
         String firstOffender = offenders instanceof List<?> list && !list.isEmpty()
             ? String.valueOf(list.get(0)) : null;
         putIfPresent(values, ReasonCatalogue.FIELD, firstOffender);
+        putIfPresent(values, ReasonCatalogue.NAME, firstOffender);
+        putIfPresent(values, ReasonCatalogue.WHY, whyOf(verb, firstOffender));
+        values.put(ReasonCatalogue.ARGUMENTS, String.join(", ", verb.topNames()));
 
         values.put(ReasonCatalogue.TYPES, String.join(", ", EntryType.wireNames()));
         values.put(ReasonCatalogue.LIMIT, String.valueOf(MemoryService.CONTENT_LIMIT));
-        values.put(ReasonCatalogue.MAX, String.valueOf(QueryFilter.MAX_PAGE_SIZE));
+        values.put(ReasonCatalogue.MAX, String.valueOf(PageRequest.MAX_PAGE_SIZE));
         String content = string(fieldsOf(args).get(Names.CONTENT));
         putIfPresent(values, ReasonCatalogue.LENGTH,
             content == null ? null : String.valueOf(content.length()));
@@ -200,15 +233,36 @@ final class Refusals {
     private static String valueOf(AssistantVerb verb, MemoryException e,
                                   Map<String, Object> args, String firstOffender) {
         return switch (e.reason()) {
-            case TYPE_UNKNOWN -> firstOffender != null ? firstOffender : typeOf(args);
+            // The type a query or a write names is an argument the call sent;
+            // the types a digest names are a list, and its refusal names the
+            // one that is not a type.
+            case TYPE_UNKNOWN -> typeOf(args) != null ? typeOf(args) : firstOffender;
             case PAGE_SIZE_REJECTED -> string(args.get(Names.PAGE_SIZE));
             case CURSOR_MALFORMED, CURSOR_FOREIGN -> string(args.get(Names.AFTER));
-            case SORT_UNDECLARED -> firstOffender;
+            case SORT_UNDECLARED -> string(args.get(Names.SORT));
+            case ARGUMENT_INVALID -> firstOffender == null ? null
+                : string(args.get(firstOffender));
             case ADDRESS_MALFORMED -> takesAddress(verb)
                 ? string(args.get(Names.ADDRESS))
                 : targetOf(verb, args);
             default -> null;
         };
+    }
+
+    /**
+     * What an argument has to be, said from its declaration: the values it
+     * takes where it declares a set of them. Null where the declaration says
+     * nothing a refusal could repeat.
+     */
+    private static String whyOf(AssistantVerb verb, String name) {
+        return verb.topArguments().stream()
+            .filter(argument -> argument.name().equals(name))
+            .map(argument -> argument.keywords().get("enum"))
+            .filter(List.class::isInstance)
+            .map(values -> "it is one of " + String.join(", ",
+                ((List<?>) values).stream().map(String::valueOf).toList()))
+            .findFirst()
+            .orElse(null);
     }
 
     private static String typeOf(Map<String, Object> args) {
@@ -278,7 +332,7 @@ final class Refusals {
         return key == null ? null : key.split("[.-]", 2)[0];
     }
 
-    static boolean takesAddress(AssistantVerb verb) {
+    public static boolean takesAddress(AssistantVerb verb) {
         return verb.topArguments().stream().anyMatch(a -> Names.ADDRESS.equals(a.name()));
     }
 

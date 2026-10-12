@@ -1,9 +1,20 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.rest;
 
+import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
+import ai.kumbuka.memory.adapter.payload.AssistantRefusals;
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.surface.AddressParser;
+import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallerActor;
+import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.VerbSurface;
 import ai.kumbuka.memory.tenancy.TenantBound;
@@ -21,6 +32,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.EntityTag;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -73,6 +85,19 @@ import java.util.UUID;
  * HTTP expression and nothing else, so an addition here would be an addition
  * with no act behind it.
  *
+ * <h2>The surface a listing answers in</h2>
+ *
+ * A listing names calls — {@code next} on every entry, {@code attempted} on a
+ * refusal — and a call has a name per surface. Without the
+ * {@code Kumbuka-Surface} header that is this one. With
+ * {@code Kumbuka-Surface: assistant} a hop that publishes these calls as
+ * assistant tools and reaches this service over REST says so, and the
+ * listing answers in the assistant surface's projection: its {@code next}
+ * names {@code memory_read}, its refusals are worded from the reason
+ * catalogue as the service's own MCP adapter words them. Any other value is
+ * refused and nothing is read. The header is not an argument of the call, it
+ * grants nothing, and for now only {@code query} reads it.
+ *
  * <h2>Why the class carries a transaction</h2>
  *
  * {@code @TenantBound} binds the tenant inside a transaction and quietly does
@@ -95,6 +120,16 @@ public class EntryResource {
 
     /** What an item URI offers. */
     private static final String ITEM_ALLOW = "GET, PATCH, POST";
+
+    /**
+     * Names the surface the caller came through, where that is not this one.
+     * It decides nothing else: who calls, and what that caller may do, come
+     * from the verified identity as always.
+     */
+    static final String SURFACE = "Kumbuka-Surface";
+
+    /** The one value {@link #SURFACE} takes: the assistant surface. */
+    static final String ASSISTANT = "assistant";
 
     @Inject VerbSurface verbs;
     @Inject CallerActor caller;
@@ -122,13 +157,14 @@ public class EntryResource {
      */
     @GET
     @Path("{segment}")
-    public Response scopeGet(@PathParam("segment") String segment, @Context UriInfo uri) {
+    public Response scopeGet(@PathParam("segment") String segment, @Context UriInfo uri,
+                             @Context HttpHeaders http) {
         Optional<UUID> technical = AddressParser.technicalAddress(segment);
         if (technical.isPresent()) {
             refuseParametersOnAnItem(uri);
             return answer(verbs.readTechnical(caller.current(), technical.get()));
         }
-        return listing(verbs.query(caller.current(), segment, null, parametersOf(uri)));
+        return query(segment, null, uri, http);
     }
 
     /**
@@ -176,8 +212,8 @@ public class EntryResource {
     @Path("{scope}/{selector}")
     public Response collectionGet(@PathParam("scope") String scope,
                                   @PathParam("selector") String selector,
-                                  @Context UriInfo uri) {
-        return listing(verbs.query(caller.current(), scope, selector, parametersOf(uri)));
+                                  @Context UriInfo uri, @Context HttpHeaders http) {
+        return query(scope, selector, uri, http);
     }
 
     /**
@@ -294,15 +330,59 @@ public class EntryResource {
     }
 
     /**
-     * A listing, with no entity tag.
+     * {@code query}, answered on the surface the caller names.
      *
-     * <p>Deliberately untagged: the conflict token is a per-entry value and a
-     * listing has no single one. A tag over the set would be a token a caller
-     * could send back on a field write, which is a token about the wrong
-     * thing. Every entry of the listing carries its own.
+     * <p>The answer is deliberately untagged: the conflict token is a
+     * per-entry value and a listing has no single one. A tag over the set
+     * would be a token a caller could send back on a field write, which is a
+     * token about the wrong thing. Every entry of the listing carries its own.
      */
-    private static Response listing(ai.kumbuka.memory.domain.Listing found) {
-        return Response.ok(Payloads.ListingResponse.of(found)).build();
+    private Response query(String scope, String selector, UriInfo uri, HttpHeaders http) {
+        Map<String, String> asked = parametersOf(uri);
+        if (!onAssistantSurface(http.getRequestHeader(SURFACE))) {
+            return Response.ok(Payloads.PageResponse.of(
+                verbs.query(caller.current(), scope, selector, asked))).build();
+        }
+        try {
+            return Response.ok(AssistantPayloads.PageAnswer.of(
+                verbs.query(caller.current(), scope, selector, asked))).build();
+        } catch (MemoryException refused) {
+            ReasonCatalogue.Reason reason =
+                ReasonCatalogue.of(ReasonCatalogue.wireCode(refused.reason().name()));
+            if (reason.reach() != ReasonCatalogue.Reach.BOTH) {
+                // A reason the assistant surface does not answer is a failure
+                // it did not foresee; the generic form at least says what it
+                // was rather than wording it in a vocabulary it has no entry in.
+                throw refused;
+            }
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put(AssistantVerb.Names.SCOPE, scope);
+            if (selector != null) {
+                args.put(AssistantVerb.Names.SELECTOR, selector);
+            }
+            args.putAll(asked);
+            throw new AssistantRefused(refused, AssistantRefusals.of(AssistantVerb.QUERY,
+                refused, reason, args, Optional.empty()));
+        }
+    }
+
+    /**
+     * Whether the caller names the assistant surface: once, with the one
+     * value it takes. An empty value or a second one is a value the header
+     * cannot take, not an absence, and is refused before anything is read.
+     */
+    private static boolean onAssistantSurface(List<String> named) {
+        if (named == null || named.isEmpty()) {
+            return false;
+        }
+        if (!List.of(ASSISTANT).equals(named)) {
+            throw MemoryException.offending(MemoryException.Reason.ARGUMENT_INVALID,
+                "the header '" + SURFACE + "' takes the one value '" + ASSISTANT
+                    + "', once, or is left out. It names the surface whose calls the "
+                    + "answer is to name, and no other surface is answered here.",
+                List.of(SURFACE));
+        }
+        return true;
     }
 
     private static Response tagged(Response.ResponseBuilder response,

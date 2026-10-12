@@ -7,6 +7,7 @@
  */
 package ai.kumbuka.memory.repository;
 
+import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.domain.QueryFilter;
 import ai.kumbuka.memory.domain.SortKey;
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -78,10 +79,10 @@ class SelectorNarrowingIT {
     }
 
     private List<String> keysUnder(String selector) {
-        QueryFilter filter = new QueryFilter(null, null, null, SortKey.ID, SortKey.Direction.ASC,
-            QueryFilter.DEFAULT_PAGE_SIZE);
-        return entries.page(new MemoryRepository.PageRequest(SCOPE, selector,
-                SubstrateDatabaseResource.PROBE_SUBJECT, filter, null))
+        PageRequest page = new PageRequest(null, SortKey.ID, SortKey.Direction.ASC,
+            PageRequest.DEFAULT_PAGE_SIZE);
+        return entries.page(new MemoryRepository.Keyset(SCOPE, selector,
+                SubstrateDatabaseResource.PROBE_SUBJECT, new QueryFilter(null, null), page, null))
             .entries().stream().map(m -> m.key).toList();
     }
 }
