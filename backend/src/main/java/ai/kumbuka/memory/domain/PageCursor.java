@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Where a listing stopped, and which listing it was.
@@ -30,6 +31,18 @@ import java.util.List;
  * filter, the order and its direction — and a cursor whose binding is not the
  * query's is refused {@code CURSOR_FOREIGN} rather than applied.
  *
+ * <h2>Why the scope travels as a mark of its identity and not as its name</h2>
+ *
+ * A name is unique within one estate and nowhere else: every tenant has a
+ * scope called {@code global}. A cursor that bound the scope by its slug was
+ * measured being taken by tenant B on B's own {@code global} after tenant A
+ * had been handed it on A's — not a leak, since B's page held B's entries, but
+ * a page positioned by another estate's last key, which skips whatever of B's
+ * sorts before it without a word. So the scope is bound by a digest of its
+ * technical identity, which no two estates share; and a digest rather than
+ * the identity itself, because a uuid on this surface is a value no answer
+ * carries.
+ *
  * <h2>What it is not</h2>
  *
  * Not a secret and not signed. It is Base64url of a short text, and a caller
@@ -41,8 +54,8 @@ import java.util.List;
  *
  * <h2>The form, version 1</h2>
  *
- * Eight lines: {@code v1}, scope, selector (empty for the whole scope), filter
- * fingerprint, order, direction, the moment of the last entry in microseconds
+ * Eight lines: {@code v1}, the scope's {@link #mark}, selector (empty for the
+ * whole scope), filter fingerprint, order, direction, the moment of the last entry in microseconds
  * since the epoch, and its key. The key is last because it is the one value of
  * an entry, and nothing a key may contain is a line break. The moment travels
  * in the precision the column keeps ({@link StoredInstant#COLUMN_PRECISION}),
@@ -59,7 +72,7 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
     private static final String SEPARATOR = "\n";
     private static final int LINES = 8;
 
-    /** How many hexadecimal digits of the filter's digest the cursor keeps. */
+    /** How many hexadecimal digits of a digest the cursor keeps. */
     private static final int FINGERPRINT_DIGITS = 16;
 
     /**
@@ -68,7 +81,8 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
      * <p>The page size is deliberately not part of it: a caller may read the
      * next page in a different size, and the position is the same position.
      *
-     * @param scope     the scope's slug, as the read contract resolved it
+     * @param scope     the {@link #mark} of the scope's technical identity, as the
+     *                  read contract resolved it
      * @param selector  the selector, or null for the whole scope
      * @param filter    the {@link #fingerprint} of type and text
      * @param sort      the order
@@ -87,11 +101,24 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
      * searched.
      */
     public static String fingerprint(EntryType type, String text) {
-        String filter = "type=" + (type == null ? "" : type.wire())
-            + SEPARATOR + "text=" + (text == null ? "" : text);
+        return digestOf("type=" + (type == null ? "" : type.wire())
+            + SEPARATOR + "text=" + (text == null ? "" : text));
+    }
+
+    /**
+     * A scope, reduced to a value that names it in one estate and in no other.
+     *
+     * <p>Its technical identity rather than its slug, for the reason the class
+     * gives; digested, so that the identity itself stays off the wire.
+     */
+    public static String mark(UUID scopeId) {
+        return digestOf("scope=" + scopeId);
+    }
+
+    private static String digestOf(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                .digest(filter.getBytes(StandardCharsets.UTF_8));
+                .digest(value.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest).substring(0, FINGERPRINT_DIGITS);
         } catch (NoSuchAlgorithmException absent) {
             // Every Java platform carries SHA-256 (MessageDigest's own contract),

@@ -255,15 +255,16 @@ public class MemoryService {
      *
      * <p>A cursor is held against the query it is handed to only after the
      * scope is resolved. Its form is decidable without a scope, its binding is
-     * not: it names the scope by slug, and a scope this caller may not enter
-     * is the single not-found before anything is said about a cursor.
+     * not: it names the scope by a mark of its technical identity, which only
+     * the resolution yields, and a scope this caller may not enter is the
+     * single not-found before anything is said about a cursor.
      */
     @Transactional
     public Listing query(Actor actor, String scopeSlug, String selector, QueryFilter filter) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
 
-        PageCursor.Binding binding = new PageCursor.Binding(scope.slug(), selector,
+        PageCursor.Binding binding = new PageCursor.Binding(PageCursor.mark(scope.scopeId()), selector,
             PageCursor.fingerprint(filter.type(), filter.text()), filter.sort(),
             filter.direction());
         PageCursor after = filter.after() == null ? null : PageCursor.decode(filter.after());
