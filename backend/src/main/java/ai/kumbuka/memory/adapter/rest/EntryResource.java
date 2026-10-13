@@ -153,7 +153,7 @@ public class EntryResource {
      * <p>A technical read with query parameters is refused rather than served
      * with them ignored: it addresses one entry, so there is nothing for a
      * filter to narrow, and a parameter accepted and discarded is the failure
-     * the predicate vocabulary exists to prevent.
+     * the refusal of unknown arguments exists to prevent.
      */
     @GET
     @Path("{segment}")
@@ -369,18 +369,23 @@ public class EntryResource {
     /**
      * Whether the caller names the assistant surface: once, with the one
      * value it takes. An empty value or a second one is a value the header
-     * cannot take, not an absence, and is refused before anything is read.
+     * cannot take, not an absence, and is refused before the scope is looked
+     * at, so a scope this caller cannot see answers the same.
+     *
+     * <p>Without {@code data}: the header is not an argument of the call, so
+     * there is no argument name for {@code offenders} to carry, and the value
+     * sent is never repeated (DEC-0042). The dispatch and the worklist service
+     * refuse it in the same form.
      */
     private static boolean onAssistantSurface(List<String> named) {
         if (named == null || named.isEmpty()) {
             return false;
         }
         if (!List.of(ASSISTANT).equals(named)) {
-            throw MemoryException.offending(MemoryException.Reason.ARGUMENT_INVALID,
-                "the header '" + SURFACE + "' takes the one value '" + ASSISTANT
-                    + "', once, or is left out. It names the surface whose calls the "
-                    + "answer is to name, and no other surface is answered here.",
-                List.of(SURFACE));
+            throw new MemoryException(MemoryException.Reason.ARGUMENT_INVALID,
+                "Send the header '" + SURFACE + "' once with the value '" + ASSISTANT
+                    + "' to be answered in the assistant surface's vocabulary, or leave it "
+                    + "out to be answered in this one.");
         }
         return true;
     }
@@ -432,15 +437,23 @@ public class EntryResource {
         return flattened;
     }
 
+    /**
+     * Refuses every query parameter on an address that names one entry.
+     *
+     * <p>{@code ARGUMENT_UNKNOWN} with 400, as for any argument a verb does not
+     * declare (DEC-0042): {@code read} declares none, and that is decidable
+     * from the verb alone, without a scope. The names go in {@code offenders},
+     * sorted, and their values nowhere.
+     */
     private static void refuseParametersOnAnItem(UriInfo uri) {
-        List<String> given = List.copyOf(uri.getQueryParameters().keySet());
+        List<String> given = uri.getQueryParameters().keySet().stream().sorted().toList();
         if (!given.isEmpty()) {
-            throw MemoryException.offending(MemoryException.Reason.PREDICATE_UNKNOWN,
-                "this address names one entry, so there is nothing for a filter to "
-                    + "narrow. The parameters are refused rather than ignored: one "
-                    + "accepted and discarded would let a caller believe it had asked "
-                    + "something. Filters belong on a query, which is addressed at a "
-                    + "scope or at a selector.",
+            throw MemoryException.offending(MemoryException.Reason.ARGUMENT_UNKNOWN,
+                "this address names one entry, so a read takes no parameters: there is "
+                    + "nothing for a filter to narrow, and a parameter accepted and "
+                    + "discarded would let a caller believe it had asked something. Send "
+                    + "the read without parameters, and send filters to a query, which is "
+                    + "addressed at a scope or at a selector.",
                 given);
         }
     }

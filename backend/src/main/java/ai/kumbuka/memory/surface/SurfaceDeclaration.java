@@ -136,11 +136,8 @@ public final class SurfaceDeclaration {
         for (ReasonCatalogue.Reason reason : ReasonCatalogue.declared()) {
             Map<String, Object> declared = new LinkedHashMap<>();
             declared.put("reason", reason.code());
-            declared.put("message_pattern", ReasonCatalogue.inVocabulary(reason.pattern()));
-            if (reason.alternate() != null) {
-                declared.put("message_pattern_without_address",
-                    ReasonCatalogue.inVocabulary(reason.alternate()));
-            }
+            declared.put("message_pattern",
+                ReasonCatalogue.inVocabulary(reason.messagePattern()));
             declared.put("remedy", ReasonCatalogue.inVocabulary(reason.remedy()));
             declared.put("surface", reason.reach() == ReasonCatalogue.Reach.BOTH
                 ? "both" : "generic");

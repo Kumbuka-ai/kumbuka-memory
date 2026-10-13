@@ -228,9 +228,9 @@ public final class Payloads {
                 ? new NextPayload(
                     "create memory://" + withdrawn.address().scope() + "/"
                         + withdrawn.address().selector(),
-                    "the address is free again; a new entry may be laid down at it")
+                    "Create a new entry at this address, which is free again.")
                 : new NextPayload("read " + address,
-                    "reads the retired entry, which still stands at this address"));
+                    "Read the retired entry, which still stands at this address."));
 
             return new WithdrawnResponse(address,
                 withdrawn.outcome().name().toLowerCase(Locale.ROOT),

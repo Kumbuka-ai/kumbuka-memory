@@ -50,7 +50,7 @@ public record PageRequest(String after, SortKey sort, SortKey.Direction directio
 
     public PageRequest {
         if (pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
-            throw pageSizeRejected(String.valueOf(pageSize));
+            throw pageSizeRejected();
         }
     }
 
@@ -62,17 +62,15 @@ public record PageRequest(String after, SortKey sort, SortKey.Direction directio
      * than the value. Built here so that every path that judges a page size —
      * the range above, the parse of a query parameter, the kind of an
      * assistant's argument — refuses it with the same reason and the same
-     * offender.
-     *
-     * @param shown the value as the caller wrote it
+     * offender, and none of them repeats the value sent (DEC-0042).
      */
-    public static MemoryException pageSizeRejected(String shown) {
+    public static MemoryException pageSizeRejected() {
         return MemoryException.offending(MemoryException.Reason.PAGE_SIZE_REJECTED,
-            "a page carries between 1 and " + MAX_PAGE_SIZE + " entries, and " + shown
-                + " is not such a number. The request is refused rather than reduced to the "
-                + "limit: a page silently made smaller than the one asked for is how a caller "
-                + "comes to believe it has seen everything. Ask for a whole number of at most "
-                + MAX_PAGE_SIZE + " and page with the 'next_cursor' the answer carries.",
+            "'page_size' is a whole number from 1 to " + MAX_PAGE_SIZE + ". The request is "
+                + "refused rather than reduced to the limit: a page silently made smaller "
+                + "than the one asked for is how a caller comes to believe it has seen "
+                + "everything. Send a whole number from 1 to " + MAX_PAGE_SIZE + " and page "
+                + "with the 'next_cursor' the answer carries.",
             List.of(PAGE_SIZE));
     }
 }

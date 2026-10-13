@@ -15,7 +15,6 @@ import ai.kumbuka.memory.surface.CallException;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * The arguments of one tool call, checked against the declaration before a
@@ -45,10 +44,6 @@ import java.util.Set;
  */
 final class CallArguments {
 
-    /** The arguments whose value may be the text of an entry, and is never shown back. */
-    private static final Set<String> WITHHELD =
-        Set.of(AssistantVerb.Names.CONTENT, AssistantVerb.Names.REFERENCE);
-
     private final Map<String, Object> top;
     private final Map<String, Object> fields;
 
@@ -72,8 +67,8 @@ final class CallArguments {
             // dropped, so the caller would believe it had removed the
             // reference while the entry kept it. Refused, because this
             // surface accepts nothing it then discards.
-            throw CallException.invalid(AssistantVerb.Names.REFERENCE, "an empty text",
-                "a reference is a URL, and this call cannot remove one");
+            throw CallException.invalid(AssistantVerb.Names.REFERENCE,
+                "it is a URL, and the entry keeps the reference it has");
         }
     }
 
@@ -119,7 +114,7 @@ final class CallArguments {
             return Map.of();
         }
         if (!(raw instanceof Map)) {
-            throw CallException.invalid(AssistantVerb.FIELDS, shown(AssistantVerb.FIELDS, raw),
+            throw CallException.invalid(AssistantVerb.FIELDS,
                 "it is an object carrying the values this call writes");
         }
         return (Map<String, Object>) raw;
@@ -142,9 +137,9 @@ final class CallArguments {
         };
         if (why != null) {
             if (AssistantVerb.Names.PAGE_SIZE.equals(argument.name())) {
-                throw PageRequest.pageSizeRejected(shown(argument.name(), value));
+                throw PageRequest.pageSizeRejected();
             }
-            throw CallException.invalid(argument.name(), shown(argument.name(), value), why);
+            throw CallException.invalid(argument.name(), why);
         }
     }
 
@@ -155,38 +150,5 @@ final class CallArguments {
     private static boolean isNonEmptyTextList(Object value) {
         return value instanceof List<?> list && !list.isEmpty()
             && list.stream().allMatch(String.class::isInstance);
-    }
-
-    /**
-     * How a value of the wrong kind is shown back: as the caller wrote it,
-     * except where it could be the text of an entry, which no refusal repeats.
-     */
-    private static String shown(String name, Object value) {
-        if (WITHHELD.contains(name)) {
-            return kindOf(value);
-        }
-        if (value instanceof String text) {
-            return "\"" + text + "\"";
-        }
-        if (value instanceof Number || value instanceof Boolean) {
-            return value.toString();
-        }
-        return kindOf(value);
-    }
-
-    private static String kindOf(Object value) {
-        if (value instanceof String) {
-            return "a text";
-        }
-        if (value instanceof Number) {
-            return "a number";
-        }
-        if (value instanceof Boolean) {
-            return "true or false";
-        }
-        if (value instanceof List) {
-            return "a list";
-        }
-        return "an object";
     }
 }

@@ -39,6 +39,9 @@ import java.util.UUID;
 @TenantBound
 public class DigestService {
 
+    /** The argument the chosen types travel in, and the one their refusals name. */
+    private static final String TYPES = "types";
+
     @Inject ScopeDirectory scopes;
     @Inject MemoryRepository entries;
     @Inject DigestPreferenceRepository preferences;
@@ -177,19 +180,21 @@ public class DigestService {
      */
     private static List<EntryType> chosen(List<String> asked) {
         if (asked.isEmpty()) {
-            throw new MemoryException(MemoryException.Reason.TYPE_UNKNOWN,
+            throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
                 "an empty type selection asks for a digest with no content in it. Leave "
                     + "'types' out to get the estate's own selection, or name the types "
-                    + "to carry: " + String.join(", ", EntryType.wireNames()) + ".");
+                    + "to carry: " + String.join(", ", EntryType.wireNames()) + ".",
+                List.of(TYPES));
         }
         List<String> unknown = asked.stream().filter(t -> EntryType.of(t).isEmpty()).toList();
         if (!unknown.isEmpty()) {
             throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
-                "these are not kinds of entry this service carries. The six are "
-                    + String.join(", ", EntryType.wireNames()) + ". A name that is not one "
-                    + "of them is refused rather than dropped, because a section missing "
-                    + "from a digest reads as 'there are none of these'.",
-                unknown);
+                "every name in 'types' is one of the six kinds of entry this service "
+                    + "carries: " + String.join(", ", EntryType.wireNames()) + ". A name "
+                    + "outside them is refused rather than dropped, because a section "
+                    + "missing from a digest reads as 'there are none of these'. Send each "
+                    + "type as one of the six.",
+                List.of(TYPES));
         }
         return asked.stream().map(t -> EntryType.of(t).orElseThrow()).toList();
     }

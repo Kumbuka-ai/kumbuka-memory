@@ -186,13 +186,13 @@ public class VerbSurface {
         String address = entry.address().canonical();
         List<NextStep> next = new ArrayList<>();
         next.add(new NextStep("read " + address,
-            "reads the entry again and hands out a fresh conflict token"));
+            "Read the entry again to get its current state and a fresh conflict token."));
 
         if (entry.writable()) {
             next.add(new NextStep("update " + address,
-                "changes the content, the type or the reference; needs the conflict token"));
+                "Change the content, the type or the reference, sending the conflict token."));
             next.add(new NextStep("withdraw " + address,
-                "takes the entry out of force; needs the conflict token"));
+                "Take the entry out of force, sending the conflict token."));
         }
         return List.copyOf(next);
     }
@@ -242,9 +242,8 @@ public class VerbSurface {
         }
         return SortKey.of(asked).orElseThrow(() -> MemoryException.offending(
             MemoryException.Reason.SORT_UNDECLARED,
-            "'" + asked + "' is not an order this verb declares. 'sort' is one of "
-                + SortKey.wireNames() + "; an order over a creation moment always carries "
-                + "the key as its second key.",
+            "'sort' is one of " + SortKey.wireNames() + "; an order over a creation moment "
+                + "always carries the key as its second key. Send one of them.",
             List.of("sort")));
     }
 
@@ -261,8 +260,7 @@ public class VerbSurface {
         }
         return SortKey.Direction.of(asked).orElseThrow(() -> MemoryException.offending(
             MemoryException.Reason.ARGUMENT_INVALID,
-            "'" + asked + "' is not a direction. 'direction' is one of "
-                + SortKey.Direction.wireNames() + ".",
+            "'direction' is one of " + SortKey.Direction.wireNames() + ". Send one of them.",
             List.of(DIRECTION)));
     }
 
@@ -272,8 +270,8 @@ public class VerbSurface {
         }
         return EntryType.of(asked).orElseThrow(() -> MemoryException.offending(
             MemoryException.Reason.TYPE_UNKNOWN,
-            "'" + asked + "' is not a kind of entry this service carries. The six are "
-                + String.join(", ", EntryType.wireNames()) + ".",
+            "'type' is one of the six kinds of entry this service carries: "
+                + String.join(", ", EntryType.wireNames()) + ". Send one of them.",
             List.of("type")));
     }
 
@@ -284,7 +282,7 @@ public class VerbSurface {
         try {
             return Integer.parseInt(asked.trim());
         } catch (NumberFormatException notANumber) {
-            throw PageRequest.pageSizeRejected("'" + asked + "'");
+            throw PageRequest.pageSizeRejected();
         }
     }
 

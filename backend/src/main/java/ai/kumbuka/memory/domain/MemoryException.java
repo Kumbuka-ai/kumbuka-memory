@@ -116,8 +116,6 @@ public class MemoryException extends RuntimeException {
 
         // --- reading ---------------------------------------------------------
 
-        /** The call names a filter field the scope does not declare. */
-        PREDICATE_UNKNOWN,
         /** The page size is outside what this verb serves. */
         PAGE_SIZE_REJECTED,
         /** The cursor is not one this verb handed out. */

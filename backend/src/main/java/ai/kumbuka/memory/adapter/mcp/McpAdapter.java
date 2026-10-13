@@ -11,6 +11,7 @@ import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
 import ai.kumbuka.memory.adapter.payload.AssistantRefusals;
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.Actor;
+import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.Patch;
@@ -211,7 +212,7 @@ public class McpAdapter {
         try {
             return answered(verb, args);
         } catch (RuntimeException failure) {
-            return refused(AssistantRefusals.unexpected(verb, args,
+            return refused(AssistantRefusals.unexpected(verb,
                 UnexpectedFailures.logged(verb.call(), failure)));
         }
     }
@@ -228,7 +229,7 @@ public class McpAdapter {
                 // A reason of the generic surface arriving here — a session
                 // the read contract could not be bound for, above all — is a
                 // failure this surface did not foresee, and is answered as one.
-                return refused(AssistantRefusals.unexpected(verb, args,
+                return refused(AssistantRefusals.unexpected(verb,
                     UnexpectedFailures.logged(verb.call(), e)));
             }
             LOG.debugf("assistant refusal: %s", e.reason());
@@ -310,8 +311,8 @@ public class McpAdapter {
         Object address = null;
         if (AssistantRefusals.takesAddress(verb)) {
             address = args.get(Names.ADDRESS);
-        } else if (e != null) {
-            address = e.data().get(MemoryException.ADDRESS);
+        } else if (verb == AssistantVerb.CREATE) {
+            address = targetOfCreate(args);
         }
         if (!(address instanceof String complete)) {
             return Optional.empty();
@@ -333,6 +334,20 @@ public class McpAdapter {
             UnexpectedFailures.logged(verb.call(), failure);
             return Optional.empty();
         }
+    }
+
+    /**
+     * The address a create aimed at, from the scope and the key it was sent;
+     * null where the key carries no selector and so names no address.
+     */
+    private static String targetOfCreate(Map<String, Object> args) {
+        if (!(args.get(Names.SCOPE) instanceof String scope)
+            || !(args.get(AssistantVerb.FIELDS) instanceof Map<?, ?> fields)
+            || !(fields.get(Names.KEY) instanceof String key)
+            || key.indexOf(EntryAddress.SEPARATOR) < 1) {
+            return null;
+        }
+        return EntryAddress.ofKey(scope, key).canonical();
     }
 
     // ======================================================================

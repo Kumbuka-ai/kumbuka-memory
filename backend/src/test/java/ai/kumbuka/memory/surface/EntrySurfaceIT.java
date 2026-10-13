@@ -99,7 +99,7 @@ class EntrySurfaceIT {
     }
 
     @Test
-    void create_onto_an_occupied_address_is_already_exists_and_carries_that_address() {
+    void create_onto_an_occupied_address_is_already_exists_and_repeats_no_address() {
         create(KEY, "decision", "the first one");
 
         Response second = call()
@@ -110,12 +110,12 @@ class EntrySurfaceIT {
         assertThat(second.jsonPath().getString("reason"))
             .as("A4: create only ever lays down a new entry. There is no upsert and no "
                 + "'existed' flag — the operator decided on 2026-09-19 that a conflict is "
-                + "ALREADY_EXISTS with the address of what stands there")
+                + "ALREADY_EXISTS")
             .isEqualTo("ALREADY_EXISTS");
-        assertThat(second.jsonPath().getString("data.address"))
-            .as("and the address is complete, so a caller that meant to change the entry "
-                + "has somewhere to send the change")
-            .isEqualTo(ADDRESS);
+        assertThat(second.asString())
+            .as("the address is the scope and the key the caller sent, and a refusal repeats "
+                + "no value the caller sent (DEC-0042)")
+            .doesNotContain(ADDRESS);
         assertThat(second.jsonPath().getString("message"))
             .as("the message names the remedy, which DEC-0042 requires where there is one")
             .contains("update");
@@ -343,8 +343,10 @@ class EntrySurfaceIT {
         Response answer = call()
             .get(API + "/" + SCOPE + "/decision/storage-engine?type=convention");
 
-        assertThat(answer.statusCode()).isEqualTo(422);
-        assertThat(answer.jsonPath().getString("reason")).isEqualTo("PREDICATE_UNKNOWN");
+        assertThat(answer.statusCode())
+            .as("an argument read does not declare, decidable without a scope (DEC-0042)")
+            .isEqualTo(400);
+        assertThat(answer.jsonPath().getString("reason")).isEqualTo("ARGUMENT_UNKNOWN");
         assertThat(answer.jsonPath().getList("data.offenders", String.class))
             .containsExactly("type");
     }

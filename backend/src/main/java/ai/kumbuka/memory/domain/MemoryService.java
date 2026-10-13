@@ -74,6 +74,9 @@ public class MemoryService {
     /** The channel every write over this surface was made through. */
     private static final String SOURCE_SERVICE = "mcp";
 
+    /** The argument a type travels in, and the one its refusal names. */
+    private static final String TYPE = "type";
+
     @Inject ScopeDirectory scopes;
     @Inject MemoryRepository entries;
     @Inject TenantContext tenants;
@@ -104,7 +107,7 @@ public class MemoryService {
         entries.findOccupant(scope.scopeId(), address.key(), scope.isPrivate(),
                 actor.subject())
             .ifPresent(occupant -> {
-                throw occupied(address);
+                throw occupied();
             });
 
         Memory entry = new Memory();
@@ -297,11 +300,11 @@ public class MemoryService {
         return EntryType.of(type)
             .orElseThrow(() -> MemoryException.offending(
                 MemoryException.Reason.TYPE_UNKNOWN,
-                "'" + type + "' is not a kind of entry this service carries. The six are "
+                "'type' is one of the six kinds of entry this service carries: "
                     + String.join(", ", EntryType.wireNames()) + ". The kind decides where "
                     + "the entry appears in a digest, which is why it is a fixed "
-                    + "vocabulary rather than a label.",
-                List.of(String.valueOf(type))))
+                    + "vocabulary rather than a label. Send one of the six.",
+                List.of(TYPE)))
             .wire();
     }
 
@@ -380,14 +383,17 @@ public class MemoryService {
         }
     }
 
-    private static MemoryException occupied(EntryAddress address) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put(MemoryException.ADDRESS, address.canonical());
+    /**
+     * An occupied address, named by neither its address nor its key: the
+     * caller sent both and holds them, and a refusal repeats no value the
+     * caller sent (DEC-0042).
+     */
+    private static MemoryException occupied() {
         return new MemoryException(MemoryException.Reason.ALREADY_EXISTS,
-            "an entry already stands at " + address.canonical() + ". This verb only ever "
-                + "lays down a new one — it never overwrites — so the entry that is there "
-                + "is untouched. Send the change to that address with 'update', or choose "
-                + "another key.", data);
+            "an entry already stands at this address. This verb only ever lays down a new "
+                + "one — it never overwrites — so the entry that is there is untouched. Send "
+                + "the change to that address with 'update', or create the entry under "
+                + "another key.");
     }
 
     /**

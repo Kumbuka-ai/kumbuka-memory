@@ -25,11 +25,13 @@ import java.util.regex.Pattern;
  *
  * The domain's refusals carry sentences of their own, written for the generic
  * surface, and those sentences stay there. On the assistant surface a message
- * is this table's pattern with its placeholders filled from the call itself —
- * the name of the tool, an argument the caller sent, a count, a limit — and a
+ * is this table's pattern and remedy with their placeholders filled — the
+ * name of the tool, the name of an argument, a count, a limit — and a
  * sentence produced inside the service never reaches the caller, in whole or
  * in part. A pattern that interpolated the domain's message would hand the
- * caller exactly the internals the rule keeps out.
+ * caller exactly the internals the rule keeps out, and one that interpolated
+ * a value the caller sent would write that value into every log the refusal
+ * reaches (DEC-0042).
  *
  * <h2>Steps are named in the vocabulary of the surface</h2>
  *
@@ -50,17 +52,8 @@ public final class ReasonCatalogue {
 
     // --- the placeholders, spelled once ------------------------------------
 
-    /** The remedy of every refusal about one value the caller can simply correct. */
-    private static final String CORRECT_THE_VALUE = "correct the value";
-
     public static final String CALL = "call";
-    public static final String ADDRESS = "address";
-    public static final String SCOPE = "scope";
-    public static final String KEY = "key";
-    public static final String KEY_SELECTOR = "key_selector";
-    public static final String SELECTOR = "selector";
     public static final String FIELD = "field";
-    public static final String VALUE = "value";
     public static final String TYPES = "types";
     public static final String LENGTH = "length";
     public static final String LIMIT = "limit";
@@ -112,168 +105,183 @@ public final class ReasonCatalogue {
     /**
      * One declared reason.
      *
-     * @param code      the code on the wire
-     * @param pattern   the message, with placeholders in braces
-     * @param alternate a second form of the same message for a call without
-     *                  an address, or null where there is none
-     * @param remedy    what the caller can do, in the surface's vocabulary
-     * @param steps     the calls the remedy names, in order; listed in
-     *                  {@code data.next} where the refusal concerns an entry
-     *                  the caller may see
-     * @param repeat    whether the remedy is to make the same call again,
-     *                  corrected
-     * @param reach     where the reason can be returned
+     * @param code    the code on the wire
+     * @param pattern what went wrong, with placeholders in braces: the
+     *                argument it concerns and the form that argument takes,
+     *                never the value the caller sent (DEC-0042)
+     * @param remedy  what the caller does next, as an instruction in the
+     *                surface's vocabulary and stated positively (DEC-0042);
+     *                the message ends with it
+     * @param steps   the calls the remedy names, in order; listed in
+     *                {@code data.next} where the refusal concerns an entry
+     *                the caller may see
+     * @param repeat  whether the remedy is to make the same call again,
+     *                corrected
+     * @param reach   where the reason can be returned
      */
-    public record Reason(String code, String pattern, String alternate, String remedy,
+    public record Reason(String code, String pattern, String remedy,
                          List<AssistantVerb> steps, boolean repeat, Reach reach) {
 
         public Reason {
             steps = List.copyOf(steps);
         }
+
+        /** The whole message: what went wrong, then what to do. */
+        public String messagePattern() {
+            return pattern + " " + remedy;
+        }
     }
 
+    /**
+     * The catalogue.
+     *
+     * <p>No pattern names a value the caller sent: not the address, the
+     * scope, the key, the selector, the type or the cursor. A refusal is
+     * written to logs, a value can be content, and the caller holds what it
+     * sent (DEC-0042). A pattern names the argument and the form it admits;
+     * what it fills in is the call, an argument's name, a count, a limit, a
+     * list the service declares, or a report reference.
+     *
+     * <p>Every remedy is the act to perform, phrased as what to do. A caller
+     * that is a model carries out an instruction more reliably than it
+     * inverts a prohibition (DEC-0042).
+     */
     private static Map<String, Reason> declare() {
         Map<String, Reason> declared = new LinkedHashMap<>();
 
-        put(declared, NOT_FOUND, NOT_FOUND_MESSAGE, "check scope and address");
+        put(declared, NOT_FOUND, "nothing is addressed here.",
+            "Check the address, and that you are a member of the scope it names.");
         put(declared, "SCOPE_LOCKED",
-            "{call} is not possible in scope {scope}: the scope is locked and takes no write "
-                + "from anyone.",
-            "{read}, {query}, {digest}",
+            "{call} is refused: the scope is locked, and a locked scope takes writes from "
+                + "nobody.",
+            "Read the scope with {read}, {query} or {digest}, and write to it once it is "
+                + "unlocked.",
             AssistantVerb.READ, AssistantVerb.QUERY, AssistantVerb.DIGEST);
         put(declared, "SCOPE_READ_ONLY",
-            "{call} is not possible in scope {scope}: you may read this scope but not write "
-                + "to it.",
-            "{read}, {query}, {digest}",
+            "{call} is refused: your right in this scope is to read it.",
+            "Read the scope with {read}, {query} or {digest}, and ask the scope's owner for "
+                + "the write right to change it.",
             AssistantVerb.READ, AssistantVerb.QUERY, AssistantVerb.DIGEST);
         repeat(declared, "ADDRESS_MALFORMED",
-            "{value} is not an address this service carries. An entry stands at "
-                + "memory://<scope>/<selector>/<id>.",
-            "correct the address");
+            "{call} was given an address or a scope in a form this service does not carry.",
+            "Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase "
+                + "letters and digits, in segments joined by single hyphens.");
         repeat(declared, "KEY_MALFORMED",
-            "{key} is not a key this service stores. A key is <selector>.<id> in lowercase "
-                + "letters, digits, dots and hyphens.",
-            "correct the key");
+            "{call} was given a key or a selector in a form this service does not store.",
+            "Write a key as <selector>.<id> in lowercase letters and digits, in segments "
+                + "joined by single dots or hyphens; its selector begins with a letter and "
+                + "runs to at most sixteen characters.");
         repeat(declared, "SELECTOR_ABSENT",
-            "{call} names no selector for {key}. A key is <selector>.<id>, and the part "
-                + "before its first dot is the selector the entry stands under.",
-            "write the key as <selector>.<id>");
+            "{call} was given a key that names no selector. The part of a key before its "
+                + "first dot is the selector the entry stands under.",
+            "Write the key as <selector>.<id>.");
         repeat(declared, "SELECTOR_RESERVED",
-            "The selector {selector} is reserved for entries the service lays down itself.",
-            "use another selector");
+            "The selector of this key is reserved for entries the service lays down itself.",
+            "Choose another selector for the key, such as decision, convention or "
+                + "constraint.");
         repeat(declared, "SELECTOR_MISMATCHED",
-            "The key {key} begins with the selector {key_selector}, but {call} names the "
-                + "selector {selector}.",
-            "make the two agree");
+            "The key begins with another selector than the one {call} names.",
+            "Make the selector argument and the part of the key before its first dot the "
+                + "same.");
         put(declared, "ALREADY_EXISTS",
-            "{call} is not possible: an entry already stands at {address}. Change it with "
-                + "{update}.",
-            "{read}, then {update}",
+            "{call} is refused: an entry already stands at this address.",
+            "Read the entry with {read} and change it with {update}, or create the new entry "
+                + "under another key.",
             AssistantVerb.READ, AssistantVerb.UPDATE);
         put(declared, "CONFLICT_TOKEN_STALE",
-            "{call} is not possible on {address}: the entry was changed since you read it. "
-                + "Read it again with {read} and repeat the call with the new conflict token.",
-            "{read}, then repeat",
+            "{call} is refused: the entry was changed since you read it.",
+            "Read the entry again with {read} and repeat the call with the new conflict "
+                + "token.",
             AssistantVerb.READ);
         repeat(declared, "UPDATE_EMPTY",
-            "{call} on {address} names nothing to change. It can change content, type and "
-                + "reference.",
-            "supply one of the three");
+            "{call} names nothing to change.",
+            "Send at least one of content, type and reference in fields.");
         repeat(declared, "TYPE_UNKNOWN",
-            "{value} is not a type of entry. The types are: {types}.",
-            "use one of the list");
+            "{call} was sent a type outside the entry types, which are: {types}.",
+            "Send each type as one of these.");
         repeat(declared, "CONTENT_ABSENT",
             "{call} needs content: an entry without content is not stored.",
-            "supply content");
+            "Send the text of the entry as content.");
         repeat(declared, "CONTENT_OVERSIZE",
-            "The content is {length} characters long. An entry holds at most {limit}.",
-            "shorten it, or split it into several entries");
+            "The content is {length} characters long, and an entry holds at most {limit}.",
+            "Shorten the content to at most {limit} characters, or split it into several "
+                + "entries.");
         repeat(declared, "REFERENCE_CREDENTIAL_BEARING",
-            "The reference carries a credential and is not stored. Remove the user "
-                + "information and every secret parameter from the URL.",
-            "correct the reference");
+            "The reference carries a credential and is not stored.",
+            "Remove the user information and every secret parameter from the URL, then send "
+                + "it again.");
         repeat(declared, "PAGE_SIZE_REJECTED",
-            "page_size = {value} is not valid for {call}: it is a whole number from 1 to "
-                + "{max}.",
-            CORRECT_THE_VALUE);
+            "page_size is outside what {call} takes.",
+            "Send page_size as a whole number from 1 to {max}.");
         put(declared, "CURSOR_MALFORMED",
-            "after = {value} is not a cursor {query} handed out.",
-            "repeat {query} without after",
+            "after is not a cursor {query} handed out.",
+            "Call {query} again from the first page, or send as after the next_cursor of the "
+                + "page you read last.",
             AssistantVerb.QUERY);
         put(declared, "CURSOR_FOREIGN",
-            "after = {value} was handed out by {query} for another scope, selector, type, "
-                + "text, sort or direction.",
-            "repeat {query} without after",
+            "after was handed out by {query} for another scope, selector, type, text, sort or "
+                + "direction.",
+            "Call {query} again from the first page.",
             AssistantVerb.QUERY);
         repeat(declared, "SORT_UNDECLARED",
-            "{value} is not an order {call} declares: sort is id or created_at, direction is "
-                + "asc or desc.",
-            CORRECT_THE_VALUE);
+            "sort names an order {call} does not declare.",
+            "Send sort as id or created_at.");
         put(declared, "ACTOR_UNKNOWN",
             "The token is valid but names no subject to act as.",
-            "authenticate as a subject");
+            "Authenticate as a subject and call again with that token.");
         repeat(declared, "ARGUMENT_UNKNOWN",
             "{call} has no argument named {name}. Its arguments are: {arguments}.",
-            "correct the name");
+            "Name each argument as the call declares it.");
         repeat(declared, "ARGUMENT_MISSING",
             "{call} needs {name}: {what}.",
-            "supply it");
+            "Send {name} with the call.");
         repeat(declared, "ARGUMENT_INVALID",
-            "{name} = {value} is not valid for {call}: {why}.",
-            CORRECT_THE_VALUE);
+            "{name} is not valid for {call}: {why}.",
+            "Send {name} in that form.");
         declared.put("UNEXPECTED_FAILURE", new Reason("UNEXPECTED_FAILURE",
-            "{call} on {address} failed unexpectedly. This is a defect, not a rule. Nothing "
-                + "was changed. Report reference {report}.",
-            "{call} in scope {scope} failed unexpectedly. This is a defect, not a rule. "
-                + "Nothing was changed. Report reference {report}.",
-            "report the reference", List.of(), false, Reach.BOTH));
+            "{call} failed unexpectedly. This is a defect, not a rule. Nothing was changed.",
+            "Report reference {report} to the operator of this service.",
+            List.of(), false, Reach.BOTH));
 
         // --- the generic surface's own -------------------------------------
         generic(declared, "CONFLICT_TOKEN_MISSING",
-            "{call} on {address} needs the conflict token of the latest read, and none "
-                + "arrived.",
-            "{read}, then repeat with the token");
-        generic(declared, "PREDICATE_UNKNOWN",
-            "{call} carries no predicate named {name}.",
-            "correct the name");
+            "{call} needs the conflict token of the latest read, and none arrived.",
+            "Read the entry with {read} and send its conflict token with the call.");
         // A field fixed for the life of an entry is no argument of any call on
         // the assistant surface, so naming one there is ARGUMENT_UNKNOWN.
         generic(declared, "FIELD_IMMUTABLE",
-            "{field} of {address} is fixed for the life of the entry and cannot be changed by "
-                + "{call}.",
-            "leave the field out");
+            "{field} is fixed for the life of the entry.",
+            "Send the change in the fields the call changes: content, type and reference.");
         generic(declared, "PAYLOAD_MALFORMED",
             "The body of {call} is not the JSON it takes.",
-            "correct the body");
+            "Send the body as the JSON object the call takes.");
         generic(declared, "VERB_NOT_CARRIED",
-            "{name} is not a verb {address} carries.",
-            "use a verb the address carries");
+            "{name} is not a verb this address carries.",
+            "Send a verb the address carries.");
         generic(declared, "ADDRESS_TRUNCATED",
             "{call} needs a complete address and was given a truncated one.",
-            "complete the address");
+            "Send the complete address.");
         generic(declared, "SESSION_NOT_BOUND",
             "{call} could not be answered: the session the read contract needs was not "
                 + "bound.",
-            "report it");
+            "Report the failure to the operator of this service.");
 
         return Map.copyOf(declared);
     }
 
     private static void put(Map<String, Reason> into, String code, String pattern,
                             String remedy, AssistantVerb... steps) {
-        into.put(code, new Reason(code, pattern, null, remedy, List.of(steps), false,
-            Reach.BOTH));
+        into.put(code, new Reason(code, pattern, remedy, List.of(steps), false, Reach.BOTH));
     }
 
     private static void repeat(Map<String, Reason> into, String code, String pattern,
                                String remedy) {
-        into.put(code, new Reason(code, pattern, null, remedy, List.of(), true, Reach.BOTH));
+        into.put(code, new Reason(code, pattern, remedy, List.of(), true, Reach.BOTH));
     }
 
     private static void generic(Map<String, Reason> into, String code, String pattern,
                                 String remedy) {
-        into.put(code, new Reason(code, pattern, null, remedy, List.of(), false,
-            Reach.GENERIC));
+        into.put(code, new Reason(code, pattern, remedy, List.of(), false, Reach.GENERIC));
     }
 
     // ======================================================================
@@ -370,18 +378,14 @@ public final class ReasonCatalogue {
     }
 
     /**
-     * The message for a reason, built from its pattern alone.
+     * The message for a reason, built from its pattern and its remedy alone.
      *
-     * @param alternate whether to use the form for a call without an address
      * @throws IllegalStateException when the pattern names a placeholder the
      *         values do not fill; a half-filled message reads as finished,
      *         which is worse than none
      */
-    public static String message(Reason reason, boolean alternate, Map<String, String> values) {
-        String pattern = alternate && reason.alternate() != null
-            ? reason.alternate()
-            : reason.pattern();
-        return fill(pattern, values, false);
+    public static String message(Reason reason, Map<String, String> values) {
+        return fill(reason.messagePattern(), values, false);
     }
 
     /**

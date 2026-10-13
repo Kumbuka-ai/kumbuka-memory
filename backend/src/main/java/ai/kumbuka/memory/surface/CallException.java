@@ -67,14 +67,14 @@ public class CallException extends RuntimeException {
     }
 
     /**
-     * @param shown how the value is shown back: the value itself, or only its
-     *              kind where the value could be the content of an entry
-     * @param why   a sentence of this surface's own saying what the value must be
+     * The value sent is never part of the refusal: a refusal is logged, and a
+     * value can be content (DEC-0042).
+     *
+     * @param why a sentence of this surface's own saying what the value must be
      */
-    public static CallException invalid(String name, String shown, String why) {
+    public static CallException invalid(String name, String why) {
         Map<String, String> values = new LinkedHashMap<>();
         values.put(ReasonCatalogue.NAME, name);
-        values.put(ReasonCatalogue.VALUE, shown);
         values.put(ReasonCatalogue.WHY, why);
         return new CallException(Reason.ARGUMENT_INVALID, "argument of the wrong kind",
             values);

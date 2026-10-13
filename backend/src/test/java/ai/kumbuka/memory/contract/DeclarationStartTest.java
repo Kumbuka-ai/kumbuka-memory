@@ -61,7 +61,7 @@ class DeclarationStartTest {
     void a_reason_declared_without_a_pattern_refuses() {
         Map<String, ReasonCatalogue.Reason> blank = new LinkedHashMap<>(ReasonCatalogue.byCode());
         ReasonCatalogue.Reason kept = blank.get("TYPE_UNKNOWN");
-        blank.put("TYPE_UNKNOWN", new ReasonCatalogue.Reason(kept.code(), " ", null,
+        blank.put("TYPE_UNKNOWN", new ReasonCatalogue.Reason(kept.code(), " ",
             kept.remedy(), kept.steps(), kept.repeat(), kept.reach()));
         assertThatThrownBy(() -> SurfaceDeclaration.requireServable(blank))
             .isInstanceOf(IllegalStateException.class)

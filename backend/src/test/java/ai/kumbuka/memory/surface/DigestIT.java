@@ -183,9 +183,11 @@ class DigestIT {
         assertThat(digest.statusCode()).isEqualTo(422);
         assertThat(digest.jsonPath().getString("reason")).isEqualTo("TYPE_UNKNOWN");
         assertThat(digest.jsonPath().getList("data.offenders", String.class))
-            .as("named, because a section missing from a digest reads as 'there are none "
-                + "of these' and a misspelling would answer that")
-            .containsExactly("decisions");
+            .as("the argument is named, because a section missing from a digest reads as "
+                + "'there are none of these' and a misspelling would answer that; the value "
+                + "is not repeated (DEC-0042)")
+            .containsExactly("types");
+        assertThat(digest.asString()).doesNotContain("decisions");
     }
 
     @Test

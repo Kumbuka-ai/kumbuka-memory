@@ -172,9 +172,11 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
                 // Vocabulary: the call parses and names something that is not
                 // part of the offering. A type this service does not carry, a
-                // predicate this verb does not have, a selector reserved for
-                // the service, a reference that may not be stored at all.
-                case TYPE_UNKNOWN, PREDICATE_UNKNOWN, SELECTOR_RESERVED,
+                // selector reserved for the service, a reference that may not
+                // be stored at all. No PREDICATE_UNKNOWN: this service declares
+                // no filter fields per scope, so an unknown filter is an
+                // unknown argument (DEC-0042).
+                case TYPE_UNKNOWN, SELECTOR_RESERVED,
                      FIELD_IMMUTABLE, REFERENCE_CREDENTIAL_BEARING -> 422;
 
                 // Ours, not the caller's: the session contract was not bound,

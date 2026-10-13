@@ -19,7 +19,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 
 import static ai.kumbuka.memory.surface.SurfaceFixture.API;
 import static ai.kumbuka.memory.surface.SurfaceFixture.call;
@@ -112,21 +111,40 @@ class SurfaceHeaderIT {
             .doesNotContainKey("attempted");
     }
 
+    /**
+     * The header is no argument of the call, and whether its value is one it
+     * takes is decidable without a scope. So the refusal carries no
+     * {@code data}, and it answers the same for a scope this caller cannot
+     * see as for one it can: before the scope is looked at, as the dispatch
+     * and the worklist service refuse it.
+     *
+     * <p>The red run, observed on 2026-10-13: every case answered with
+     * {@code data.offenders = ["Kumbuka-Surface"]}.
+     */
     @Test
-    void a_value_the_header_cannot_take_is_refused_before_anything_is_read() {
-        for (List<String> values : List.of(List.of("rest"), List.of(""),
-                List.of("assistant", "assistant"))) {
-            var request = call();
-            for (String value : values) {
-                request = request.header(SURFACE, value);
-            }
-            Response answer = request.get(API + "/" + SCOPE);
+    void a_value_the_header_cannot_take_is_refused_before_the_scope_is_looked_at() {
+        for (String scope : List.of(SCOPE, SubstrateDatabaseResource.OTHER_TENANT_SCOPE_SLUG,
+                "no-such-scope")) {
+            for (List<String> values : List.of(List.of("zq-marked-surface"), List.of(""),
+                    List.of("assistant", "assistant"))) {
+                var request = call();
+                for (String value : values) {
+                    request = request.header(SURFACE, value);
+                }
+                Response answer = request.get(API + "/" + scope);
 
-            assertThat(answer.statusCode()).as("%s: %s", values, answer.asString())
-                .isEqualTo(400);
-            assertThat(answer.jsonPath().getString("reason")).isEqualTo("ARGUMENT_INVALID");
-            assertThat(answer.jsonPath().getMap("data"))
-                .isEqualTo(Map.of("offenders", List.of(SURFACE)));
+                assertThat(answer.statusCode()).as("%s %s: %s", scope, values,
+                    answer.asString()).isEqualTo(400);
+                assertThat(answer.jsonPath().getString("reason"))
+                    .isEqualTo("ARGUMENT_INVALID");
+                assertThat(answer.jsonPath().getMap("$"))
+                    .as("no data: the header is not an argument — %s", answer.asString())
+                    .containsOnlyKeys("reason", "message");
+                assertThat(answer.jsonPath().getString("message"))
+                    .as("names the header and the value it takes, and not the value sent")
+                    .contains(SURFACE).contains("assistant")
+                    .doesNotContain("zq-marked-surface");
+            }
         }
     }
 }
