@@ -22,7 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The two listing reads of V6 are served by the indexes V6 lays down.
+ * The two listing reads of V6 are served by the indexes V6 and V7 lay down.
  *
  * <h2>What is planned, and as whom</h2>
  *
@@ -85,10 +85,10 @@ class ListingIndexIT {
             listing("AND m.selector = 'sel7'") + " ORDER BY m.key ASC LIMIT 51");
 
         assertThat(plan)
-            .as("the selector is an equality on the generated column, and (scope_id, "
-                + "selector, key) serves the narrowing and the key order behind it. Plan:%n%s",
-                plan)
-            .contains("idx_memory_scope_selector_key");
+            .as("the selector is an equality on the generated column, and (tenant_id, "
+                + "scope_id, selector, key) of V7 serves the narrowing and the key order "
+                + "behind it. Plan:%n%s", plan)
+            .contains("idx_memory_listing_selector_key");
     }
 
     @Test

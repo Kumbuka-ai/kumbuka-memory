@@ -269,15 +269,17 @@ public class MemoryRepository {
     /**
      * The rows strictly after the cursor's position, in the listing's order.
      *
-     * <p>Spelled out as a disjunction rather than a row comparison: it says
-     * the same thing, and it is what every JPQL engine takes.
+     * <p>A row comparison and not the disjunction it is equivalent to. The
+     * planner seeks an index to a row comparison over its trailing columns
+     * and starts the walk at the cursor; the disjunction it can only apply as
+     * a filter, so every page walked from the first row of the listing and
+     * discarded everything before the cursor (measured in PageListingPlanIT).
      */
     private static String keysetAfter(SortKey sort, SortKey.Direction direction) {
         String beyond = direction == SortKey.Direction.ASC ? " > " : " < ";
         return switch (sort) {
             case ID -> "m.key" + beyond + ":afterKey";
-            case CREATED_AT -> "(m.createdAt" + beyond + ":afterAt"
-                + " OR (m.createdAt = :afterAt AND m.key" + beyond + ":afterKey))";
+            case CREATED_AT -> "(m.createdAt, m.key)" + beyond + "(:afterAt, :afterKey)";
         };
     }
 
