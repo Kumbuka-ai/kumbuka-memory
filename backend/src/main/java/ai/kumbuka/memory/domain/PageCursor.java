@@ -183,11 +183,6 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
     }
 
     private static MemoryException malformed() {
-        return MemoryException.offending(MemoryException.Reason.CURSOR_MALFORMED,
-            "this is not a cursor this verb handed out. A cursor is taken from the "
-                + "'next_cursor' member of a previous page and passed back unchanged as "
-                + "'after'; it is not composed by the caller. Start again without one to get "
-                + "the first page.",
-            List.of(AFTER));
+        return MemoryException.offending(MemoryException.Reason.CURSOR_MALFORMED, List.of(AFTER));
     }
 }

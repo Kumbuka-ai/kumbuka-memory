@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.adapter.mcp.McpTools;
@@ -8,6 +15,9 @@ import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import ai.kumbuka.memory.surface.SurfaceException;
+import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
+import io.quarkus.test.common.QuarkusTestResource;
+import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -25,7 +35,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * only ever the thing measured: comparing it with itself would pass whatever
  * it said.
  */
-class DeclarationConformanceTest {
+@QuarkusTest
+@QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
+class DeclarationConformanceIT {
 
     // ======================================================================
     // The tool list

@@ -249,13 +249,17 @@ class AssistantRefusalIT {
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void a_type_that_is_not_one_of_the_six_is_type_unknown_and_lists_them() {
-        String list = String.join(", ", Contract.types());
-        assertRefusal(create("decision", "decision.tabs", "rule", "x"), "TYPE_UNKNOWN", CREATE,
-            Map.of("call", CREATE, "list", list));
-        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "type", "rule")), "TYPE_UNKNOWN",
-            QUERY, Map.of("call", QUERY, "list", list));
-        assertRefusal(Mcp.call(DIGEST, args("scope", SCOPE, "types", List.of("rule"))),
-            "TYPE_UNKNOWN", DIGEST, Map.of("call", DIGEST, "list", list));
+        // The six are listed under data.accepts, which the message points at:
+        // a value of a fixed set is no placeholder a text may take.
+        Mcp.Result create = create("decision", "decision.tabs", "rule", "x");
+        assertRefusal(create, "TYPE_UNKNOWN", CREATE, Map.of("call", CREATE));
+        assertThat(create.strings("data.accepts")).containsExactlyElementsOf(Contract.types());
+        Mcp.Result query = Mcp.call(QUERY, args("scope", SCOPE, "type", "rule"));
+        assertRefusal(query, "TYPE_UNKNOWN", QUERY, Map.of("call", QUERY));
+        assertThat(query.strings("data.accepts")).containsExactlyElementsOf(Contract.types());
+        Mcp.Result digest = Mcp.call(DIGEST, args("scope", SCOPE, "types", List.of("rule")));
+        assertRefusal(digest, "TYPE_UNKNOWN", DIGEST, Map.of("call", DIGEST));
+        assertThat(digest.strings("data.accepts")).containsExactlyElementsOf(Contract.types());
     }
 
     @Test
@@ -340,7 +344,7 @@ class AssistantRefusalIT {
     void a_direction_that_is_neither_of_the_two_is_argument_invalid() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "direction", "sideways")),
             "ARGUMENT_INVALID", QUERY,
-            Map.of("n", "direction", "call", QUERY), "why");
+            Map.of("path", "direction", "call", QUERY));
     }
 
     // ======================================================================
@@ -380,13 +384,12 @@ class AssistantRefusalIT {
     void a_missing_argument_is_argument_missing_and_so_is_a_missing_conflict_token() {
         assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS,
                 "fields", Map.of("content", "x"))),
-            "ARGUMENT_MISSING", UPDATE, Map.of("call", UPDATE, "n", "conflict_token"),
-            "what it is");
+            "ARGUMENT_MISSING", UPDATE, Map.of("call", UPDATE, "n", "conflict_token"));
         assertRefusal(Mcp.call(READ, Map.of()), "ARGUMENT_MISSING", READ,
-            Map.of("call", READ, "n", "address"), "what it is");
+            Map.of("call", READ, "n", "address"));
         assertRefusal(Mcp.call(CREATE, args("scope", SCOPE, "selector", "decision",
                 "fields", Map.of("key", "decision.tabs", "type", "decision"))),
-            "ARGUMENT_MISSING", CREATE, Map.of("call", CREATE, "n", "content"), "what it is");
+            "ARGUMENT_MISSING", CREATE, Map.of("call", CREATE, "n", "content"));
     }
 
     @Test
@@ -394,7 +397,7 @@ class AssistantRefusalIT {
     void a_value_of_the_wrong_kind_is_argument_invalid() {
         assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
                 token(ADDRESS), "fields", "content")),
-            "ARGUMENT_INVALID", UPDATE, Map.of("n", "fields", "call", UPDATE), "why");
+            "ARGUMENT_INVALID", UPDATE, Map.of("path", "fields", "call", UPDATE));
     }
 
     /**
@@ -417,7 +420,7 @@ class AssistantRefusalIT {
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
             token(ADDRESS), "fields", Map.of("content", List.of("a list of secrets"))));
         assertRefusal(refusal, "ARGUMENT_INVALID", UPDATE,
-            Map.of("n", "content", "call", UPDATE), "why");
+            Map.of("path", "content", "call", UPDATE));
         assertThat(refusal.text()).doesNotContain("a list of secrets");
     }
 

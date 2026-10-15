@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.platform.Access;
@@ -180,11 +187,8 @@ public class DigestService {
      */
     private static List<EntryType> chosen(List<String> asked) {
         if (asked.isEmpty()) {
-            throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
-                "an empty type selection asks for a digest with no content in it. Leave "
-                    + "'types' out to get the estate's own selection, or name the types "
-                    + "to carry: " + String.join(", ", EntryType.wireNames()) + ".",
-                List.of(TYPES));
+            throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN, List.of(TYPES),
+                EntryType.wireNames());
         }
         // Named by position, as the argument's path, and never by the value
         // sent (DEC-0043 R19): which of several values was wrong is what the
@@ -197,13 +201,8 @@ public class DigestService {
             }
         }
         if (!unknown.isEmpty()) {
-            throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
-                "every name in 'types' is one of the six kinds of entry this service "
-                    + "carries: " + String.join(", ", EntryType.wireNames()) + ". A name "
-                    + "outside them is refused rather than dropped, because a section "
-                    + "missing from a digest reads as 'there are none of these'. Send each "
-                    + "type as one of the six.",
-                unknown);
+            throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN, unknown,
+                EntryType.wireNames());
         }
         return asked.stream().map(t -> EntryType.of(t).orElseThrow()).toList();
     }

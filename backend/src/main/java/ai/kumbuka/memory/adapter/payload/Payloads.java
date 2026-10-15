@@ -18,6 +18,7 @@ import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceException;
+import ai.kumbuka.memory.surface.Texts;
 import ai.kumbuka.memory.surface.VerbSurface;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -231,9 +232,8 @@ public final class Payloads {
                 ? new NextPayload(
                     "create memory://" + withdrawn.address().scope() + "/"
                         + withdrawn.address().selector(),
-                    "Create a new entry at this address, which is free again.")
-                : new NextPayload("read " + address,
-                    "Read the retired entry, which still stands at this address."));
+                    Texts.next().genericAfterRelease())
+                : new NextPayload("read " + address, Texts.next().genericAfterRetirement()));
 
             return new WithdrawnResponse(address,
                 withdrawn.outcome().name().toLowerCase(Locale.ROOT),
@@ -340,11 +340,10 @@ public final class Payloads {
         /** The one code the not-found class carries. */
         public static final String NOT_FOUND = "NOT_FOUND";
 
-        /**
-         * The one message, as a constant rather than a format — and the
-         * platform's own text rather than one of this service's making.
-         *
-         * <p>Transcribed character for character from
+        /*
+         * The one message lives in the bundles as the NOT_FOUND message and
+         * remedy, and is the platform's own text rather than one of this
+         * service's making: transcribed character for character from
          * {@code RouterException.NOT_FOUND_MESSAGE} in
          * {@code Kumbuka-ai/platform}, {@code origin/main} at {@code 91d6a3d},
          * {@code router/src/main/java/ai/kumbuka/router/surface/RouterException.java},
@@ -364,9 +363,6 @@ public final class Payloads {
          * same for all three, because one that told them apart would let a
          * caller map what it may not see.
          */
-        static final String NOT_FOUND_MESSAGE =
-            "nothing is addressed here. Check the address, and that you are a member of "
-                + "the scope it names.";
 
         /**
          * The reasons that answer as the not-found class.
@@ -419,7 +415,7 @@ public final class Payloads {
          */
         public static Refusal of(AssistantVerb verb, MemoryException e) {
             if (NOT_FOUND_REASONS.contains(e.reason())) {
-                return new Refusal(NOT_FOUND, NOT_FOUND_MESSAGE, Map.of());
+                return new Refusal(NOT_FOUND, AssistantRefusals.notFound(), Map.of());
             }
             // Worded from the reason's declared pattern, as the assistant
             // surface words it: the domain's sentence was written beside the
@@ -480,7 +476,7 @@ public final class Payloads {
             .filter(argument -> argument.required() && given.get(argument.name()) == null)
             .findFirst()
             .ifPresent(argument -> {
-                throw CallException.missing(argument.name(), argument.description());
+                throw CallException.missing(argument.argumentName());
             });
     }
 
@@ -518,7 +514,7 @@ public final class Payloads {
      */
     private static EntryFields requireFields(EntryFields fields) {
         if (fields == null) {
-            throw CallException.missing(AssistantVerb.FIELDS, AssistantVerb.FIELDS_DESCRIPTION);
+            throw CallException.missing(AssistantVerb.fieldsName());
         }
         return fields;
     }
@@ -552,13 +548,6 @@ public final class Payloads {
         if (offenders.isEmpty()) {
             return;
         }
-        throw MemoryException.offending(MemoryException.Reason.FIELD_IMMUTABLE,
-            "these fields are not written by this verb. " + offenders + " "
-                + (offenders.size() == 1 ? "is" : "are") + " fixed for the life of an "
-                + "entry or derived by the service: the scope and the key are where the "
-                + "entry stands, 'private' follows the scope's kind, and the two "
-                + "timestamps are the service's record of what it did. The writable "
-                + "names are " + EntryFields.WRITABLE.stream().sorted().toList() + ".",
-            offenders);
+        throw MemoryException.offending(MemoryException.Reason.FIELD_IMMUTABLE, offenders);
     }
 }

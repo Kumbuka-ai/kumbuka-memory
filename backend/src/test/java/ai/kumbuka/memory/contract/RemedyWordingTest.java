@@ -44,7 +44,7 @@ class RemedyWordingTest {
     void every_remedy_is_an_instruction_stated_positively() {
         Map<String, String> remedies = new LinkedHashMap<>();
         ReasonCatalogue.declared().forEach(reason -> remedies.put(reason.code(),
-            reason.remedy()));
+            reason.remedyTemplate()));
 
         assertThat(negated(remedies))
             .as("a remedy names the act to perform; a caller that is a model carries out an "

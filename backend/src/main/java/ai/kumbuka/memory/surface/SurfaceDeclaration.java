@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.EntryView;
@@ -23,14 +30,6 @@ public final class SurfaceDeclaration {
 
     /** Changes when the shape of {@link #asMap()} changes, not when its content does. */
     public static final String SHAPE_VERSION = "1";
-
-    /** What {@code next} says after a withdrawal that freed the address. */
-    public static final String DOES_AFTER_RELEASE =
-        "The address is free again; a new entry may be laid down at it.";
-
-    /** What {@code next} says after a withdrawal that left the entry at its address. */
-    public static final String DOES_AFTER_RETIREMENT =
-        "Reads the retired entry, which still stands at this address.";
 
     private SurfaceDeclaration() {
     }
@@ -71,8 +70,8 @@ public final class SurfaceDeclaration {
      */
     public static List<NextStep> nextAfter(boolean released) {
         return List.of(released
-            ? new NextStep(AssistantVerb.CREATE.call(), DOES_AFTER_RELEASE)
-            : new NextStep(AssistantVerb.READ.call(), DOES_AFTER_RETIREMENT));
+            ? new NextStep(AssistantVerb.CREATE.call(), Texts.next().afterRelease())
+            : new NextStep(AssistantVerb.READ.call(), Texts.next().afterRetirement()));
     }
 
     /**
@@ -137,8 +136,8 @@ public final class SurfaceDeclaration {
             Map<String, Object> declared = new LinkedHashMap<>();
             declared.put("reason", reason.code());
             declared.put("message_pattern",
-                ReasonCatalogue.inVocabulary(reason.messagePattern()));
-            declared.put("remedy", ReasonCatalogue.inVocabulary(reason.remedy()));
+                reason.messageTemplate() + " " + reason.remedyTemplate());
+            declared.put("remedy", reason.remedyTemplate());
             declared.put("surface", reason.reach() == ReasonCatalogue.Reach.BOTH
                 ? "both" : "generic");
             reasons.add(declared);

@@ -1,8 +1,14 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
 /**
  * A refusal about the arguments of a call on the assistant surface.
@@ -15,10 +21,10 @@ import java.util.Map;
  * nobody foresaw, are the reasons this type adds, and the reason catalogue
  * declares each of them beside the domain's own.
  *
- * <p>The values a message is built from travel in {@link #values()}, keyed by
- * the placeholder they fill. The exception message is a note for a developer
- * and never reaches a caller: every message on the assistant surface is built
- * from its declared pattern and nothing else.
+ * <p>What a message is built from travels as the placeholder types the
+ * declaration builds -- the argument's name, its position, the names the call
+ * declares -- and the exception carries no sentence: every message on either
+ * surface is worded from the reason catalogue's bundles and nothing else.
  */
 public class CallException extends RuntimeException {
 
@@ -39,18 +45,16 @@ public class CallException extends RuntimeException {
     }
 
     private final transient Reason reason;
-    private final transient Map<String, String> values;
-    private final transient List<String> accepts;
+    private final transient ArgumentName name;
+    private final transient ArgumentPath path;
+    private final transient List<ArgumentName> accepts;
 
-    private CallException(Reason reason, String note, Map<String, String> values) {
-        this(reason, note, values, List.of());
-    }
-
-    private CallException(Reason reason, String note, Map<String, String> values,
-                          List<String> accepts) {
-        super(note);
+    private CallException(Reason reason, ArgumentName name, ArgumentPath path,
+                          List<ArgumentName> accepts) {
+        super(reason.name());
         this.reason = reason;
-        this.values = Map.copyOf(values);
+        this.name = name;
+        this.path = path;
         this.accepts = List.copyOf(accepts);
     }
 
@@ -62,46 +66,39 @@ public class CallException extends RuntimeException {
      * @param declared the names the caller could have written at that level,
      *                 in declaration order
      */
-    public static CallException unknown(List<String> declared) {
-        Map<String, String> values = new LinkedHashMap<>();
-        values.put(ReasonCatalogue.ARGUMENTS, String.join(", ", declared));
-        return new CallException(Reason.ARGUMENT_UNKNOWN, "undeclared argument", values,
-            declared);
+    public static CallException unknown(List<ArgumentName> declared) {
+        return new CallException(Reason.ARGUMENT_UNKNOWN, null, null, declared);
     }
 
-    /** @param what what the value is, from the argument's declaration */
-    public static CallException missing(String name, String what) {
-        Map<String, String> values = new LinkedHashMap<>();
-        values.put(ReasonCatalogue.NAME, name);
-        values.put(ReasonCatalogue.WHAT, what);
-        return new CallException(Reason.ARGUMENT_MISSING, "required argument absent", values);
+    /** A required argument absent or sent as {@code null} (DEC-0043 R17). */
+    public static CallException missing(ArgumentName name) {
+        return new CallException(Reason.ARGUMENT_MISSING, name, ArgumentPath.of(name), List.of());
     }
 
     /**
-     * The value sent is never part of the refusal: a refusal is logged, and a
-     * value can be content (DEC-0042).
-     *
-     * @param why a sentence of this surface's own saying what the value must be
+     * A value not of the declared kind, named by its position and never by the
+     * value sent: a refusal is logged, and a value can be content (DEC-0042).
      */
-    public static CallException invalid(String name, String why) {
-        Map<String, String> values = new LinkedHashMap<>();
-        values.put(ReasonCatalogue.NAME, name);
-        values.put(ReasonCatalogue.WHY, why);
-        return new CallException(Reason.ARGUMENT_INVALID, "argument of the wrong kind",
-            values);
+    public static CallException invalid(ArgumentPath path) {
+        return new CallException(Reason.ARGUMENT_INVALID, null, path, List.of());
     }
 
     public Reason reason() {
         return reason;
     }
 
-    /** The names the call declares where an undeclared one arrived; empty otherwise. */
-    public List<String> accepts() {
-        return accepts;
+    /** The argument a missing-argument refusal names. */
+    public Optional<ArgumentName> name() {
+        return Optional.ofNullable(name);
     }
 
-    /** The placeholder values this refusal fills its pattern with. */
-    public Map<String, String> values() {
-        return values;
+    /** The position the refusal concerns, as {@code offenders} names it. */
+    public Optional<ArgumentPath> path() {
+        return Optional.ofNullable(path);
+    }
+
+    /** The names the call declares where an undeclared one arrived; empty otherwise. */
+    public List<ArgumentName> accepts() {
+        return accepts;
     }
 }

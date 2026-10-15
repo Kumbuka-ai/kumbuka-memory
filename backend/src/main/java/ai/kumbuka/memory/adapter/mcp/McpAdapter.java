@@ -22,6 +22,7 @@ import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.CallerActor;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
+import ai.kumbuka.memory.surface.Texts;
 import ai.kumbuka.memory.surface.UnexpectedFailures;
 import ai.kumbuka.memory.surface.VerbSurface;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -39,7 +40,6 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.io.UncheckedIOException;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -124,16 +124,15 @@ public class McpAdapter {
         try {
             parsed = json.readValue(body == null ? "" : body, Object.class);
         } catch (JsonProcessingException notJson) {
-            return error(null, PARSE_ERROR, "The body is not JSON.");
+            return error(null, PARSE_ERROR, Texts.notices().bodyNotJson());
         }
         if (!(parsed instanceof Map<?, ?> raw)) {
-            return error(null, INVALID_REQUEST,
-                "This server takes one JSON-RPC 2.0 request object per call.");
+            return error(null, INVALID_REQUEST, Texts.notices().oneRequest());
         }
         Map<String, Object> request = objectOf(raw);
         Object id = request.get("id");
         if (!JSONRPC.equals(request.get(KEY_JSONRPC))) {
-            return error(id, INVALID_REQUEST, "The request is not a JSON-RPC 2.0 request.");
+            return error(id, INVALID_REQUEST, Texts.notices().notJsonRpc());
         }
         if (!request.containsKey("id")) {
             // A notification: the protocol forbids an answer to it.
@@ -147,8 +146,7 @@ public class McpAdapter {
             case "tools/call" -> call(id, request);
             // The method that arrived is the caller's input and is never
             // repeated; the answer names the methods there are (DEC-0043 R19).
-            default -> error(id, METHOD_NOT_FOUND, "This server speaks the methods initialize, "
-                + "ping, tools/list and tools/call.");
+            default -> error(id, METHOD_NOT_FOUND, Texts.notices().methods());
         };
     }
 
@@ -182,8 +180,7 @@ public class McpAdapter {
     private Response call(Object id, Map<String, Object> request) {
         Map<String, Object> params = presentObject(request, "params");
         if (params == null) {
-            return error(id, INVALID_PARAMS, "The params of tools/call are an object naming the "
-                + "tool and its arguments.");
+            return error(id, INVALID_PARAMS, Texts.notices().paramsObject());
         }
         String tool = String.valueOf(params.get("name"));
         Optional<AssistantVerb> verb = AssistantVerb.byCall(tool);
@@ -191,16 +188,13 @@ public class McpAdapter {
             // Not a refusal of a call but a call that does not exist: the
             // protocol answers it as an error of the request, and names the
             // tools there are and never the name that arrived (DEC-0043 R19).
-            return error(id, INVALID_PARAMS, "The tools of this server are: " + String.join(", ",
-                    Arrays.stream(AssistantVerb.values()).map(AssistantVerb::call).toList())
-                + ".");
+            return error(id, INVALID_PARAMS, Texts.notices().tools(AssistantVerb.verbNames()));
         }
         Map<String, Object> args = presentObject(params, "arguments");
         if (args == null) {
             // Present and not an object: there are no named arguments to
             // refuse one of, so this is no call yet.
-            return error(id, INVALID_PARAMS, "The arguments of a tool call are an object of "
-                + "named arguments.");
+            return error(id, INVALID_PARAMS, Texts.notices().argumentsObject());
         }
         return result(id, toolResult(verb.get(), args));
     }

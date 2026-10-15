@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.adapter.mcp.FailingCommit;
@@ -221,12 +228,16 @@ class UnexpectedFailureIT {
                                            Map<String, String> values) {
         assertThat(refusal.isError()).as("%s", refusal).isTrue();
         assertThat(refusal.reason()).isEqualTo("UNEXPECTED_FAILURE");
-        Matcher message = Contract.message(pattern, values, "ref").matcher(refusal.message());
+        Matcher message = Contract.message(pattern, values).matcher(refusal.message());
         assertThat(message.matches())
             .as("the message is the contract's pattern: %s", refusal.message())
             .isTrue();
         assertThat(refusal.string("data.attempted")).isEqualTo(tool);
-        return message.group(1);
+        // The reference travels under data.report, which the message points at:
+        // a reference is no placeholder a text may take.
+        String reference = refusal.string("data.report");
+        assertThat(reference).as("the reference to report").isNotBlank();
+        return reference;
     }
 
     private void assertLoggedByShape(String reference, String call,

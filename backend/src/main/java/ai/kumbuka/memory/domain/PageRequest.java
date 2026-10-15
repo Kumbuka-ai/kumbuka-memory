@@ -66,11 +66,6 @@ public record PageRequest(String after, SortKey sort, SortKey.Direction directio
      */
     public static MemoryException pageSizeRejected() {
         return MemoryException.offending(MemoryException.Reason.PAGE_SIZE_REJECTED,
-            "'page_size' is a whole number from 1 to " + MAX_PAGE_SIZE + ". The request is "
-                + "refused rather than reduced to the limit: a page silently made smaller "
-                + "than the one asked for is how a caller comes to believe it has seen "
-                + "everything. Send a whole number from 1 to " + MAX_PAGE_SIZE + " and page "
-                + "with the 'next_cursor' the answer carries.",
             List.of(PAGE_SIZE));
     }
 }

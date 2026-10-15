@@ -125,7 +125,8 @@ carries `data.offenders`, naming the arguments and never their values (DEC-0042)
 `memory_create` or `memory_query` was sent, and for those of `memory_digest` the position of each
 wrong one as the argument's path, such as `types[1]` (DEC-0043 R19). A refusal of a name the call
 does not declare carries `data.accepts` instead, the names the call declares at that level, and
-never the name that arrived (DEC-0043 R19). `data.state` and
+never the name that arrived (DEC-0043 R19); a refusal of a value outside a fixed set -- a type, an
+order, a direction -- lists the declared values under `data.accepts` beside `data.offenders`. `data.state` and
 `data.next` are present where the refusal concerns an entry this caller may see. A refusal of a
 stale conflict token additionally carries the entry as this caller's own read would answer it
 (DEC-0041).
@@ -147,6 +148,8 @@ stale conflict token additionally carries the entry as this caller's own read wo
   what to avoid (DEC-0042). The remedy is the last column of the table below; `data.next` lists the
   calls it names.
 - It never repeats the content of an entry, and it never repeats the value of a reference.
+- Its message and its remedy are texts of the service's message bundles, and a placeholder in
+  them takes only a call, an argument, a position or a bound the declaration builds (DEC-0043 R18).
 - It is built from the pattern alone. A sentence produced inside the service never reaches the
   caller, in whole or in part.
 
@@ -178,19 +181,19 @@ of the three is the cause (DEC-0042).
 | `ALREADY_EXISTS` | `<call> is refused: an entry already stands at this address. Read the entry with <read> and change it with <update>, or create the new entry under another key.` | Read the entry with `<read>` and change it with `<update>`, or create the new entry under another key. |
 | `CONFLICT_TOKEN_STALE` | `<call> is refused: the entry was changed since you read it. Read the entry again with <read> and repeat the call with the new conflict token.` | Read the entry again with `<read>` and repeat the call with the new conflict token. |
 | `UPDATE_EMPTY` | `<call> names nothing to change. Send at least one of content, type and reference in fields.` | Send at least one of content, type and reference in fields. |
-| `TYPE_UNKNOWN` | `<call> was sent a type outside the entry types, which are: <list>. Send each type as one of these.` | Send each type as one of these. |
+| `TYPE_UNKNOWN` | `<call> was sent a type outside the entry types, which accepts lists. Send each type as one of the values accepts lists.` -- `data.accepts` lists the entry types | Send each type as one of the values accepts lists. |
 | `CONTENT_ABSENT` | `<call> needs content: an entry without content is not stored. Send the text of the entry as content.` | Send the text of the entry as content. |
 | `CONTENT_OVERSIZE` | `The content is longer than an entry holds, which is at most <limit> characters. Shorten the content to at most <limit> characters, or split it into several entries.` | Shorten the content to at most <limit> characters, or split it into several entries. |
 | `REFERENCE_CREDENTIAL_BEARING` | `The reference carries a credential and is not stored. Remove the user information and every secret parameter from the URL, then send it again.` | Remove the user information and every secret parameter from the URL, then send it again. |
 | `PAGE_SIZE_REJECTED` | `page_size is outside what <call> takes. Send page_size as a whole number from 1 to <max>.` | Send page_size as a whole number from 1 to <max>. |
 | `CURSOR_MALFORMED` | `after is not a cursor <query> handed out. Call <query> again from the first page, or send as after the next_cursor of the page you read last.` | Call `<query>` again from the first page, or send as after the next_cursor of the page you read last. |
 | `CURSOR_FOREIGN` | `after was handed out by <query> for another scope, selector, type, text, sort or direction. Call <query> again from the first page.` | Call `<query>` again from the first page. |
-| `SORT_UNDECLARED` | `sort names an order <call> does not declare. Send sort as id or created_at.` | Send sort as id or created_at. |
+| `SORT_UNDECLARED` | `sort names an order <call> does not declare. Send sort as one of the values accepts lists.` -- `data.accepts` lists the orders | Send sort as one of the values accepts lists. |
 | `ACTOR_UNKNOWN` | `The token is valid but names no subject to act as. Authenticate as a subject and call again with that token.` | Authenticate as a subject and call again with that token. |
 | `ARGUMENT_UNKNOWN` | `<call> was sent an argument outside the names it declares at that level, which are: <list>. Name each argument as one of these.` | Name each argument as one of these. |
-| `ARGUMENT_MISSING` | `<call> needs <n>: <what it is>. Send <n> with the call.` | Send the argument with the call. |
-| `ARGUMENT_INVALID` | `<n> is not valid for <call>: <why>. Send <n> in that form.` -- `<why>` is a sentence of the pattern's own | Send the argument in that form. |
-| `UNEXPECTED_FAILURE` | `<call> failed unexpectedly. This is a defect, not a rule. Nothing was changed. Report reference <ref> to the operator of this service.` -- `<ref>` is written to the service's log with the failure | Report the reference to the operator of this service. |
+| `ARGUMENT_MISSING` | `<call> needs <n>. Send <n> with the call.` | Send the argument with the call. |
+| `ARGUMENT_INVALID` | `<path> is not of the form <call> takes for it. Send <path> in the form the input schema of the call gives it.` -- `<path>` is the argument, or the position of an element as `types[1]` | Send the argument in the form the input schema gives it. |
+| `UNEXPECTED_FAILURE` | `<call> failed unexpectedly. This is a defect, not a rule. Nothing was changed. Report the reference under data.report to the operator of this service.` -- `data.report` carries the reference, which is written to the service's log with the failure | Report the reference to the operator of this service. |
 
 On this surface the conflict token is a required argument wherever a call takes one, so its absence
 is answered as `ARGUMENT_MISSING`; an argument that narrows a query and is not declared is answered
@@ -221,8 +224,8 @@ Top-level: `scope`, `selector`. Under `fields`: `key`, `type`, `content`, option
 Result: the entry is in force.
 
 **`memory_read`**
-> Reads one entry by its complete address and hands out a fresh conflict token. Changes nothing.
-> An address that does not exist and one you may not see are answered alike.
+> Reads one entry by its complete address and hands out a fresh conflict token. Reads only. An
+> unused address and one hidden from you are answered alike.
 
 Top-level: `address`. Callable by anyone who may read the scope.
 
@@ -235,14 +238,14 @@ Top-level: `address`, `conflict_token`. Under `fields`: at least one of `content
 `reference`. Result: the entry stays in force and carries a new conflict token.
 
 **`memory_withdraw`**
-> Takes an entry out of force. Final: no call restores it, and the answer says whether its address
-> is free again. Needs the conflict token of the latest read.
+> Takes an entry out of force. Final: the entry stays out of force, and the answer says whether its
+> address is free again. Needs the conflict token of the latest read.
 
 Top-level: `address`, `conflict_token`. Callable by anyone who may write to the scope.
 
 **`memory_query`**
-> Lists the entries of a scope page by page, optionally narrowed by selector, type or text. Changes
-> nothing. Use it to find an address.
+> Lists the entries of a scope page by page, optionally narrowed by selector, type or text. Reads
+> only. Use it to find an address.
 
 Top-level: `scope`, optional `selector`, optional `type`, optional `text` (a text the entry must
 contain), optional `after` (the next cursor of the previous page), optional `sort` (id or
@@ -251,9 +254,9 @@ desc, default asc), optional `page_size` (1 to 200, default 50). Callable by any
 the scope.
 
 **`memory_digest`**
-> Returns everything in force in a scope, whole and grouped by type, with a tally per type. Changes
-> nothing. Carries the types the scope's digest selection names unless `types` says otherwise. Call
-> it once at the start of a session.
+> Returns everything in force in a scope, whole and grouped by type, with a tally per type. Reads
+> only. Carries the types the scope's digest selection names, or those that types names. Call it
+> once at the start of a session.
 
 Top-level: `scope`, optional `types` (a list of type names). Callable by anyone who may read the
 scope.

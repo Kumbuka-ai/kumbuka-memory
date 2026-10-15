@@ -184,14 +184,12 @@ public class VerbSurface {
     public static List<NextStep> nextFor(EntryView entry) {
         String address = entry.address().canonical();
         List<NextStep> next = new ArrayList<>();
-        next.add(new NextStep("read " + address,
-            "Read the entry again to get its current state and a fresh conflict token."));
+        NextStepTexts texts = Texts.next();
+        next.add(new NextStep("read " + address, texts.genericRead()));
 
         if (entry.writable()) {
-            next.add(new NextStep("update " + address,
-                "Change the content, the type or the reference, sending the conflict token."));
-            next.add(new NextStep("withdraw " + address,
-                "Take the entry out of force, sending the conflict token."));
+            next.add(new NextStep("update " + address, texts.genericUpdate()));
+            next.add(new NextStep("withdraw " + address, texts.genericWithdraw()));
         }
         return List.copyOf(next);
     }
@@ -206,11 +204,7 @@ public class VerbSurface {
      */
     private static void refuseUnknown(Map<String, String> asked) {
         if (!ARGUMENTS.containsAll(asked.keySet())) {
-            throw MemoryException.undeclared(
-                "an argument outside the declared ones. An unknown one is refused rather "
-                    + "than ignored: a filter that is silently dropped answers with the "
-                    + "whole set and looks exactly like a correct narrow one.",
-                ARGUMENTS);
+            throw MemoryException.undeclared(ARGUMENTS);
         }
     }
 
@@ -239,10 +233,7 @@ public class VerbSurface {
             return PageRequest.DEFAULT_SORT;
         }
         return SortKey.of(asked).orElseThrow(() -> MemoryException.offending(
-            MemoryException.Reason.SORT_UNDECLARED,
-            "'sort' is one of " + SortKey.wireNames() + "; an order over a creation moment "
-                + "always carries the key as its second key. Send one of them.",
-            List.of("sort")));
+            MemoryException.Reason.SORT_UNDECLARED, List.of("sort"), SortKey.wireNames()));
     }
 
     /**
@@ -257,9 +248,8 @@ public class VerbSurface {
             return PageRequest.DEFAULT_DIRECTION;
         }
         return SortKey.Direction.of(asked).orElseThrow(() -> MemoryException.offending(
-            MemoryException.Reason.ARGUMENT_INVALID,
-            "'direction' is one of " + SortKey.Direction.wireNames() + ". Send one of them.",
-            List.of(DIRECTION)));
+            MemoryException.Reason.ARGUMENT_INVALID, List.of(DIRECTION),
+            SortKey.Direction.wireNames()));
     }
 
     private static EntryType typeOf(String asked) {
@@ -267,10 +257,7 @@ public class VerbSurface {
             return null;
         }
         return EntryType.of(asked).orElseThrow(() -> MemoryException.offending(
-            MemoryException.Reason.TYPE_UNKNOWN,
-            "'type' is one of the six kinds of entry this service carries: "
-                + String.join(", ", EntryType.wireNames()) + ". Send one of them.",
-            List.of("type")));
+            MemoryException.Reason.TYPE_UNKNOWN, List.of("type"), EntryType.wireNames()));
     }
 
     private static int pageSizeOf(String asked) {
@@ -297,9 +284,7 @@ public class VerbSurface {
     private static String selectorOf(String selector) {
         return Optional.ofNullable(selector)
             .filter(s -> !s.isBlank())
-            .orElseThrow(() -> new MemoryException(MemoryException.Reason.SELECTOR_ABSENT,
-                "an entry is laid down under a selector, so the address it is posted to "
-                    + "names one: 'memory://<scope>/<selector>'."));
+            .orElseThrow(() -> new MemoryException(MemoryException.Reason.SELECTOR_ABSENT));
     }
 
     // ======================================================================

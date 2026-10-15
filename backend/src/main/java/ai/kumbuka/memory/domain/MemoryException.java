@@ -150,35 +150,53 @@ public class MemoryException extends RuntimeException {
     private final transient Reason reason;
     private final transient Map<String, Object> data;
 
-    public MemoryException(Reason reason, String message) {
-        this(reason, message, Map.of());
+    /**
+     * A refusal and nothing more. The exception's message is the reason's
+     * name: a refusal carries no sentence of its own, because every text a
+     * caller reads is worded from the reason catalogue's bundles
+     * (code-conventions/service-construction.md, DEC-0043 R18).
+     */
+    public MemoryException(Reason reason) {
+        this(reason, Map.of());
     }
 
-    public MemoryException(Reason reason, String message, Map<String, Object> data) {
-        super(message);
+    public MemoryException(Reason reason, Map<String, Object> data) {
+        super(reason.name());
         this.reason = reason;
         this.data = Map.copyOf(data);
     }
 
     /**
-     * A refusal naming the objects that caused it.
+     * A refusal naming the arguments that caused it.
      *
      * <p>A refusal that only states the rule sends the reader back to the
      * store to work out what it was talking about. The whole value of checking
      * where the check runs is that the answer is right there.
      */
-    public static MemoryException offending(Reason reason, String message,
-                                            List<String> offenders) {
+    public static MemoryException offending(Reason reason, List<String> offenders) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put(OFFENDERS, List.copyOf(offenders));
-        return new MemoryException(reason, message, data);
+        return new MemoryException(reason, data);
+    }
+
+    /**
+     * A refusal of a value outside a fixed set, naming the argument and listing
+     * the values the set holds under {@link #ACCEPTS}: the declared ones, never
+     * the one that arrived (DEC-0043 R19).
+     */
+    public static MemoryException offending(Reason reason, List<String> offenders,
+                                            List<String> accepts) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put(OFFENDERS, List.copyOf(offenders));
+        data.put(ACCEPTS, List.copyOf(accepts));
+        return new MemoryException(reason, data);
     }
 
     /** A refusal of names the call does not declare, listing those it does. */
-    public static MemoryException undeclared(String message, List<String> accepts) {
+    public static MemoryException undeclared(List<String> accepts) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put(ACCEPTS, List.copyOf(accepts));
-        return new MemoryException(Reason.ARGUMENT_UNKNOWN, message, data);
+        return new MemoryException(Reason.ARGUMENT_UNKNOWN, data);
     }
 
     public Reason reason() {

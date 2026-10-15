@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.platform;
 
 import ai.kumbuka.memory.domain.MemoryException;
@@ -84,11 +91,7 @@ public class ScopeDirectory {
             // "no such scope for this subject" and not "nothing was bound".
             LOG.warnf("scope '%s' unresolved: %s", slug,
                 MemoryException.Reason.SCOPE_UNRESOLVED);
-            throw new MemoryException(MemoryException.Reason.SCOPE_UNRESOLVED,
-                "no scope '" + slug + "' is open to this subject. The directory answers "
-                    + "for the bound subject only, and existence in its answer is the "
-                    + "permission — so this is a refusal, not a missing row to be "
-                    + "worked around.");
+            throw new MemoryException(MemoryException.Reason.SCOPE_UNRESOLVED);
         }
 
         ScopeAccess resolved = accessOf(row.get());
@@ -161,22 +164,13 @@ public class ScopeDirectory {
         if (scope.locked()) {
             LOG.warnf("write into a locked scope refused: %s",
                 MemoryException.Reason.SCOPE_LOCKED);
-            throw new MemoryException(MemoryException.Reason.SCOPE_LOCKED,
-                "the scope '" + scope.slug() + "' is locked, so it refuses every write "
-                    + "over a service channel whatever the caller's role. Reading it is "
-                    + "unaffected. The lock is the scope's own state and is lifted where "
-                    + "it was set, not by presenting a different token here.");
+            throw new MemoryException(MemoryException.Reason.SCOPE_LOCKED);
         }
 
         if (!scope.canWrite()) {
             LOG.warnf("write without the write right refused: %s",
                 MemoryException.Reason.SCOPE_READ_ONLY);
-            throw new MemoryException(MemoryException.Reason.SCOPE_READ_ONLY,
-                "this caller may read the scope '" + scope.slug() + "' but not write to "
-                    + "it over a service channel. The write right is the platform's "
-                    + "answer about the membership, not this service's about the entry — "
-                    + "so no verb here reaches the effect, and the remedy is the "
-                    + "membership.");
+            throw new MemoryException(MemoryException.Reason.SCOPE_READ_ONLY);
         }
     }
 
@@ -189,11 +183,9 @@ public class ScopeDirectory {
      */
     private void bindSubject(String subject) {
         if (subject == null || subject.isBlank()) {
-            throw new MemoryException(MemoryException.Reason.SESSION_NOT_BOUND,
-                "there is no subject to bind to app.subject. The directory answers for a "
-                    + "subject, so resolving without one would be asking a question with "
-                    + "no asker — and the answer would be zero rows, which reads as "
-                    + "'no such scope'.");
+            throw unbound(new IllegalStateException("there is no subject to bind to "
+                + "app.subject, and the directory answers for a subject: resolved without one "
+                + "it returns zero rows"));
         }
         scopes.bindSubject(subject);
     }
@@ -214,14 +206,23 @@ public class ScopeDirectory {
         if (tenant == null || subject == null) {
             LOG.warnf("directory call with unbound session: %s",
                 MemoryException.Reason.SESSION_NOT_BOUND);
-            throw new MemoryException(MemoryException.Reason.SESSION_NOT_BOUND,
-                ("the session contract is not bound (app.tenant_id=%s, app.subject=%s), so "
-                    + "the directory would return zero rows for every scope. That reads as "
-                    + "'no such scope' and invites a repair to the privileges — which is "
-                    + "why this fails here instead of returning nothing.")
-                    .formatted(tenant == null ? "unset" : "set",
-                               subject == null ? "unset" : "set"));
+            throw unbound(new IllegalStateException("app.tenant_id or app.subject is not "
+                + "bound, so the directory would return zero rows for every scope, which reads "
+                + "as no such scope"));
         }
+    }
+
+    /**
+     * The refusal of an unbound session, with the binding it lacks named in a
+     * note for whoever reads the failure. The note is the cause's message: a
+     * refusal carries no sentence for a caller, and no surface answers with a
+     * cause (DEC-0043 R18). Naming the cause is what stops the next person
+     * from widening a privilege to fix a forgotten set_config.
+     */
+    private static MemoryException unbound(IllegalStateException note) {
+        MemoryException refused = new MemoryException(MemoryException.Reason.SESSION_NOT_BOUND);
+        refused.initCause(note);
+        return refused;
     }
 
     /**

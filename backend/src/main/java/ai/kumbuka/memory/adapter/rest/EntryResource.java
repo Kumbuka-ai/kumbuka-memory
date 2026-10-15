@@ -180,10 +180,10 @@ public class EntryResource {
     @POST
     @Path("{segment}")
     public Response scopePost(@PathParam("segment") String segment, String body) {
-        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.SCOPE, SCOPE_ALLOW,
-            "a scope carries the compound reads of this service in colon notation — "
-                + "'POST /api/<scope>:digest'. An entry is laid down under a selector, so "
-                + "a create is posted one segment further in.");
+        // A scope carries the compound reads in colon notation,
+        // 'POST /api/<scope>:digest'. An entry is laid down under a selector,
+        // so a create is posted one segment further in.
+        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.SCOPE, SCOPE_ALLOW);
 
         return switch (at.method()) {
             case DIGEST -> digest(at, body);
@@ -239,12 +239,7 @@ public class EntryResource {
                                    @PathParam("selector") String segment,
                                    String body) {
         CustomMethod.split(segment, CustomMethod.Depth.COLLECTION).ifPresent(at -> {
-            throw new SurfaceException(SurfaceException.Reason.VERB_NOT_CARRIED,
-                "a verb in colon notation is not one of this scheme at a selector. What a "
-                    + "selector carries is 'create', which is a plain POST onto it, and "
-                    + "'query', which is a GET. 'digest' acts on a whole scope and "
-                    + "'withdraw' on one entry.",
-                COLLECTION_ALLOW);
+            throw new SurfaceException(SurfaceException.Reason.VERB_NOT_CARRIED, COLLECTION_ALLOW);
         });
 
         call.is(AssistantVerb.CREATE);
@@ -314,12 +309,12 @@ public class EntryResource {
                              @PathParam("selector") String selector,
                              @PathParam("id") String segment,
                              @HeaderParam("If-Match") String ifMatch) {
-        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.ITEM, ITEM_ALLOW,
-            "an entry carries one verb in colon notation — "
-                + "'POST /api/<scope>/<selector>/<id>:withdraw'. Reading it is a GET and "
-                + "changing it is a PATCH; there is no DELETE, because a withdrawal is an "
-                + "act of this service whose effect the edition decides and not the "
-                + "removal of a resource.");
+        // An entry carries one verb in colon notation,
+        // 'POST /api/<scope>/<selector>/<id>:withdraw'. Reading it is a GET and
+        // changing it is a PATCH; there is no DELETE, because a withdrawal is an
+        // act of this service whose effect the edition decides and not the
+        // removal of a resource.
+        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.ITEM, ITEM_ALLOW);
 
         return switch (at.method()) {
             case WITHDRAW -> withdraw(scope, selector, at, ifMatch);
@@ -393,10 +388,9 @@ public class EntryResource {
             return false;
         }
         if (!List.of(ASSISTANT).equals(named)) {
-            MemoryException refused = new MemoryException(
-                MemoryException.Reason.ARGUMENT_INVALID, "a value the header cannot take");
-            throw new AssistantRefused(refused, AssistantRefusals.headerRefused(
-                AssistantVerb.QUERY, SURFACE, ASSISTANT));
+            MemoryException refused =
+                new MemoryException(MemoryException.Reason.ARGUMENT_INVALID);
+            throw new AssistantRefused(refused, AssistantRefusals.headerRefused());
         }
         return true;
     }
@@ -420,15 +414,13 @@ public class EntryResource {
      * for the object.
      */
     private static CustomMethod.Split verbAt(String segment, CustomMethod.Depth depth,
-                                             String allow, String guidance) {
+                                             String allow) {
         return CustomMethod.split(segment, depth)
             .filter(CustomMethod.Split::isKnown)
             .orElseThrow(() -> new SurfaceException(
                 segment.indexOf(CustomMethod.SEPARATOR) < 0
                     ? SurfaceException.Reason.ADDRESS_TRUNCATED
-                    : SurfaceException.Reason.VERB_NOT_CARRIED,
-                "the segment names no verb this address carries. " + guidance,
-                allow));
+                    : SurfaceException.Reason.VERB_NOT_CARRIED, allow));
     }
 
     /**
@@ -459,13 +451,7 @@ public class EntryResource {
      */
     private static void refuseParametersOnAnItem(UriInfo uri) {
         if (!uri.getQueryParameters().isEmpty()) {
-            throw MemoryException.undeclared(
-                "this address names one entry, so a read takes no parameters: there is "
-                    + "nothing for a filter to narrow, and a parameter accepted and "
-                    + "discarded would let a caller believe it had asked something. Send "
-                    + "the read without parameters, and send filters to a query, which is "
-                    + "addressed at a scope or at a selector.",
-                List.of());
+            throw MemoryException.undeclared(List.of());
         }
     }
 
@@ -508,8 +494,7 @@ public class EntryResource {
         } catch (JsonProcessingException e) {
             // The parser's message quotes the body it rejected, so it goes
             // nowhere: neither into the refusal nor into this exception.
-            throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED,
-                "the request body is not the JSON this verb takes");
+            throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED);
         }
     }
 }

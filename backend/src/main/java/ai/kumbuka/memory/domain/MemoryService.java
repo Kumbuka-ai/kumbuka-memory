@@ -298,28 +298,17 @@ public class MemoryService {
 
     private static String requireKnownType(String type) {
         return EntryType.of(type)
-            .orElseThrow(() -> MemoryException.offending(
-                MemoryException.Reason.TYPE_UNKNOWN,
-                "'type' is one of the six kinds of entry this service carries: "
-                    + String.join(", ", EntryType.wireNames()) + ". The kind decides where "
-                    + "the entry appears in a digest, which is why it is a fixed "
-                    + "vocabulary rather than a label. Send one of the six.",
-                List.of(TYPE)))
+            .orElseThrow(() -> MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
+                List.of(TYPE), EntryType.wireNames()))
             .wire();
     }
 
     private static void requireContent(String content) {
         if (content == null || content.isBlank()) {
-            throw new MemoryException(MemoryException.Reason.CONTENT_ABSENT,
-                "an entry is its content, so there is nothing to lay down without it. "
-                    + "Send the entry's text under 'fields.content'.");
+            throw new MemoryException(MemoryException.Reason.CONTENT_ABSENT);
         }
         if (content.length() > CONTENT_LIMIT) {
-            throw new MemoryException(MemoryException.Reason.CONTENT_OVERSIZE,
-                "an entry carries at most " + CONTENT_LIMIT + " characters and this one "
-                    + "carries " + content.length() + ". An entry is a curated statement "
-                    + "meant to be read whole in a digest; what does not fit belongs in "
-                    + "the document the 'reference' points at.");
+            throw new MemoryException(MemoryException.Reason.CONTENT_OVERSIZE);
         }
     }
 
@@ -332,22 +321,13 @@ public class MemoryService {
             // The value is NOT echoed: it is the thing that carries the
             // credential, and a refusal that quoted it would copy the secret
             // into every log and transcript the answer reaches.
-            throw new MemoryException(MemoryException.Reason.REFERENCE_CREDENTIAL_BEARING,
-                "the provenance pointer carries a credential — either user information "
-                    + "before an '@' in its authority, or one of the secret-bearing query "
-                    + "parameters. A reference is read by everyone who can read the entry, "
-                    + "so it may not be a way to store one. The value is not repeated "
-                    + "here, for the same reason. Point at the resource without the "
-                    + "credential.");
+            throw new MemoryException(MemoryException.Reason.REFERENCE_CREDENTIAL_BEARING);
         }
     }
 
     private static void requireSomethingToDo(Patch patch, EntryAddress address) {
         if (patch.isEmpty()) {
-            throw new MemoryException(MemoryException.Reason.UPDATE_EMPTY,
-                "this update names no field to change. The fields an entry admits are "
-                    + "'type', 'content' and 'reference'; scope and key are fixed for its "
-                    + "life. Read " + address.canonical() + " to see what stands there.");
+            throw new MemoryException(MemoryException.Reason.UPDATE_EMPTY);
         }
     }
 
@@ -362,10 +342,7 @@ public class MemoryService {
     private void requireCurrentToken(String presented, Memory entry,
                                      ScopeDirectory.ScopeAccess scope) {
         if (presented == null || presented.isBlank()) {
-            throw new MemoryException(MemoryException.Reason.CONFLICT_TOKEN_MISSING,
-                "this write needs the conflict token of the entry it changes. It is the "
-                    + "value the last read handed out, and it travels in the 'If-Match' "
-                    + "header. Read the entry and send back the token it answers with.");
+            throw new MemoryException(MemoryException.Reason.CONFLICT_TOKEN_MISSING);
         }
 
         String current = EntryView.tokenOf(entry);
@@ -375,11 +352,7 @@ public class MemoryService {
                 EntryAddress.ofKey(scope.slug(), entry.key).canonical());
             data.put("conflict_token", current);
             data.put("fields", EntryView.of(entry, scope.slug(), writable(scope)));
-            throw new MemoryException(MemoryException.Reason.CONFLICT_TOKEN_STALE,
-                "the entry has changed since the token presented was handed out. The "
-                    + "refusal carries the entry as it stands now, with its current "
-                    + "token, so the write can be re-formed against that rather than "
-                    + "against what was read before. Nothing was changed.", data);
+            throw new MemoryException(MemoryException.Reason.CONFLICT_TOKEN_STALE, data);
         }
     }
 
@@ -389,11 +362,7 @@ public class MemoryService {
      * caller sent (DEC-0042).
      */
     private static MemoryException occupied() {
-        return new MemoryException(MemoryException.Reason.ALREADY_EXISTS,
-            "an entry already stands at this address. This verb only ever lays down a new "
-                + "one — it never overwrites — so the entry that is there is untouched. Send "
-                + "the change to that address with 'update', or create the entry under "
-                + "another key.");
+        return new MemoryException(MemoryException.Reason.ALREADY_EXISTS);
     }
 
     /**
@@ -404,8 +373,7 @@ public class MemoryService {
      * shape, so the three cannot be told apart by anything downstream.
      */
     private static MemoryException absent() {
-        return new MemoryException(MemoryException.Reason.ENTRY_ABSENT,
-            "there is nothing at this address for this caller.");
+        return new MemoryException(MemoryException.Reason.ENTRY_ABSENT);
     }
 
     /** Whether this caller may write in a scope, which is what decides `next`. */
@@ -423,10 +391,6 @@ public class MemoryService {
      */
     private static MemoryException foreign() {
         return MemoryException.offending(MemoryException.Reason.CURSOR_FOREIGN,
-            "this cursor was handed out for another query — another scope, selector, "
-                + "type, text, order or direction. A cursor continues the listing it came "
-                + "from and no other. Repeat the query without 'after' to read this one from "
-                + "its first page.",
             List.of(PageCursor.AFTER));
     }
 

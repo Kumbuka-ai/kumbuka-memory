@@ -9,6 +9,8 @@ package ai.kumbuka.memory.adapter.mcp;
 
 import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.surface.Argument;
+import ai.kumbuka.memory.surface.ArgumentName;
+import ai.kumbuka.memory.surface.ArgumentPath;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallException;
 
@@ -57,7 +59,7 @@ final class CallArguments {
             check(argument, top.get(argument.name()));
         }
         if (verb.writesFields() && top.get(AssistantVerb.FIELDS) == null) {
-            throw CallException.missing(AssistantVerb.FIELDS, AssistantVerb.FIELDS_DESCRIPTION);
+            throw CallException.missing(AssistantVerb.fieldsName());
         }
         for (Argument argument : verb.fieldArguments()) {
             check(argument, fields.get(argument.name()));
@@ -67,8 +69,8 @@ final class CallArguments {
             // dropped, so the caller would believe it had removed the
             // reference while the entry kept it. Refused, because this
             // surface accepts nothing it then discards.
-            throw CallException.invalid(AssistantVerb.Names.REFERENCE,
-                "it is a URL, and the entry keeps the reference it has");
+            throw CallException.invalid(ArgumentPath.of(
+                verb.declaredName(AssistantVerb.Names.REFERENCE).orElseThrow()));
         }
     }
 
@@ -99,11 +101,11 @@ final class CallArguments {
     // The checks
     // ======================================================================
 
-    private static void refuseUndeclared(Map<String, Object> given, List<String> declared) {
-        for (String name : given.keySet()) {
-            if (!declared.contains(name)) {
-                throw CallException.unknown(declared);
-            }
+    private static void refuseUndeclared(Map<String, Object> given,
+                                         List<ArgumentName> declared) {
+        List<String> spelled = declared.stream().map(ArgumentName::value).toList();
+        if (!spelled.containsAll(given.keySet())) {
+            throw CallException.unknown(declared);
         }
     }
 
@@ -114,8 +116,7 @@ final class CallArguments {
             return Map.of();
         }
         if (!(raw instanceof Map)) {
-            throw CallException.invalid(AssistantVerb.FIELDS,
-                "it is an object carrying the values this call writes");
+            throw CallException.invalid(ArgumentPath.of(AssistantVerb.fieldsName()));
         }
         return (Map<String, Object>) raw;
     }
@@ -123,26 +124,25 @@ final class CallArguments {
     private static void check(Argument argument, Object value) {
         if (value == null) {
             if (argument.required()) {
-                throw CallException.missing(argument.name(), argument.description());
+                throw CallException.missing(argument.argumentName());
             }
             return;
         }
-        String why = switch (argument.type()) {
-            case Argument.STRING -> value instanceof String ? null : "it is a text";
-            case Argument.INTEGER -> isWholeNumber(value) ? null : "it is a whole number";
+        boolean ofItsKind = switch (argument.type()) {
+            case Argument.STRING -> value instanceof String;
+            case Argument.INTEGER -> isWholeNumber(value);
             case Argument.ARRAY -> {
-                requireTextElements(argument.name(), value);
-                yield value instanceof List<?> list && !list.isEmpty()
-                    ? null : "it is a list of at least one text";
+                requireTextElements(argument.argumentName(), value);
+                yield value instanceof List<?> list && !list.isEmpty();
             }
             default -> throw new IllegalStateException(
                 argument.name() + " is declared with a type the check does not know");
         };
-        if (why != null) {
+        if (!ofItsKind) {
             if (AssistantVerb.Names.PAGE_SIZE.equals(argument.name())) {
                 throw PageRequest.pageSizeRejected();
             }
-            throw CallException.invalid(argument.name(), why);
+            throw CallException.invalid(ArgumentPath.of(argument.argumentName()));
         }
     }
 
@@ -154,13 +154,13 @@ final class CallArguments {
      * Refuses a list element that is not a text, naming its position as the
      * argument's path ({@code types[2]}) and never the value (DEC-0043 R19).
      */
-    private static void requireTextElements(String name, Object value) {
+    private static void requireTextElements(ArgumentName name, Object value) {
         if (!(value instanceof List<?> list)) {
             return;
         }
         for (int at = 0; at < list.size(); at++) {
             if (!(list.get(at) instanceof String)) {
-                throw CallException.invalid(name + "[" + at + "]", "it is a text");
+                throw CallException.invalid(ArgumentPath.at(name, at));
             }
         }
     }

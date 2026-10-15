@@ -7,49 +7,54 @@
  */
 package ai.kumbuka.memory.adapter.payload;
 
-import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.MemoryException;
-import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
-import ai.kumbuka.memory.domain.PageRequest;
+import ai.kumbuka.memory.surface.ArgumentName;
+import ai.kumbuka.memory.surface.ArgumentPath;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.AssistantVerb.Names;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
+import ai.kumbuka.memory.surface.Texts;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Every refusal of the assistant surface, in the envelope of DEC-0042.
+ * Every refusal of the assistant surface, in the envelope of DEC-0042, and the
+ * message of every refusal of the generic one.
  *
  * <h2>What a message is made of</h2>
  *
- * The reason's pattern and remedy from the catalogue, and values taken from
- * three places only: the call itself (the tool name and the names of its
- * arguments), the structured data a domain refusal carries (an offending
- * argument's name), and the service's published limits and lists. Never a
- * value the caller sent: a refusal is logged and a value can be content
- * (DEC-0042). Never the domain refusal's message either. That sentence was
- * written for the generic surface, names calls in that surface's vocabulary,
- * and may carry what this surface keeps out; so it is not read here at all.
+ * The reason's message and remedy from the bundles the catalogue names, filled
+ * with facts of the placeholder types the declaration builds: the call, the
+ * argument a refusal concerns, its position, the names the call declares, and
+ * the service's bounds. Never a value the caller sent: a refusal is logged and
+ * a value can be content (DEC-0042, DEC-0043 R18). A refusal raised in the
+ * domain carries no sentence at all, only its reason and the names of the
+ * arguments it concerns, and a name is turned into a placeholder only by
+ * finding it in the call's declaration.
  *
  * <h2>What {@code data} carries</h2>
  *
  * {@code attempted} on every refusal. On a refusal of a call's arguments also
- * {@code offenders}, naming the arguments and never their values (DEC-0042).
- * Where the refusal concerns an entry this
- * caller may see, also its {@code state} and {@code next}: the calls the
- * remedy names, each kept only if it would succeed for this caller, judged
- * from the same write right that decides an answer's {@code next}. A stale
- * conflict token additionally carries the entry as this caller's own read
- * would answer it (DEC-0041). {@code NOT_FOUND} carries {@code attempted}
- * and nothing else, so that its three causes cannot be told apart.
+ * {@code offenders}, naming the arguments or their positions and never their
+ * values (DEC-0042, DEC-0043 R19); on a refusal of an undeclared name, or of a
+ * value outside a fixed set, {@code accepts}, the names or values declared.
+ * Where the refusal concerns an entry this caller may see, also its
+ * {@code state} and {@code next}: the calls the remedy names, each kept only
+ * if it would succeed for this caller, judged from the same write right that
+ * decides an answer's {@code next}. A stale conflict token additionally
+ * carries the entry as this caller's own read would answer it (DEC-0041).
+ * {@code NOT_FOUND} carries {@code attempted} and nothing else, so that its
+ * three causes cannot be told apart.
  *
  * <h2>Two ways in</h2>
  *
@@ -63,6 +68,10 @@ public final class AssistantRefusals {
     private static final String ATTEMPTED = "attempted";
     private static final String STATE = "state";
     private static final String NEXT = "next";
+    private static final String REPORT = "report";
+
+    /** An offender as the domain names it: an argument, or one of its elements. */
+    private static final Pattern OFFENDER = Pattern.compile("([a-z_]+)(?:\\[(\\d+)])?");
 
     private AssistantRefusals() {
     }
@@ -75,16 +84,16 @@ public final class AssistantRefusals {
     public static Payloads.Refusal of(AssistantVerb verb, CallException e,
                                       Optional<EntryView> seen) {
         ReasonCatalogue.Reason reason = ReasonCatalogue.of(e.reason().name());
-        Map<String, String> values = new LinkedHashMap<>(e.values());
-        values.put(ReasonCatalogue.CALL, verb.call());
-        Payloads.Refusal refusal =
-            envelope(verb, reason, ReasonCatalogue.message(reason, values), seen);
-        String name = e.values().get(ReasonCatalogue.NAME);
-        if (name != null && e.reason() != CallException.Reason.UNEXPECTED_FAILURE) {
-            refusal.data().put(MemoryException.OFFENDERS, List.of(name));
-        }
+        ReasonCatalogue.Facts facts = ReasonCatalogue.Facts.of(verb.verbName())
+            .accepting(e.accepts());
+        facts = e.name().map(facts::naming).orElse(facts);
+        facts = e.path().map(facts::at).orElse(facts);
+        Payloads.Refusal refusal = envelope(verb, reason, reason.text(facts), seen);
+        e.path().ifPresent(path ->
+            refusal.data().put(MemoryException.OFFENDERS, List.of(path.value())));
         if (e.reason() == CallException.Reason.ARGUMENT_UNKNOWN) {
-            refusal.data().put(MemoryException.ACCEPTS, e.accepts());
+            refusal.data().put(MemoryException.ACCEPTS,
+                e.accepts().stream().map(ArgumentName::value).toList());
         }
         return refusal;
     }
@@ -98,11 +107,10 @@ public final class AssistantRefusals {
     public static Payloads.Refusal of(AssistantVerb verb, MemoryException e,
                                       ReasonCatalogue.Reason reason, Optional<EntryView> seen) {
         if (ReasonCatalogue.NOT_FOUND.equals(reason.code())) {
-            return new Payloads.Refusal(reason.code(), ReasonCatalogue.NOT_FOUND_MESSAGE,
+            return new Payloads.Refusal(reason.code(), notFound(),
                 Map.of(ATTEMPTED, verb.call()));
         }
-        String message = messageFor(verb, e, reason);
-        Payloads.Refusal refusal = envelope(verb, reason, message, seen);
+        Payloads.Refusal refusal = envelope(verb, reason, messageFor(verb, e, reason), seen);
         if (e.data().get("fields") instanceof EntryView current) {
             refusal.data().put(MemoryException.ADDRESS, current.address().canonical());
             refusal.data().put(Names.CONFLICT_TOKEN, current.conflictToken());
@@ -119,23 +127,42 @@ public final class AssistantRefusals {
 
     /**
      * The message of a refusal the service made, on either surface: the
-     * reason's pattern and remedy, filled from what the service holds.
+     * reason's message and remedy, filled with facts of the declaration's own.
      *
      * <p>The generic surface answers with this message too. One wording per
-     * reason means the two surfaces cannot come to say different things, and
-     * the domain's own sentence never reaches a caller on either.
+     * reason means the two surfaces cannot come to say different things.
      */
     public static String messageFor(AssistantVerb verb, MemoryException e,
                                     ReasonCatalogue.Reason reason) {
-        return ReasonCatalogue.message(reason, valuesFor(verb, e));
+        ReasonCatalogue.Facts facts = ReasonCatalogue.Facts.of(verb.verbName());
+        if (e.data().get(MemoryException.OFFENDERS) instanceof List<?> offenders
+                && !offenders.isEmpty()) {
+            Optional<ArgumentPath> path = pathOf(verb, String.valueOf(offenders.get(0)));
+            if (path.isPresent()) {
+                facts = facts.at(path.get());
+            }
+        }
+        if (e.reason() == MemoryException.Reason.ARGUMENT_UNKNOWN
+                && e.data().get(MemoryException.ACCEPTS) instanceof List<?> accepts) {
+            facts = facts.accepting(accepts.stream()
+                .map(name -> declared(verb, String.valueOf(name)))
+                .toList());
+        }
+        return reason.text(facts);
     }
 
     /**
      * The message of a refusal of the transport. Raised before a verb is
-     * known, so its pattern names none and is filled with nothing.
+     * known, so its texts name none.
      */
     public static String messageFor(ReasonCatalogue.Reason reason) {
-        return ReasonCatalogue.message(reason, Map.of());
+        return reason.text(ReasonCatalogue.Facts.none());
+    }
+
+    /** The one message the not-found class carries, on every surface. */
+    public static String notFound() {
+        return ReasonCatalogue.of(ReasonCatalogue.NOT_FOUND)
+            .text(ReasonCatalogue.Facts.none());
     }
 
     /**
@@ -145,29 +172,24 @@ public final class AssistantRefusals {
      * is no argument for {@code offenders} to name, and the value sent is the
      * caller's input and is repeated nowhere (DEC-0042).
      */
-    public static Payloads.Refusal headerRefused(AssistantVerb verb, String header,
-                                                 String takes) {
-        ReasonCatalogue.Reason reason =
-            ReasonCatalogue.of(MemoryException.Reason.ARGUMENT_INVALID.name());
-        Map<String, String> values = new LinkedHashMap<>();
-        values.put(ReasonCatalogue.CALL, verb.call());
-        values.put(ReasonCatalogue.NAME, "the header " + header);
-        values.put(ReasonCatalogue.WHY, "it takes the value " + takes + ", sent once");
-        return new Payloads.Refusal(reason.code(), ReasonCatalogue.message(reason, values),
+    public static Payloads.Refusal headerRefused() {
+        return new Payloads.Refusal(MemoryException.Reason.ARGUMENT_INVALID.name(),
+            Texts.refusals().surfaceHeader() + " " + Texts.remedies().surfaceHeader(),
             new LinkedHashMap<>());
     }
 
-    /** A failure nobody foresaw, already logged under {@code reportId}. */
+    /**
+     * A failure nobody foresaw, already logged under {@code reportId}. The
+     * reference travels under {@code data.report}, and the message points at
+     * it: a reference is no placeholder a text may take.
+     */
     public static Payloads.Refusal unexpected(AssistantVerb verb, String reportId) {
         ReasonCatalogue.Reason reason =
             ReasonCatalogue.of(CallException.Reason.UNEXPECTED_FAILURE.name());
-        Map<String, String> values = new LinkedHashMap<>();
-        values.put(ReasonCatalogue.CALL, verb.call());
-        values.put(ReasonCatalogue.REPORT, reportId);
         Payloads.Refusal refusal = new Payloads.Refusal(reason.code(),
-            ReasonCatalogue.message(reason, values), new LinkedHashMap<>());
+            reason.text(ReasonCatalogue.Facts.of(verb.verbName())), new LinkedHashMap<>());
         refusal.data().put(ATTEMPTED, verb.call());
-        refusal.data().put("report", reportId);
+        refusal.data().put(REPORT, reportId);
         return refusal;
     }
 
@@ -200,63 +222,32 @@ public final class AssistantRefusals {
     }
 
     // ======================================================================
-    // The values a domain refusal's pattern is filled with
+    // From the domain's names to the declaration's
     // ======================================================================
 
     /**
-     * Every placeholder the reason's pattern can name, filled from what the
-     * service itself holds: the call, the offending argument's name, and the
-     * service's limits and lists.
-     *
-     * <p>Filled generously rather than per reason: a value the pattern does
-     * not name is simply not used, while a value it names and is missing makes
-     * the message refuse to build — which is the failure worth having.
+     * The position an offender names, built from the call's declaration; empty
+     * where the call declares no argument by that name. The domain spells an
+     * offender as the argument's name, or as the name and an element's
+     * position; neither half is ever a value the caller sent.
      */
-    private static Map<String, String> valuesFor(AssistantVerb verb, MemoryException e) {
-        Map<String, String> values = new LinkedHashMap<>();
-        values.put(ReasonCatalogue.CALL, verb.call());
-
-        Object offenders = e.data().get(MemoryException.OFFENDERS);
-        String firstOffender = offenders instanceof List<?> list && !list.isEmpty()
-            ? String.valueOf(list.get(0)) : null;
-        putIfPresent(values, ReasonCatalogue.FIELD, firstOffender);
-        putIfPresent(values, ReasonCatalogue.NAME, firstOffender);
-        putIfPresent(values, ReasonCatalogue.WHY, whyOf(verb, firstOffender));
-        values.put(ReasonCatalogue.ARGUMENTS, String.join(", ", verb.topNames()));
-
-        values.put(ReasonCatalogue.TYPES, String.join(", ", EntryType.wireNames()));
-        values.put(ReasonCatalogue.LIMIT, String.valueOf(MemoryService.CONTENT_LIMIT));
-        values.put(ReasonCatalogue.MAX, String.valueOf(PageRequest.MAX_PAGE_SIZE));
-        if (e.data().get(MemoryException.ACCEPTS) instanceof List<?> accepts) {
-            values.put(ReasonCatalogue.ARGUMENTS, String.join(", ",
-                accepts.stream().map(String::valueOf).toList()));
+    private static Optional<ArgumentPath> pathOf(AssistantVerb verb, String offender) {
+        Matcher spelled = OFFENDER.matcher(offender);
+        if (!spelled.matches()) {
+            return Optional.empty();
         }
-        return values;
+        return verb.declaredName(spelled.group(1)).map(name -> spelled.group(2) == null
+            ? ArgumentPath.of(name)
+            : ArgumentPath.at(name, Integer.parseInt(spelled.group(2))));
     }
 
-    /**
-     * What an argument has to be, said from its declaration: the values it
-     * takes where it declares a set of them. Null where the declaration says
-     * nothing a refusal could repeat.
-     */
-    private static String whyOf(AssistantVerb verb, String name) {
-        return verb.topArguments().stream()
-            .filter(argument -> argument.name().equals(name))
-            .map(argument -> argument.keywords().get("enum"))
-            .filter(List.class::isInstance)
-            .map(values -> "it is one of " + String.join(", ",
-                ((List<?>) values).stream().map(String::valueOf).toList()))
-            .findFirst()
-            .orElse(null);
+    /** A name the call declares, as the declaration holds it; any other is a defect. */
+    private static ArgumentName declared(AssistantVerb verb, String spelled) {
+        return verb.declaredName(spelled).orElseThrow(() -> new IllegalStateException(
+            "the domain lists a name " + verb.call() + " does not declare"));
     }
 
     public static boolean takesAddress(AssistantVerb verb) {
         return verb.topArguments().stream().anyMatch(a -> Names.ADDRESS.equals(a.name()));
-    }
-
-    private static void putIfPresent(Map<String, String> values, String name, String value) {
-        if (value != null) {
-            values.put(name, value);
-        }
     }
 }

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.EntryAddress;
@@ -162,9 +169,7 @@ public final class AddressParser {
             : address.substring(scheme.length()).split("/", -1);
         if (segments.length != 3 || segments[0].isEmpty() || segments[1].isEmpty()
             || segments[2].isEmpty()) {
-            throw new MemoryException(MemoryException.Reason.ADDRESS_MALFORMED,
-                "an entry is addressed as memory://<scope>/<selector>/<id>, and this "
-                    + "value is not of that form.");
+            throw new MemoryException(MemoryException.Reason.ADDRESS_MALFORMED);
         }
         return new Parts(segments[0], segments[1], segments[2]);
     }
@@ -202,12 +207,7 @@ public final class AddressParser {
     public static void requireWritableSelector(EntryAddress address) {
         String first = address.key().split("[.-]", 2)[0];
         if (RESERVED_SELECTOR.equals(first)) {
-            throw new MemoryException(MemoryException.Reason.SELECTOR_RESERVED,
-                "'" + RESERVED_SELECTOR + "' is reserved for entries this service lays "
-                    + "down itself, so no verb writes one. The check is on the first dot- "
-                    + "or dash-separated segment of the key, which is why '"
-                    + address.key() + "' is refused. Choose another selector — "
-                    + "'convention', 'decision' and 'constraint' are the ordinary ones.");
+            throw new MemoryException(MemoryException.Reason.SELECTOR_RESERVED);
         }
     }
 
@@ -222,46 +222,25 @@ public final class AddressParser {
      */
     public static void requireAgreement(String selector, EntryAddress fromKey) {
         if (!selector.equals(fromKey.selector())) {
-            throw new MemoryException(MemoryException.Reason.SELECTOR_MISMATCHED,
-                "the address names the selector '" + selector + "' and the key '"
-                    + fromKey.key() + "' carries '" + fromKey.selector() + "'. The key's "
-                    + "selector is the part before its first dot and it is what decides "
-                    + "where the entry stands, so the two have to be the same one. Either "
-                    + "post to '" + fromKey.selector() + "' or write the key as '"
-                    + selector + "." + fromKey.id() + "'.");
+            throw new MemoryException(MemoryException.Reason.SELECTOR_MISMATCHED);
         }
     }
 
     private static void requireScope(String scope) {
         if (scope == null || !SCOPE.matcher(scope).matches()) {
-            throw new MemoryException(MemoryException.Reason.ADDRESS_MALFORMED,
-                "'" + scope + "' is not a scope name. A scope is written in lower-case "
-                    + "alphanumeric segments separated by single dashes, which is what "
-                    + "the platform allocates — so a name of another shape names no "
-                    + "scope that could exist.");
+            throw new MemoryException(MemoryException.Reason.ADDRESS_MALFORMED);
         }
     }
 
     private static void requireSelector(String selector) {
         if (selector == null || !SELECTOR.matcher(selector).matches()) {
-            throw new MemoryException(MemoryException.Reason.KEY_MALFORMED,
-                "'" + selector + "' is not a selector. A selector begins with a letter, "
-                    + "runs to at most sixteen characters, and carries lower-case "
-                    + "letters, digits, dashes and underscores — it is the part of the "
-                    + "key before the first dot and it is meant to be retyped from "
-                    + "memory.");
+            throw new MemoryException(MemoryException.Reason.KEY_MALFORMED);
         }
     }
 
     private static void requireKey(String key) {
         if (key == null || !KEY.matcher(key).matches()) {
-            throw new MemoryException(MemoryException.Reason.KEY_MALFORMED,
-                "'" + key + "' is not a key this service stores. A key is lower-case "
-                    + "alphanumeric segments joined by single dots or dashes, and the "
-                    + "first dot is what separates the selector from the id — so "
-                    + "'decision.storage-engine' is one and 'Decision_Storage' is not. "
-                    + "The underscore the selector grammar admits is refused by the "
-                    + "table underneath, and the narrower of the two binds.");
+            throw new MemoryException(MemoryException.Reason.KEY_MALFORMED);
         }
     }
 

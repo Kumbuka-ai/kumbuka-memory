@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 /**
@@ -68,12 +75,7 @@ public record EntryAddress(String scope, String selector, String id) {
     public static EntryAddress ofKey(String scope, String key) {
         int at = key == null ? -1 : key.indexOf(SEPARATOR);
         if (at <= 0 || at == key.length() - 1) {
-            throw new MemoryException(MemoryException.Reason.SELECTOR_ABSENT,
-                "a key needs a selector and an id, written '<selector>.<id>' — the part "
-                    + "before the first dot addresses the kind of entry and the rest names "
-                    + "this one. '" + key + "' carries no such split, so the entry would "
-                    + "have no address to be read back by. Write it as, for example, "
-                    + "'decision.storage-engine'.");
+            throw new MemoryException(MemoryException.Reason.SELECTOR_ABSENT);
         }
         return new EntryAddress(scope, key.substring(0, at), key.substring(at + 1));
     }

@@ -29,7 +29,7 @@ class AssistantRefused extends MemoryException {
     private final transient Payloads.Refusal refusal;
 
     AssistantRefused(MemoryException refused, Payloads.Refusal refusal) {
-        super(refused.reason(), refused.getMessage(), refused.data());
+        super(refused.reason(), refused.data());
         initCause(refused);
         this.refusal = refusal;
     }
