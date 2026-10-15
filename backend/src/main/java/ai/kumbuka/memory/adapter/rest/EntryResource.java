@@ -15,6 +15,7 @@ import ai.kumbuka.memory.surface.AddressParser;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallerActor;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
+import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.VerbSurface;
 import ai.kumbuka.memory.tenancy.TenantBound;
@@ -62,6 +63,7 @@ import java.util.UUID;
  * depths, and each one offers exactly what the verb set has at it:
  *
  * <pre>
+ *   GET    /api                             the service's declaration
  *   GET    /api/{scope}                     query, over every selector
  *   GET    /api/{uuid}                      read, by technical address
  *   POST   /api/{scope}:digest              digest
@@ -135,6 +137,30 @@ public class EntryResource {
     @Inject CallerActor caller;
     @Inject ObjectMapper json;
     @Inject RestCall call;
+
+    // ======================================================================
+    // Scheme depth
+    // ======================================================================
+
+    /**
+     * GET at the scheme's own address: the service's declaration (ADR-0039).
+     *
+     * <p>Every verb with its identity, effect class, arguments, answer,
+     * refusals and texts, and the version they carry together -- the statement
+     * the router builds its surface from. A statement about the scheme, so it
+     * stands at the scheme's address, {@code memory://}, which is {@code /api};
+     * a segment under it would read as a scope, and {@code declaration} is a
+     * well-formed scope name. It is the declaration {@code /mcp/declaration}
+     * serves: one declaration, two readers.
+     *
+     * <p>Authenticated as every other route of this surface. Whether the router
+     * may read it with an identity of its own rather than a caller's is a
+     * decision about a security gate and is not taken here.
+     */
+    @GET
+    public Map<String, Object> declaration() {
+        return SurfaceDeclaration.asMap();
+    }
 
     // ======================================================================
     // Scope depth
