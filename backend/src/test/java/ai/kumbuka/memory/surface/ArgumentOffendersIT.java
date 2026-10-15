@@ -94,30 +94,49 @@ class ArgumentOffendersIT {
         Response rest = call().contentType(ContentType.JSON)
             .body(Map.of("types", List.of("decision", MARK)))
             .post(API + "/" + SCOPE + ":digest");
-        assertRest(rest, 422, "TYPE_UNKNOWN", List.of("types"));
+        // By its position, as the argument's path: which of several values was
+        // wrong is what the caller needs, and the value is its own (DEC-0043 R19).
+        assertRest(rest, 422, "TYPE_UNKNOWN", List.of("types[1]"));
 
         assertMcp(Mcp.call("memory_digest", Mcp.args("scope", SCOPE,
-            "types", List.of("decision", MARK))), "TYPE_UNKNOWN", List.of("types"));
+            "types", List.of("decision", MARK))), "TYPE_UNKNOWN", List.of("types[1]"));
     }
 
     // ======================================================================
     // Parameters on an address that names one entry
     // ======================================================================
 
+    /**
+     * Answered with the names the read declares and never with those that
+     * arrived (DEC-0043 R19): on the generic surface a read takes no
+     * parameter, so {@code accepts} is empty, and on the assistant surface it
+     * lists {@code address}. The names sent are repeated nowhere.
+     */
     @Test
     void a_parameter_on_an_item_address_is_an_unknown_argument() {
-        assertRest(call().get(API + "/" + SCOPE + "/decision/storage-engine?type=" + MARK
-                + "&colour=" + MARK),
-            400, "ARGUMENT_UNKNOWN", List.of("colour", "type"));
+        assertUnknown(call().get(API + "/" + SCOPE + "/decision/storage-engine?type=" + MARK
+            + "&" + MARK + "=" + MARK), List.of());
 
-        assertRest(call().get(API + "/" + SurfaceFixture.logicalIdOf(
+        assertUnknown(call().get(API + "/" + SurfaceFixture.logicalIdOf(
                 SubstrateDatabaseResource.SCOPE_ID, "decision.storage-engine")
-                + "?after=" + MARK),
-            400, "ARGUMENT_UNKNOWN", List.of("after"));
+                + "?after=" + MARK), List.of());
 
-        assertMcp(Mcp.call("memory_read", Mcp.args("address",
-                "memory://" + SCOPE + "/decision/storage-engine", "colour", MARK)),
-            "ARGUMENT_UNKNOWN", List.of("colour"));
+        Mcp.Result mcp = Mcp.call("memory_read", Mcp.args("address",
+            "memory://" + SCOPE + "/decision/storage-engine", MARK, MARK));
+        assertThat(mcp.reason()).as("%s", mcp).isEqualTo("ARGUMENT_UNKNOWN");
+        assertThat(mcp.strings("data.accepts")).containsExactly("address");
+        assertThat(mcp.map("data")).doesNotContainKey("offenders");
+        assertThat(mcp.text()).doesNotContain(MARK);
+    }
+
+    private static void assertUnknown(Response answer, List<String> accepts) {
+        assertThat(answer.statusCode()).as("%s", answer.asString()).isEqualTo(400);
+        assertThat(answer.jsonPath().getString("reason")).isEqualTo("ARGUMENT_UNKNOWN");
+        assertThat(answer.jsonPath().getList("data.accepts", String.class))
+            .as("the names the call declares — %s", answer.asString())
+            .isEqualTo(accepts);
+        assertThat(answer.jsonPath().getMap("data")).doesNotContainKey("offenders");
+        assertThat(answer.asString()).doesNotContain(MARK);
     }
 
     // ------------------------------------------------------------------

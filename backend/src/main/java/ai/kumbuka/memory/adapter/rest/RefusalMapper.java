@@ -9,7 +9,10 @@ package ai.kumbuka.memory.adapter.rest;
 
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.MemoryException;
+import ai.kumbuka.memory.surface.AssistantVerb;
+import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.SurfaceException;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -91,9 +94,41 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
         return response.build();
     }
 
+    /**
+     * The refusals of a call's arguments, raised on this surface where a
+     * required argument is absent or {@code null} (DEC-0043 R17). 400, as the
+     * assistant surface's argument refusals are.
+     */
+    @Provider
+    public static class Arguments implements ExceptionMapper<CallException> {
+
+        @Inject RestCall call;
+
+        @Override
+        public Response toResponse(CallException e) {
+            LOG.debugf("argument refusal: %s", e.reason());
+            return Response.status(400)
+                .type(MediaType.APPLICATION_JSON)
+                .entity(Payloads.Refusal.of(verbOf(call), e))
+                .build();
+        }
+    }
+
+    /**
+     * The verb the refused request called. Every resource method states it
+     * before anything it calls can refuse, so its absence is a defect of the
+     * resource and not a condition of the caller's.
+     */
+    static AssistantVerb verbOf(RestCall call) {
+        return call.verb().orElseThrow(() -> new IllegalStateException(
+            "a refusal arrived before the resource method stated its verb"));
+    }
+
     /** The domain's refusals, on the same envelope and the same discipline. */
     @Provider
     public static class Domain implements ExceptionMapper<MemoryException> {
+
+        @Inject RestCall call;
 
         @Override
         public Response toResponse(MemoryException e) {
@@ -121,7 +156,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
             // this mapper's decision to make a second time; the status is.
             return Response.status(status)
                 .type(MediaType.APPLICATION_JSON)
-                .entity(Payloads.Refusal.of(e))
+                .entity(Payloads.Refusal.of(verbOf(call), e))
                 .build();
         }
 

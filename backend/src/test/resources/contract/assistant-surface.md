@@ -122,7 +122,10 @@ carried type: `type` and `entries`, each with `address`, `key` and `content`), `
 
 `data.attempted` is present on every refusal. A refusal of a call's arguments, on every call, also
 carries `data.offenders`, naming the arguments and never their values (DEC-0042): `type` for a type
-`memory_create` or `memory_query` was sent, `types` for those of `memory_digest`. `data.state` and
+`memory_create` or `memory_query` was sent, and for those of `memory_digest` the position of each
+wrong one as the argument's path, such as `types[1]` (DEC-0043 R19). A refusal of a name the call
+does not declare carries `data.accepts` instead, the names the call declares at that level, and
+never the name that arrived (DEC-0043 R19). `data.state` and
 `data.next` are present where the refusal concerns an entry this caller may see. A refusal of a
 stale conflict token additionally carries the entry as this caller's own read would answer it
 (DEC-0041).
@@ -177,14 +180,14 @@ of the three is the cause (DEC-0042).
 | `UPDATE_EMPTY` | `<call> names nothing to change. Send at least one of content, type and reference in fields.` | Send at least one of content, type and reference in fields. |
 | `TYPE_UNKNOWN` | `<call> was sent a type outside the entry types, which are: <list>. Send each type as one of these.` | Send each type as one of these. |
 | `CONTENT_ABSENT` | `<call> needs content: an entry without content is not stored. Send the text of the entry as content.` | Send the text of the entry as content. |
-| `CONTENT_OVERSIZE` | `The content is <n> characters long, and an entry holds at most <limit>. Shorten the content to at most <limit> characters, or split it into several entries.` | Shorten the content to at most <limit> characters, or split it into several entries. |
+| `CONTENT_OVERSIZE` | `The content is longer than an entry holds, which is at most <limit> characters. Shorten the content to at most <limit> characters, or split it into several entries.` | Shorten the content to at most <limit> characters, or split it into several entries. |
 | `REFERENCE_CREDENTIAL_BEARING` | `The reference carries a credential and is not stored. Remove the user information and every secret parameter from the URL, then send it again.` | Remove the user information and every secret parameter from the URL, then send it again. |
 | `PAGE_SIZE_REJECTED` | `page_size is outside what <call> takes. Send page_size as a whole number from 1 to <max>.` | Send page_size as a whole number from 1 to <max>. |
 | `CURSOR_MALFORMED` | `after is not a cursor <query> handed out. Call <query> again from the first page, or send as after the next_cursor of the page you read last.` | Call `<query>` again from the first page, or send as after the next_cursor of the page you read last. |
 | `CURSOR_FOREIGN` | `after was handed out by <query> for another scope, selector, type, text, sort or direction. Call <query> again from the first page.` | Call `<query>` again from the first page. |
 | `SORT_UNDECLARED` | `sort names an order <call> does not declare. Send sort as id or created_at.` | Send sort as id or created_at. |
 | `ACTOR_UNKNOWN` | `The token is valid but names no subject to act as. Authenticate as a subject and call again with that token.` | Authenticate as a subject and call again with that token. |
-| `ARGUMENT_UNKNOWN` | `<call> has no argument named <n>. Its arguments are: <list>. Name each argument as the call declares it.` | Name each argument as the call declares it. |
+| `ARGUMENT_UNKNOWN` | `<call> was sent an argument outside the names it declares at that level, which are: <list>. Name each argument as one of these.` | Name each argument as one of these. |
 | `ARGUMENT_MISSING` | `<call> needs <n>: <what it is>. Send <n> with the call.` | Send the argument with the call. |
 | `ARGUMENT_INVALID` | `<n> is not valid for <call>: <why>. Send <n> in that form.` -- `<why>` is a sentence of the pattern's own | Send the argument in that form. |
 | `UNEXPECTED_FAILURE` | `<call> failed unexpectedly. This is a defect, not a rule. Nothing was changed. Report reference <ref> to the operator of this service.` -- `<ref>` is written to the service's log with the failure | Report the reference to the operator of this service. |
@@ -294,14 +297,15 @@ that answer would drift from it, and a listed call that is then refused is what 
 
 ## 8. Open points and recorded departures
 
-- **The generic surface departs from two rules and is left as it is.** Its messages are sentences
-  written inside the service rather than built from a pattern, and its refusals carry no
-  `attempted` and no `next`. Bringing it into line changes what a running installation answers and
-  is a decision of its own; where its messages are kept is part of the decision on a message store
-  per service. Until then some of them still repeat a value the caller sent -- a scope, a key or a
-  selector that fails the address grammar, a verb segment, a body that is not JSON. Its listing
-  answers an undeclared argument as `ARGUMENT_UNKNOWN` (400), as this surface does, and so does an
-  address that names one entry when it is sent a parameter, naming the parameters in `offenders`.
+- **The generic surface words its refusals from the patterns of section 4.4** (DEC-0043 R18), as
+  this surface does, and repeats no value the caller sent in its message or in any member of
+  `data`. Its refusals carry no `attempted` and no `next`. A refusal of the transport -- a body that
+  is not JSON, a verb in colon notation the address does not carry, a method the address does not
+  carry -- is raised before a verb is known, and its pattern names no call. A required argument
+  absent or sent as `null` under `fields` is `ARGUMENT_MISSING` (400), as here (DEC-0043 R17). Its
+  listing answers an undeclared argument as `ARGUMENT_UNKNOWN` (400), as this surface does, and so
+  does an address that names one entry when it is sent a parameter, listing the parameters it
+  accepts in `accepts`.
   This service declares no filter fields per scope, so it never answers `PREDICATE_UNKNOWN`.
 - **A hop in front of the service can ask the generic listing for this surface's projection.**
   `GET` of a listing with the header `Kumbuka-Surface: assistant` answers as `memory_query` does

@@ -186,7 +186,7 @@ class DigestIT {
             .as("the argument is named, because a section missing from a digest reads as "
                 + "'there are none of these' and a misspelling would answer that; the value "
                 + "is not repeated (DEC-0042)")
-            .containsExactly("types");
+            .containsExactly("types[1]");
         assertThat(digest.asString()).doesNotContain("decisions");
     }
 

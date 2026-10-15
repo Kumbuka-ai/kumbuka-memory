@@ -347,8 +347,10 @@ class EntrySurfaceIT {
             .as("an argument read does not declare, decidable without a scope (DEC-0042)")
             .isEqualTo(400);
         assertThat(answer.jsonPath().getString("reason")).isEqualTo("ARGUMENT_UNKNOWN");
-        assertThat(answer.jsonPath().getList("data.offenders", String.class))
-            .containsExactly("type");
+        assertThat(answer.jsonPath().getList("data.accepts", String.class))
+            .as("answered with the parameters a read takes, which are none, and never "
+                + "with the one that arrived (DEC-0043 R19)")
+            .isEmpty();
     }
 
     // ------------------------------------------------------------------

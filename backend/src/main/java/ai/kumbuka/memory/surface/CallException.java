@@ -40,22 +40,33 @@ public class CallException extends RuntimeException {
 
     private final transient Reason reason;
     private final transient Map<String, String> values;
+    private final transient List<String> accepts;
 
     private CallException(Reason reason, String note, Map<String, String> values) {
+        this(reason, note, values, List.of());
+    }
+
+    private CallException(Reason reason, String note, Map<String, String> values,
+                          List<String> accepts) {
         super(note);
         this.reason = reason;
         this.values = Map.copyOf(values);
+        this.accepts = List.copyOf(accepts);
     }
 
     /**
+     * An argument the call does not declare, answered with the names it does
+     * declare and never with the one that arrived (DEC-0043 R19): that name is
+     * the caller's input, and the caller still holds it.
+     *
      * @param declared the names the caller could have written at that level,
      *                 in declaration order
      */
-    public static CallException unknown(String name, List<String> declared) {
+    public static CallException unknown(List<String> declared) {
         Map<String, String> values = new LinkedHashMap<>();
-        values.put(ReasonCatalogue.NAME, name);
         values.put(ReasonCatalogue.ARGUMENTS, String.join(", ", declared));
-        return new CallException(Reason.ARGUMENT_UNKNOWN, "undeclared argument", values);
+        return new CallException(Reason.ARGUMENT_UNKNOWN, "undeclared argument", values,
+            declared);
     }
 
     /** @param what what the value is, from the argument's declaration */
@@ -82,6 +93,11 @@ public class CallException extends RuntimeException {
 
     public Reason reason() {
         return reason;
+    }
+
+    /** The names the call declares where an undeclared one arrived; empty otherwise. */
+    public List<String> accepts() {
+        return accepts;
     }
 
     /** The placeholder values this refusal fills its pattern with. */

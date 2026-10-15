@@ -273,7 +273,10 @@ class AssistantRefusalIT {
         Mcp.Result refusal = create("decision", "decision.tabs", "decision", tooLong);
 
         assertRefusal(refusal, "CONTENT_OVERSIZE", CREATE, Map.of(
-            "n", String.valueOf(tooLong.length()), "limit", String.valueOf(limit)));
+            "limit", String.valueOf(limit)));
+        assertThat(refusal.message())
+            .as("the length is a fact about the caller's input, and the limit says enough")
+            .doesNotContain(String.valueOf(tooLong.length()));
         assertThat(refusal.text()).doesNotContain("a sentence nobody should read back");
     }
 
@@ -347,18 +350,22 @@ class AssistantRefusalIT {
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void an_undeclared_argument_is_refused_by_name_at_the_top_and_inside_fields() {
-        assertRefusal(Mcp.call(READ, args("address", ADDRESS, "colour", "red")),
-            "ARGUMENT_UNKNOWN", READ, Map.of("call", READ, "n", "colour",
-                "list", String.join(", ", Contract.argumentsOf(READ).top().keySet())));
+        // Answered with the declared names, never with the one that arrived
+        // (DEC-0043 R19).
+        Mcp.Result top = Mcp.call(READ, args("address", ADDRESS, "colour", "red"));
+        assertRefusal(top, "ARGUMENT_UNKNOWN", READ, Map.of("call", READ,
+            "list", String.join(", ", Contract.argumentsOf(READ).top().keySet())));
+        assertThat(top.text()).doesNotContain("colour");
 
-        assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
-                token(ADDRESS), "fields", Map.of("content", "x", "colour", "red"))),
-            "ARGUMENT_UNKNOWN", UPDATE, Map.of("call", UPDATE, "n", "colour",
-                "list", String.join(", ", Contract.argumentsOf(UPDATE).fields().keySet())));
+        Mcp.Result inFields = Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
+            token(ADDRESS), "fields", Map.of("content", "x", "colour", "red")));
+        assertRefusal(inFields, "ARGUMENT_UNKNOWN", UPDATE, Map.of("call", UPDATE,
+            "list", String.join(", ", Contract.argumentsOf(UPDATE).fields().keySet())));
+        assertThat(inFields.text()).doesNotContain("colour");
 
         assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
                 token(ADDRESS), "fields", Map.of("key", "convention.renamed"))),
-            "ARGUMENT_UNKNOWN", UPDATE, Map.of("call", UPDATE, "n", "key",
+            "ARGUMENT_UNKNOWN", UPDATE, Map.of("call", UPDATE,
                 "list", String.join(", ", Contract.argumentsOf(UPDATE).fields().keySet())));
 
         Mcp.Result narrowing = Mcp.call(QUERY, args("scope", SCOPE, "owner", "someone"));

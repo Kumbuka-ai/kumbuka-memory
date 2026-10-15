@@ -186,7 +186,16 @@ public class DigestService {
                     + "to carry: " + String.join(", ", EntryType.wireNames()) + ".",
                 List.of(TYPES));
         }
-        List<String> unknown = asked.stream().filter(t -> EntryType.of(t).isEmpty()).toList();
+        // Named by position, as the argument's path, and never by the value
+        // sent (DEC-0043 R19): which of several values was wrong is what the
+        // caller needs, and the value is its own input.
+        List<String> unknown = new java.util.ArrayList<>();
+        for (int at = 0; at < asked.size(); at++) {
+            String type = asked.get(at);
+            if (type == null || EntryType.of(type).isEmpty()) {
+                unknown.add(TYPES + "[" + at + "]");
+            }
+        }
         if (!unknown.isEmpty()) {
             throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
                 "every name in 'types' is one of the six kinds of entry this service "
@@ -194,7 +203,7 @@ public class DigestService {
                     + "outside them is refused rather than dropped, because a section "
                     + "missing from a digest reads as 'there are none of these'. Send each "
                     + "type as one of the six.",
-                List.of(TYPES));
+                unknown);
         }
         return asked.stream().map(t -> EntryType.of(t).orElseThrow()).toList();
     }

@@ -130,9 +130,9 @@ class ScopeRightsIT {
                 + "SCOPE_LOCKED a code that exists and can never be produced")
             .isEqualTo("SCOPE_LOCKED");
         assertThat(locked.jsonPath().getString("message"))
-            .as("and the message sends the caller to where the lock is lifted, not to the "
-                + "membership")
-            .contains("lifted where it was set");
+            .as("and the message sends the caller to the lock, not to the membership")
+            .contains("once it is unlocked")
+            .doesNotContain("write right");
     }
 
     // ------------------------------------------------------------------

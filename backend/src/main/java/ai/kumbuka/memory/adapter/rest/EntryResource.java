@@ -134,6 +134,7 @@ public class EntryResource {
     @Inject VerbSurface verbs;
     @Inject CallerActor caller;
     @Inject ObjectMapper json;
+    @Inject RestCall call;
 
     // ======================================================================
     // Scope depth
@@ -161,6 +162,7 @@ public class EntryResource {
                              @Context HttpHeaders http) {
         Optional<UUID> technical = AddressParser.technicalAddress(segment);
         if (technical.isPresent()) {
+            call.is(AssistantVerb.READ);
             refuseParametersOnAnItem(uri);
             return answer(verbs.readTechnical(caller.current(), technical.get()));
         }
@@ -184,12 +186,17 @@ public class EntryResource {
                 + "a create is posted one segment further in.");
 
         return switch (at.method()) {
-            case DIGEST -> Response.ok(Payloads.DigestResponse.of(
-                verbs.digest(caller.current(), at.address(),
-                    Payloads.digestTypes(read(body, Payloads.DigestRequest.class))))).build();
+            case DIGEST -> digest(at, body);
             case WITHDRAW -> throw new IllegalStateException(
                 "withdraw acts at item depth and cannot arrive here");
         };
+    }
+
+    private Response digest(CustomMethod.Split at, String body) {
+        call.is(AssistantVerb.DIGEST);
+        return Response.ok(Payloads.DigestResponse.of(
+                verbs.digest(caller.current(), at.address(),
+                    Payloads.digestTypes(read(body, Payloads.DigestRequest.class))))).build();
     }
 
     // ======================================================================
@@ -233,13 +240,14 @@ public class EntryResource {
                                    String body) {
         CustomMethod.split(segment, CustomMethod.Depth.COLLECTION).ifPresent(at -> {
             throw new SurfaceException(SurfaceException.Reason.VERB_NOT_CARRIED,
-                "'" + at.verb() + "' is not a verb of this scheme at a selector. What a "
+                "a verb in colon notation is not one of this scheme at a selector. What a "
                     + "selector carries is 'create', which is a plain POST onto it, and "
                     + "'query', which is a GET. 'digest' acts on a whole scope and "
                     + "'withdraw' on one entry.",
                 COLLECTION_ALLOW);
         });
 
+        call.is(AssistantVerb.CREATE);
         VerbSurface.Answer answer = verbs.create(caller.current(), scope, segment,
             Payloads.newEntry(read(body, Payloads.CreateRequest.class)));
 
@@ -262,6 +270,7 @@ public class EntryResource {
                          @PathParam("selector") String selector,
                          @PathParam("id") String id,
                          @Context UriInfo uri) {
+        call.is(AssistantVerb.READ);
         refuseParametersOnAnItem(uri);
         return answer(verbs.read(caller.current(),
             new AddressParser.Parts(scope, selector, id)));
@@ -283,6 +292,7 @@ public class EntryResource {
                            @PathParam("id") String id,
                            @HeaderParam("If-Match") String ifMatch,
                            String body) {
+        call.is(AssistantVerb.UPDATE);
         VerbSurface.Answer answer = verbs.update(caller.current(),
             new AddressParser.Parts(scope, selector, id),
             unquoted(ifMatch),
@@ -312,13 +322,19 @@ public class EntryResource {
                 + "removal of a resource.");
 
         return switch (at.method()) {
-            case WITHDRAW -> Response.ok(Payloads.WithdrawnResponse.of(
-                verbs.withdraw(caller.current(),
-                    new AddressParser.Parts(scope, selector, at.address()),
-                    unquoted(ifMatch)))).build();
+            case WITHDRAW -> withdraw(scope, selector, at, ifMatch);
             case DIGEST -> throw new IllegalStateException(
                 "digest acts at scope depth and cannot arrive here");
         };
+    }
+
+    private Response withdraw(String scope, String selector, CustomMethod.Split at,
+                              String ifMatch) {
+        call.is(AssistantVerb.WITHDRAW);
+        return Response.ok(Payloads.WithdrawnResponse.of(
+                verbs.withdraw(caller.current(),
+                    new AddressParser.Parts(scope, selector, at.address()),
+                    unquoted(ifMatch)))).build();
     }
 
     // ======================================================================
@@ -338,6 +354,7 @@ public class EntryResource {
      * token about the wrong thing. Every entry of the listing carries its own.
      */
     private Response query(String scope, String selector, UriInfo uri, HttpHeaders http) {
+        call.is(AssistantVerb.QUERY);
         Map<String, String> asked = parametersOf(uri);
         if (!onAssistantSurface(http.getRequestHeader(SURFACE))) {
             return Response.ok(Payloads.PageResponse.of(
@@ -355,14 +372,8 @@ public class EntryResource {
                 // was rather than wording it in a vocabulary it has no entry in.
                 throw refused;
             }
-            Map<String, Object> args = new LinkedHashMap<>();
-            args.put(AssistantVerb.Names.SCOPE, scope);
-            if (selector != null) {
-                args.put(AssistantVerb.Names.SELECTOR, selector);
-            }
-            args.putAll(asked);
             throw new AssistantRefused(refused, AssistantRefusals.of(AssistantVerb.QUERY,
-                refused, reason, args, Optional.empty()));
+                refused, reason, Optional.empty()));
         }
     }
 
@@ -382,10 +393,10 @@ public class EntryResource {
             return false;
         }
         if (!List.of(ASSISTANT).equals(named)) {
-            throw new MemoryException(MemoryException.Reason.ARGUMENT_INVALID,
-                "Send the header '" + SURFACE + "' once with the value '" + ASSISTANT
-                    + "' to be answered in the assistant surface's vocabulary, or leave it "
-                    + "out to be answered in this one.");
+            MemoryException refused = new MemoryException(
+                MemoryException.Reason.ARGUMENT_INVALID, "a value the header cannot take");
+            throw new AssistantRefused(refused, AssistantRefusals.headerRefused(
+                AssistantVerb.QUERY, SURFACE, ASSISTANT));
         }
         return true;
     }
@@ -416,7 +427,7 @@ public class EntryResource {
                 segment.indexOf(CustomMethod.SEPARATOR) < 0
                     ? SurfaceException.Reason.ADDRESS_TRUNCATED
                     : SurfaceException.Reason.VERB_NOT_CARRIED,
-                "'" + segment + "' names no verb this address carries. " + guidance,
+                "the segment names no verb this address carries. " + guidance,
                 allow));
     }
 
@@ -442,19 +453,19 @@ public class EntryResource {
      *
      * <p>{@code ARGUMENT_UNKNOWN} with 400, as for any argument a verb does not
      * declare (DEC-0042): {@code read} declares none, and that is decidable
-     * from the verb alone, without a scope. The names go in {@code offenders},
-     * sorted, and their values nowhere.
+     * from the verb alone, without a scope. {@code accepts} lists the names
+     * the read takes as parameters, which are none; the names sent are the
+     * caller's input and are repeated nowhere (DEC-0043 R19).
      */
     private static void refuseParametersOnAnItem(UriInfo uri) {
-        List<String> given = uri.getQueryParameters().keySet().stream().sorted().toList();
-        if (!given.isEmpty()) {
-            throw MemoryException.offending(MemoryException.Reason.ARGUMENT_UNKNOWN,
+        if (!uri.getQueryParameters().isEmpty()) {
+            throw MemoryException.undeclared(
                 "this address names one entry, so a read takes no parameters: there is "
                     + "nothing for a filter to narrow, and a parameter accepted and "
                     + "discarded would let a caller believe it had asked something. Send "
                     + "the read without parameters, and send filters to a query, which is "
                     + "addressed at a scope or at a selector.",
-                given);
+                List.of());
         }
     }
 
@@ -495,8 +506,10 @@ public class EntryResource {
         try {
             return json.readValue(body, shape);
         } catch (JsonProcessingException e) {
+            // The parser's message quotes the body it rejected, so it goes
+            // nowhere: neither into the refusal nor into this exception.
             throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED,
-                "the request body is not the JSON this verb takes: " + e.getOriginalMessage());
+                "the request body is not the JSON this verb takes");
         }
     }
 }

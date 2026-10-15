@@ -14,6 +14,9 @@ import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
 import ai.kumbuka.memory.domain.Page;
 import ai.kumbuka.memory.domain.Patch;
+import ai.kumbuka.memory.surface.AssistantVerb;
+import ai.kumbuka.memory.surface.CallException;
+import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.VerbSurface;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -386,9 +389,25 @@ public final class Payloads {
             return new Refusal(reason, message, Map.of());
         }
 
-        /** The wire form of a transport refusal. */
+        /**
+         * The wire form of a transport refusal, worded from its declared
+         * pattern. The exception's own message is a note for a developer and
+         * never reaches a caller.
+         */
         public static Refusal of(SurfaceException e) {
-            return new Refusal(e.reason().name(), e.getMessage(), Map.of());
+            return new Refusal(e.reason().name(), AssistantRefusals.messageFor(
+                ReasonCatalogue.of(e.reason().name())), Map.of());
+        }
+
+        /**
+         * The wire form of a refusal of a call's arguments on the generic
+         * surface, worded as the assistant surface words it.
+         */
+        public static Refusal of(AssistantVerb verb, CallException e) {
+            Refusal assistant = AssistantRefusals.of(verb, e, Optional.empty());
+            Map<String, Object> data = new LinkedHashMap<>(assistant.data());
+            data.remove("attempted");
+            return new Refusal(assistant.reason(), assistant.message(), data);
         }
 
         /**
@@ -398,11 +417,15 @@ public final class Payloads {
          * properties of the envelope. Building the envelope twice is how two
          * paths come to differ on one of them.
          */
-        public static Refusal of(MemoryException e) {
+        public static Refusal of(AssistantVerb verb, MemoryException e) {
             if (NOT_FOUND_REASONS.contains(e.reason())) {
                 return new Refusal(NOT_FOUND, NOT_FOUND_MESSAGE, Map.of());
             }
-            return new Refusal(e.reason().name(), e.getMessage(), wireData(e));
+            // Worded from the reason's declared pattern, as the assistant
+            // surface words it: the domain's sentence was written beside the
+            // check and is no text addressed to a caller (DEC-0043 R18).
+            return new Refusal(e.reason().name(), AssistantRefusals.messageFor(verb, e,
+                ReasonCatalogue.of(e.reason().name())), wireData(e));
         }
 
         /**
@@ -437,8 +460,28 @@ public final class Payloads {
     public static VerbSurface.NewEntry newEntry(CreateRequest request) {
         EntryFields fields = requireFields(request == null ? null : request.fields());
         refuseImmutable(fields, true);
+        Map<String, String> given = new LinkedHashMap<>();
+        given.put(AssistantVerb.Names.KEY, fields.key());
+        given.put(AssistantVerb.Names.TYPE, fields.type());
+        given.put(AssistantVerb.Names.CONTENT, fields.content());
+        requireDeclaredFields(AssistantVerb.CREATE, given);
         return new VerbSurface.NewEntry(fields.key(), fields.type(), fields.content(),
             fields.reference());
+    }
+
+    /**
+     * Refuses a required field that is absent or {@code null}, in declaration
+     * order, as the assistant surface refuses it (DEC-0043 R17): JSON
+     * {@code null} means the argument was not sent, and a body record cannot
+     * tell the two apart anyway.
+     */
+    private static void requireDeclaredFields(AssistantVerb verb, Map<String, String> given) {
+        verb.fieldArguments().stream()
+            .filter(argument -> argument.required() && given.get(argument.name()) == null)
+            .findFirst()
+            .ifPresent(argument -> {
+                throw CallException.missing(argument.name(), argument.description());
+            });
     }
 
     /**
@@ -467,12 +510,15 @@ public final class Payloads {
         return request == null ? null : request.types();
     }
 
+    /**
+     * {@code fields} is required by both writing verbs, so its absence and a
+     * {@code null} are both {@code ARGUMENT_MISSING}, as on the assistant
+     * surface (DEC-0043 R17). An empty object is something else: an update
+     * that names nothing to change.
+     */
     private static EntryFields requireFields(EntryFields fields) {
         if (fields == null) {
-            throw new MemoryException(MemoryException.Reason.UPDATE_EMPTY,
-                "this verb takes the values it writes under 'fields', and the body "
-                    + "carries none. The writable names are "
-                    + EntryFields.WRITABLE.stream().sorted().toList() + ".");
+            throw CallException.missing(AssistantVerb.FIELDS, AssistantVerb.FIELDS_DESCRIPTION);
         }
         return fields;
     }

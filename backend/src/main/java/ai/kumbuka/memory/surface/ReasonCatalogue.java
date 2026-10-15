@@ -55,7 +55,6 @@ public final class ReasonCatalogue {
     public static final String CALL = "call";
     public static final String FIELD = "field";
     public static final String TYPES = "types";
-    public static final String LENGTH = "length";
     public static final String LIMIT = "limit";
     public static final String MAX = "max";
     public static final String NAME = "name";
@@ -203,7 +202,7 @@ public final class ReasonCatalogue {
             "{call} needs content: an entry without content is not stored.",
             "Send the text of the entry as content.");
         repeat(declared, "CONTENT_OVERSIZE",
-            "The content is {length} characters long, and an entry holds at most {limit}.",
+            "The content is longer than an entry holds, which is at most {limit} characters.",
             "Shorten the content to at most {limit} characters, or split it into several "
                 + "entries.");
         repeat(declared, "REFERENCE_CREDENTIAL_BEARING",
@@ -230,8 +229,9 @@ public final class ReasonCatalogue {
             "The token is valid but names no subject to act as.",
             "Authenticate as a subject and call again with that token.");
         repeat(declared, "ARGUMENT_UNKNOWN",
-            "{call} has no argument named {name}. Its arguments are: {arguments}.",
-            "Name each argument as the call declares it.");
+            "{call} was sent an argument outside the names it declares at that level, which "
+                + "are: {arguments}.",
+            "Name each argument as one of these.");
         repeat(declared, "ARGUMENT_MISSING",
             "{call} needs {name}: {what}.",
             "Send {name} with the call.");
@@ -252,15 +252,18 @@ public final class ReasonCatalogue {
         generic(declared, "FIELD_IMMUTABLE",
             "{field} is fixed for the life of the entry.",
             "Send the change in the fields the call changes: content, type and reference.");
+        // The three transport reasons are raised before a verb is known, so
+        // their patterns name none.
         generic(declared, "PAYLOAD_MALFORMED",
-            "The body of {call} is not the JSON it takes.",
+            "The body is not the JSON this address takes.",
             "Send the body as the JSON object the call takes.");
         generic(declared, "VERB_NOT_CARRIED",
-            "{name} is not a verb this address carries.",
-            "Send a verb the address carries.");
+            "The verb in colon notation is not one this address carries.",
+            "Send a verb the address carries; the Allow header lists its methods.");
         generic(declared, "ADDRESS_TRUNCATED",
-            "{call} needs a complete address and was given a truncated one.",
-            "Send the complete address.");
+            "The method is not one this address carries.",
+            "Send the call to the address depth that carries it; the Allow header lists "
+                + "the methods of this one.");
         generic(declared, "SESSION_NOT_BOUND",
             "{call} could not be answered: the session the read contract needs was not "
                 + "bound.",

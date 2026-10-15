@@ -32,7 +32,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -72,7 +71,7 @@ public class VerbSurface {
      */
     private static final String DIRECTION = "direction";
 
-    private static final Set<String> ARGUMENTS = Set.of("type", "text", PageCursor.AFTER,
+    private static final List<String> ARGUMENTS = List.of("type", "text", PageCursor.AFTER,
         "sort", DIRECTION, PageRequest.PAGE_SIZE);
 
     @Inject MemoryService memory;
@@ -201,18 +200,17 @@ public class VerbSurface {
     // The predicates
     // ======================================================================
 
+    /**
+     * Refuses a name the query does not declare, answering with the names it
+     * does declare and never with the one that arrived (DEC-0043 R19).
+     */
     private static void refuseUnknown(Map<String, String> asked) {
-        List<String> unknown = asked.keySet().stream()
-            .filter(name -> !ARGUMENTS.contains(name))
-            .sorted()
-            .toList();
-        if (!unknown.isEmpty()) {
-            throw MemoryException.offending(MemoryException.Reason.ARGUMENT_UNKNOWN,
-                "this verb takes the arguments " + ARGUMENTS.stream().sorted().toList()
-                    + " and no others. An unknown one is refused rather than ignored: a "
-                    + "filter that is silently dropped answers with the whole set and "
-                    + "looks exactly like a correct narrow one.",
-                unknown);
+        if (!ARGUMENTS.containsAll(asked.keySet())) {
+            throw MemoryException.undeclared(
+                "an argument outside the declared ones. An unknown one is refused rather "
+                    + "than ignored: a filter that is silently dropped answers with the "
+                    + "whole set and looks exactly like a correct narrow one.",
+                ARGUMENTS);
         }
     }
 

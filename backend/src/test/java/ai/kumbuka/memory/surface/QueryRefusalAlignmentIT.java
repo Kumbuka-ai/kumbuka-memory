@@ -7,6 +7,7 @@
  */
 package ai.kumbuka.memory.surface;
 
+import ai.kumbuka.memory.contract.Contract;
 import ai.kumbuka.memory.contract.Mcp;
 import ai.kumbuka.memory.platform.PlatformFixture;
 import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
@@ -75,12 +76,24 @@ class QueryRefusalAlignmentIT {
 
     @Test
     void an_unknown_argument_is_argument_unknown_on_both_surfaces() {
+        // Answered with the declared names under accepts, and never with the
+        // name that arrived (DEC-0043 R19). On the generic surface the scope
+        // and the selector are the path, so the query parameters it accepts
+        // are the six beside them.
         Response rest = call().get(API + "/" + SCOPE + "?limit=5&cursor=x&foo=1");
-        assertRest(rest, "ARGUMENT_UNKNOWN", List.of("cursor", "foo", "limit"));
+        assertThat(rest.statusCode()).isEqualTo(400);
+        assertThat(rest.jsonPath().getString("reason")).isEqualTo("ARGUMENT_UNKNOWN");
+        assertThat(rest.jsonPath().getList("data.accepts", String.class))
+            .containsExactly("type", "text", "after", "sort", "direction", "page_size");
+        assertThat(rest.asString()).doesNotContain("limit").doesNotContain("foo");
 
         for (String name : List.of("limit", "cursor", "foo")) {
-            assertMcp(Mcp.call(QUERY, Mcp.args("scope", SCOPE, name, "5")),
-                "ARGUMENT_UNKNOWN", List.of(name));
+            Mcp.Result mcp = Mcp.call(QUERY, Mcp.args("scope", SCOPE, name, "5"));
+            assertThat(mcp.reason()).isEqualTo("ARGUMENT_UNKNOWN");
+            assertThat(mcp.strings("data.accepts"))
+                .containsExactlyElementsOf(Contract.argumentsOf(QUERY).top().keySet());
+            assertThat(mcp.map("data")).doesNotContainKey("offenders");
+            assertThat(mcp.text()).doesNotContain("\"" + name + "\"");
         }
     }
 

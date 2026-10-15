@@ -137,6 +137,13 @@ public class MemoryException extends RuntimeException {
      */
     public static final String OFFENDERS = "offenders";
 
+    /**
+     * The key under which a refusal of an undeclared name lists the names the
+     * call declares instead (DEC-0042, DEC-0043 R19). The name that arrived is
+     * the caller's input and is never repeated.
+     */
+    public static final String ACCEPTS = "accepts";
+
     /** The key under which a refusal names a complete address. */
     public static final String ADDRESS = "address";
 
@@ -165,6 +172,13 @@ public class MemoryException extends RuntimeException {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put(OFFENDERS, List.copyOf(offenders));
         return new MemoryException(reason, message, data);
+    }
+
+    /** A refusal of names the call does not declare, listing those it does. */
+    public static MemoryException undeclared(String message, List<String> accepts) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put(ACCEPTS, List.copyOf(accepts));
+        return new MemoryException(Reason.ARGUMENT_UNKNOWN, message, data);
     }
 
     public Reason reason() {

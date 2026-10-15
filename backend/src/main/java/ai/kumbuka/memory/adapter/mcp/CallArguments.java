@@ -102,7 +102,7 @@ final class CallArguments {
     private static void refuseUndeclared(Map<String, Object> given, List<String> declared) {
         for (String name : given.keySet()) {
             if (!declared.contains(name)) {
-                throw CallException.unknown(name, declared);
+                throw CallException.unknown(declared);
             }
         }
     }
@@ -130,8 +130,11 @@ final class CallArguments {
         String why = switch (argument.type()) {
             case Argument.STRING -> value instanceof String ? null : "it is a text";
             case Argument.INTEGER -> isWholeNumber(value) ? null : "it is a whole number";
-            case Argument.ARRAY -> isNonEmptyTextList(value)
-                ? null : "it is a list of at least one text";
+            case Argument.ARRAY -> {
+                requireTextElements(argument.name(), value);
+                yield value instanceof List<?> list && !list.isEmpty()
+                    ? null : "it is a list of at least one text";
+            }
             default -> throw new IllegalStateException(
                 argument.name() + " is declared with a type the check does not know");
         };
@@ -147,8 +150,18 @@ final class CallArguments {
         return value instanceof Integer || value instanceof Long || value instanceof BigInteger;
     }
 
-    private static boolean isNonEmptyTextList(Object value) {
-        return value instanceof List<?> list && !list.isEmpty()
-            && list.stream().allMatch(String.class::isInstance);
+    /**
+     * Refuses a list element that is not a text, naming its position as the
+     * argument's path ({@code types[2]}) and never the value (DEC-0043 R19).
+     */
+    private static void requireTextElements(String name, Object value) {
+        if (!(value instanceof List<?> list)) {
+            return;
+        }
+        for (int at = 0; at < list.size(); at++) {
+            if (!(list.get(at) instanceof String)) {
+                throw CallException.invalid(name + "[" + at + "]", "it is a text");
+            }
+        }
     }
 }

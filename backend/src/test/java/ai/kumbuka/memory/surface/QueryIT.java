@@ -345,7 +345,7 @@ class QueryIT {
         assertThat(answer.jsonPath().getString("message"))
             .as("a page silently made smaller than the one asked for is how a caller "
                 + "comes to believe it has seen everything")
-            .contains("refused rather than reduced");
+            .contains("from 1 to 200");
     }
 
     @Test
@@ -357,10 +357,12 @@ class QueryIT {
                 + "scope, so an unknown name is an unknown argument (DEC-0042)")
             .isEqualTo(400);
         assertThat(answer.jsonPath().getString("reason")).isEqualTo("ARGUMENT_UNKNOWN");
-        assertThat(answer.jsonPath().getList("data.offenders", String.class))
+        assertThat(answer.jsonPath().getList("data.accepts", String.class))
             .as("a filter that is silently dropped answers with the whole set and looks "
-                + "exactly like a correct narrow one")
-            .containsExactly("author");
+                + "exactly like a correct narrow one; the refusal names the arguments the "
+                + "query takes, and never the one that arrived (DEC-0043 R19)")
+            .containsExactly("type", "text", "after", "sort", "direction", "page_size");
+        assertThat(answer.asString()).doesNotContain("author");
     }
 
     // ======================================================================

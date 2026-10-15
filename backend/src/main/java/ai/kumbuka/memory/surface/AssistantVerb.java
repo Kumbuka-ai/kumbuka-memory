@@ -55,7 +55,8 @@ public enum AssistantVerb {
                     + "and hyphens"),
             Argument.field(Names.TYPE, true, Descriptions.TYPE, Descriptions.TYPE_ENUM),
             Argument.field(Names.CONTENT, true, Descriptions.CONTENT),
-            Argument.field(Names.REFERENCE, false, Descriptions.REFERENCE))),
+            Argument.field(Names.REFERENCE, false, Descriptions.REFERENCE + "; "
+                + "left out or sent as null, the entry stands with the reference unset"))),
 
     READ("memory_read",
         "Reads one entry by its complete address and hands out a fresh conflict token. "
@@ -75,9 +76,12 @@ public enum AssistantVerb {
             Argument.top(Names.CONFLICT_TOKEN, Argument.STRING, true,
                 Descriptions.CONFLICT_TOKEN)),
         List.of(
-            Argument.field(Names.CONTENT, false, Descriptions.CONTENT),
-            Argument.field(Names.TYPE, false, Descriptions.TYPE, Descriptions.TYPE_ENUM),
-            Argument.field(Names.REFERENCE, false, Descriptions.REFERENCE))),
+            Argument.field(Names.CONTENT, false, Descriptions.CONTENT + "; "
+                + Descriptions.KEPT),
+            Argument.field(Names.TYPE, false, Descriptions.TYPE + "; " + Descriptions.KEPT,
+                Descriptions.TYPE_ENUM),
+            Argument.field(Names.REFERENCE, false, Descriptions.REFERENCE + "; "
+                + Descriptions.KEPT))),
 
     WITHDRAW("memory_withdraw",
         "Takes an entry out of force. Final: no call restores it, and the answer says "
@@ -97,24 +101,29 @@ public enum AssistantVerb {
         List.of(
             Argument.top(Names.SCOPE, Argument.STRING, true, Descriptions.SCOPE),
             Argument.top(Names.SELECTOR, Argument.STRING, false,
-                "the selector whose entries alone are listed"),
+                "the selector whose entries alone are listed; left out or sent as null, "
+                    + "every selector of the scope is listed"),
             Argument.top(Names.TYPE, Argument.STRING, false,
-                "the type whose entries alone are listed", Descriptions.TYPE_ENUM),
-            Argument.top(Names.TEXT, Argument.STRING, false, "a text the entry must contain"),
+                "the type whose entries alone are listed; left out or sent as null, every "
+                    + "type is listed", Descriptions.TYPE_ENUM),
+            Argument.top(Names.TEXT, Argument.STRING, false,
+                "a text the entry must contain; left out or sent as null, every entry is "
+                    + "listed whatever its text"),
             Argument.top(Names.AFTER, Argument.STRING, false,
-                "the next_cursor of the previous page, exactly as that page handed it out"),
+                "the next_cursor of the previous page, exactly as that page handed it out; "
+                    + "left out or sent as null, the listing starts at its first page"),
             Argument.top(Names.SORT, Argument.STRING, false,
-                "the order of the listing, id or created_at; id when left out",
+                "the order of the listing, id or created_at; left out or sent as null, id",
                 Map.of("enum", SortKey.wireNames(),
                     Descriptions.DEFAULT, PageRequest.DEFAULT_SORT.wire())),
             Argument.top(Names.DIRECTION, Argument.STRING, false,
-                "which way the order runs, asc or desc; asc when left out",
+                "which way the order runs, asc or desc; left out or sent as null, asc",
                 Map.of("enum", SortKey.Direction.wireNames(),
                     Descriptions.DEFAULT, PageRequest.DEFAULT_DIRECTION.wire())),
             Argument.top(Names.PAGE_SIZE, Argument.INTEGER, false,
                 "how many entries one page carries, a whole number from 1 to "
-                    + PageRequest.MAX_PAGE_SIZE + ", " + PageRequest.DEFAULT_PAGE_SIZE
-                    + " when left out",
+                    + PageRequest.MAX_PAGE_SIZE + "; left out or sent as null, "
+                    + PageRequest.DEFAULT_PAGE_SIZE,
                 Map.of("minimum", 1, "maximum", PageRequest.MAX_PAGE_SIZE,
                     Descriptions.DEFAULT, PageRequest.DEFAULT_PAGE_SIZE))),
         List.of()),
@@ -127,7 +136,8 @@ public enum AssistantVerb {
         List.of(
             Argument.top(Names.SCOPE, Argument.STRING, true, Descriptions.SCOPE),
             Argument.top(Names.TYPES, Argument.ARRAY, false,
-                "a list of type names to carry instead of the scope's digest selection",
+                "a list of type names this digest carries; left out or sent as null, the "
+                    + "digest carries the types of the scope's digest selection",
                 Map.of("items", Map.of("type", Argument.STRING,
                         "enum", EntryType.wireNames()),
                     "minItems", 1))),
@@ -250,7 +260,10 @@ public enum AssistantVerb {
         static final String CONTENT = "the text of the entry, at most "
             + MemoryService.CONTENT_LIMIT + " characters";
         static final String REFERENCE =
-            "a provenance URL, stored and never fetched, that carries no credential";
+            "a provenance URL, stored as given and left unfetched, free of user information "
+                + "and secret parameters";
+        /** What an optional field of an update leaves where it stands. */
+        static final String KEPT = "left out or sent as null, the entry keeps its current value";
 
         private Descriptions() {
         }

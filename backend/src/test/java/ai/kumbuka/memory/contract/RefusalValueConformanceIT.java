@@ -58,6 +58,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * it must not repeat, and not for the address. The contract records the
  * departure in section 8.
  *
+ * <p>Extended on 2026-10-15 with an undeclared argument whose NAME carries the
+ * mark, at the top and under {@code fields} (DEC-0043 R19): its red run
+ * against the surface before that change found both names repeated, in the
+ * message and under {@code data.offenders}.
+ *
  * <p>The red run, observed on 2026-10-13 against the catalogue before this
  * probe: 15 of the 22 codes raised here repeated a marked value in the
  * message — the address, the scope, the key, the selector, the type, the
@@ -167,13 +172,18 @@ class RefusalValueConformanceIT {
             new Case("SORT_UNDECLARED", () -> Mcp.call(QUERY, args("scope", SCOPE,
                 "sort", MARK)), MARK),
             new Case("ARGUMENT_UNKNOWN", () -> Mcp.call(READ, args("address", ADDRESS,
-                "colour", MARK)), MARK),
+                MARK + "_colour", MARK)), MARK),
+            new Case("ARGUMENT_UNKNOWN", () -> Mcp.call(CREATE, args("scope", SCOPE,
+                "selector", "decision", "fields", Map.of("key", "decision.tabs",
+                    "type", "decision", "content", "x", MARK + "_field", MARK))), MARK),
             new Case("ARGUMENT_MISSING", () -> Mcp.call(UPDATE, args("address", ADDRESS,
                 "fields", Map.of("content", MARK))), MARK, ADDRESS),
             new Case("ARGUMENT_INVALID", () -> Mcp.call(QUERY, args("scope", SCOPE,
                 "direction", MARK)), MARK),
             new Case("ARGUMENT_INVALID", () -> Mcp.call(UPDATE, args("address", ADDRESS,
-                "conflict_token", token(ADDRESS), "fields", MARK)), MARK));
+                "conflict_token", token(ADDRESS), "fields", MARK)), MARK),
+            new Case("ARGUMENT_INVALID", () -> Mcp.call(DIGEST, args("scope", SCOPE,
+                "types", List.of("decision", Map.of(MARK, MARK)))), MARK));
 
         Set<String> raised = new LinkedHashSet<>(RAISED_ELSEWHERE);
         raised.add("SCOPE_READ_ONLY");
@@ -203,6 +213,204 @@ class RefusalValueConformanceIT {
 
         assertThat(refusal.reason()).as("%s", refusal).isEqualTo(c.code());
         assertThat(repeatedIn(c, refusal)).isEmpty();
+    }
+
+    /**
+     * Which of several values was wrong is named by its position as the
+     * argument's path, and an undeclared name is answered with the declared
+     * ones (DEC-0043 R19).
+     *
+     * <p>The red run, observed on 2026-10-15 against the surface before this
+     * change: a digest with one unknown type of two answered
+     * {@code offenders = ["types"]}.
+     */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_wrong_value_is_named_by_its_position_and_an_unknown_name_by_the_declared_ones() {
+        Mcp.Result unknownType = Mcp.call(DIGEST, args("scope", SCOPE,
+            "types", List.of("decision", MARK)));
+        assertThat(unknownType.strings("data.offenders")).containsExactly("types[1]");
+
+        Mcp.Result notAText = Mcp.call(DIGEST, args("scope", SCOPE,
+            "types", List.of("decision", "convention", 7)));
+        assertThat(notAText.reason()).isEqualTo("ARGUMENT_INVALID");
+        assertThat(notAText.strings("data.offenders")).containsExactly("types[2]");
+
+        Mcp.Result unknownName = Mcp.call(READ, args("address", ADDRESS, MARK, 1));
+        assertThat(unknownName.reason()).isEqualTo("ARGUMENT_UNKNOWN");
+        assertThat(unknownName.strings("data.accepts"))
+            .as("the arguments section 5 of the contract gives memory_read")
+            .containsExactlyElementsOf(Contract.argumentsOf(READ).top().keySet());
+        assertThat(unknownName.map("data")).doesNotContainKey("offenders");
+
+        Mcp.Result unknownField = Mcp.call(UPDATE, args("address", ADDRESS,
+            "conflict_token", token(ADDRESS), "fields", Map.of(MARK, "x")));
+        assertThat(unknownField.strings("data.accepts"))
+            .as("the names memory_update declares under fields")
+            .containsExactlyElementsOf(Contract.argumentsOf(UPDATE).fields().keySet());
+    }
+
+    /**
+     * The protocol answers a method or a tool it does not have with the ones
+     * it has, and never with the name that arrived (DEC-0043 R19, R20).
+     *
+     * <p>The red run, observed on 2026-10-15 before this change: the unknown
+     * method was answered opening with the name sent, {@code zqmark/list is
+     * not a method of this server}.
+     */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void no_error_of_the_protocol_repeats_a_name_the_caller_sent() {
+        List<io.restassured.response.Response> answers = List.of(
+            Mcp.rpc(MARK + "/list", Map.of()),
+            Mcp.rpc("tools/call", Map.of("name", "memory_" + MARK, "arguments", Map.of())),
+            Mcp.rpc("tools/call", Map.of("name", READ, "arguments", MARK)),
+            Mcp.post(Map.of("jsonrpc", MARK, "id", 1, "method", "ping")));
+        for (io.restassured.response.Response answer : answers) {
+            assertThat(answer.jsonPath().getString("error.message"))
+                .as("%s", answer.asString())
+                .isNotBlank();
+            assertThat(answer.asString().toLowerCase(Locale.ROOT))
+                .as("the protocol's error carries what its specification prescribes and "
+                    + "nothing of the caller's beyond it")
+                .doesNotContain(MARK);
+        }
+        assertThat(answers.get(1).jsonPath().getString("error.message"))
+            .as("the tools there are, by the contract's names")
+            .contains(Contract.tools());
+    }
+
+    /**
+     * The generic surface words its refusals as the assistant surface does,
+     * from the declared patterns, and repeats nothing the caller sent either:
+     * not a path segment, a body value, a query parameter's name or value, a
+     * header's value, nor the text a JSON parser quotes from a broken body
+     * (DEC-0043 R18).
+     *
+     * <p>The red run, observed on 2026-10-15 before this change: 10 of the 26
+     * cases repeated what the caller sent -- the domain's own sentences named
+     * the scope, the selector and the key of {@code ADDRESS_MALFORMED}, both
+     * {@code KEY_MALFORMED}, {@code SELECTOR_ABSENT}, {@code
+     * SELECTOR_MISMATCHED} and {@code SELECTOR_RESERVED}, {@code UPDATE_EMPTY}
+     * named the address and with it the scope, both {@code ARGUMENT_UNKNOWN}
+     * returned the parameter's name under {@code offenders}, and the 405
+     * quoted the segment with its colon verb. A {@code null} key was answered
+     * {@code KEY_MALFORMED} quoting {@code 'null'} rather than {@code
+     * ARGUMENT_MISSING}.
+     */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void no_refusal_of_the_generic_surface_repeats_a_value_the_caller_sent() {
+        String item = SurfaceFixture.API + "/" + SCOPE + "/convention/branch-names";
+        String decisions = SurfaceFixture.API + "/" + SCOPE + "/decision";
+        String scope = SurfaceFixture.API + "/" + SCOPE;
+        String etag = SurfaceFixture.call().get(item).header("ETag");
+
+        List<RestCase> cases = List.of(
+            new RestCase("NOT_FOUND", () -> SurfaceFixture.call()
+                .get(SurfaceFixture.API + "/" + SCOPE + "/convention/" + MARK)),
+            new RestCase("ADDRESS_MALFORMED", () -> SurfaceFixture.call()
+                .get(SurfaceFixture.API + "/ZQMARK/convention/x")),
+            new RestCase("KEY_MALFORMED", () -> SurfaceFixture.call()
+                .get(SurfaceFixture.API + "/" + SCOPE + "/ZQMARK")),
+            new RestCase("KEY_MALFORMED", () -> rest(decisions, "decision.ZQMARK", "decision")),
+            new RestCase("SELECTOR_ABSENT", () -> rest(decisions, MARK, "decision")),
+            new RestCase("SELECTOR_MISMATCHED", () -> rest(decisions, MARK + ".tabs",
+                "decision")),
+            new RestCase("SELECTOR_RESERVED", () -> rest(SurfaceFixture.API + "/" + SCOPE
+                + "/system", "system." + MARK, "convention")),
+            new RestCase("ALREADY_EXISTS", () -> SurfaceFixture.call()
+                .body(SurfaceFixture.fields("key", KEY, "type", "convention", "content", MARK))
+                .post(SurfaceFixture.API + "/" + SCOPE + "/convention"), ADDRESS, KEY),
+            new RestCase("TYPE_UNKNOWN", () -> rest(decisions, "decision.tabs", MARK)),
+            new RestCase("CONTENT_OVERSIZE", () -> SurfaceFixture.call()
+                .body(SurfaceFixture.fields("key", "decision.tabs", "type", "decision",
+                    "content", (MARK + " ").repeat(400)))
+                .post(decisions)),
+            new RestCase("REFERENCE_CREDENTIAL_BEARING", () -> SurfaceFixture.call()
+                .body(SurfaceFixture.fields("key", "decision.tabs", "type", "decision",
+                    "content", "x", "reference",
+                    "https://" + MARK + ":pw@" + MARK + ".example.org/?token=x"))
+                .post(decisions)),
+            new RestCase("FIELD_IMMUTABLE", () -> SurfaceFixture.call()
+                .body(SurfaceFixture.fields("key", "decision.tabs", "type", "decision",
+                    "content", "x", "scope", MARK))
+                .post(decisions)),
+            new RestCase("ARGUMENT_MISSING", () -> SurfaceFixture.call()
+                .body(SurfaceFixture.fields("type", "decision", "content", MARK))
+                .post(decisions)),
+            new RestCase("UPDATE_EMPTY", () -> SurfaceFixture.call().header("If-Match", etag)
+                .body("{\"fields\":{}}").patch(item), ADDRESS, KEY),
+            new RestCase("CONFLICT_TOKEN_MISSING", () -> SurfaceFixture.call()
+                .body(SurfaceFixture.fields("content", MARK)).patch(item), ADDRESS, KEY),
+            new RestCase("TYPE_UNKNOWN", () -> SurfaceFixture.call()
+                .get(scope + "?type=" + MARK)),
+            new RestCase("SORT_UNDECLARED", () -> SurfaceFixture.call()
+                .get(scope + "?sort=" + MARK)),
+            new RestCase("ARGUMENT_INVALID", () -> SurfaceFixture.call()
+                .get(scope + "?direction=" + MARK)),
+            new RestCase("PAGE_SIZE_REJECTED", () -> SurfaceFixture.call()
+                .get(scope + "?page_size=" + MARK)),
+            new RestCase("CURSOR_MALFORMED", () -> SurfaceFixture.call()
+                .get(scope + "?after=" + MARK)),
+            new RestCase("ARGUMENT_UNKNOWN", () -> SurfaceFixture.call()
+                .get(scope + "?" + MARK + "=" + MARK)),
+            new RestCase("ARGUMENT_UNKNOWN", () -> SurfaceFixture.call()
+                .get(item + "?" + MARK + "=" + MARK), ADDRESS, KEY),
+            new RestCase("TYPE_UNKNOWN", () -> SurfaceFixture.call()
+                .body("{\"types\":[\"decision\",\"" + MARK + "\"]}")
+                .post(scope + ":digest")),
+            new RestCase("ARGUMENT_INVALID", () -> SurfaceFixture.call()
+                .header("Kumbuka-Surface", MARK).get(scope)),
+            new RestCase("VERB_NOT_CARRIED", () -> SurfaceFixture.call()
+                .post(item + ":" + MARK), ADDRESS, KEY),
+            new RestCase("PAYLOAD_MALFORMED", () -> SurfaceFixture.call()
+                .body("{\"" + MARK + "\": [}").post(decisions)));
+
+        List<String> repeated = new ArrayList<>();
+        List<String> otherCode = new ArrayList<>();
+        for (RestCase c : cases) {
+            io.restassured.response.Response answer = c.call().get();
+            if (!c.code().equals(answer.jsonPath().getString("reason"))) {
+                otherCode.add(c.code() + ": " + answer.asString());
+            }
+            String body = answer.asString().toLowerCase(Locale.ROOT);
+            for (String mark : c.marks()) {
+                if (body.contains(mark.toLowerCase(Locale.ROOT))) {
+                    repeated.add(c.code() + " repeats '" + mark + "': " + answer.asString());
+                }
+            }
+            if (answer.jsonPath().getString("message").contains(SCOPE)) {
+                repeated.add(c.code() + " names the scope: " + answer.asString());
+            }
+        }
+        assertThat(repeated)
+            .as("a refusal is logged, and a value can be content (DEC-0042, DEC-0043 R18)")
+            .isEmpty();
+        assertThat(otherCode).as("each case raises the code it is written for").isEmpty();
+    }
+
+    /** One way to raise a code on the generic surface, and what it must not repeat. */
+    private record RestCase(String code, Supplier<io.restassured.response.Response> call,
+                            List<String> marks) {
+
+        RestCase(String code, Supplier<io.restassured.response.Response> call,
+                 String... more) {
+            this(code, call, withMark(more));
+        }
+
+        private static List<String> withMark(String... more) {
+            List<String> marks = new ArrayList<>(List.of(MARK));
+            marks.addAll(List.of(more));
+            return marks;
+        }
+    }
+
+    private static io.restassured.response.Response rest(String collection, String key,
+                                                         String type) {
+        return SurfaceFixture.call()
+            .body(SurfaceFixture.fields("key", key, "type", type, "content", "x"))
+            .post(collection);
     }
 
     // ------------------------------------------------------------------

@@ -145,8 +145,10 @@ public class McpAdapter {
             case "ping" -> result(id, Map.of());
             case "tools/list" -> result(id, Map.of("tools", tools()));
             case "tools/call" -> call(id, request);
-            default -> error(id, METHOD_NOT_FOUND, method + " is not a method of this server. "
-                + "It speaks initialize, ping, tools/list and tools/call.");
+            // The method that arrived is the caller's input and is never
+            // repeated; the answer names the methods there are (DEC-0043 R19).
+            default -> error(id, METHOD_NOT_FOUND, "This server speaks the methods initialize, "
+                + "ping, tools/list and tools/call.");
         };
     }
 
@@ -188,9 +190,8 @@ public class McpAdapter {
         if (verb.isEmpty()) {
             // Not a refusal of a call but a call that does not exist: the
             // protocol answers it as an error of the request, and names the
-            // tools there are.
-            return error(id, INVALID_PARAMS, tool + " is not a tool of this server. Its tools "
-                + "are: " + String.join(", ",
+            // tools there are and never the name that arrived (DEC-0043 R19).
+            return error(id, INVALID_PARAMS, "The tools of this server are: " + String.join(", ",
                     Arrays.stream(AssistantVerb.values()).map(AssistantVerb::call).toList())
                 + ".");
         }
@@ -198,7 +199,7 @@ public class McpAdapter {
         if (args == null) {
             // Present and not an object: there are no named arguments to
             // refuse one of, so this is no call yet.
-            return error(id, INVALID_PARAMS, "The arguments of " + tool + " are an object of "
+            return error(id, INVALID_PARAMS, "The arguments of a tool call are an object of "
                 + "named arguments.");
         }
         return result(id, toolResult(verb.get(), args));
@@ -233,8 +234,7 @@ public class McpAdapter {
                     UnexpectedFailures.logged(verb.call(), e)));
             }
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(AssistantRefusals.of(verb, e, reasonOf(e), args,
-                seen(verb, args, e)));
+            return refused(AssistantRefusals.of(verb, e, reasonOf(e), seen(verb, args, e)));
         }
     }
 

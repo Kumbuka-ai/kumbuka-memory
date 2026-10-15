@@ -83,6 +83,9 @@ public final class AssistantRefusals {
         if (name != null && e.reason() != CallException.Reason.UNEXPECTED_FAILURE) {
             refusal.data().put(MemoryException.OFFENDERS, List.of(name));
         }
+        if (e.reason() == CallException.Reason.ARGUMENT_UNKNOWN) {
+            refusal.data().put(MemoryException.ACCEPTS, e.accepts());
+        }
         return refusal;
     }
 
@@ -93,13 +96,12 @@ public final class AssistantRefusals {
      *               this surface can return
      */
     public static Payloads.Refusal of(AssistantVerb verb, MemoryException e,
-                                      ReasonCatalogue.Reason reason, Map<String, Object> args,
-                                      Optional<EntryView> seen) {
+                                      ReasonCatalogue.Reason reason, Optional<EntryView> seen) {
         if (ReasonCatalogue.NOT_FOUND.equals(reason.code())) {
             return new Payloads.Refusal(reason.code(), ReasonCatalogue.NOT_FOUND_MESSAGE,
                 Map.of(ATTEMPTED, verb.call()));
         }
-        String message = ReasonCatalogue.message(reason, valuesFor(verb, e, args));
+        String message = messageFor(verb, e, reason);
         Payloads.Refusal refusal = envelope(verb, reason, message, seen);
         if (e.data().get("fields") instanceof EntryView current) {
             refusal.data().put(MemoryException.ADDRESS, current.address().canonical());
@@ -109,7 +111,50 @@ public final class AssistantRefusals {
         if (e.data().get(MemoryException.OFFENDERS) instanceof List<?> offenders) {
             refusal.data().put(MemoryException.OFFENDERS, List.copyOf(offenders));
         }
+        if (e.data().get(MemoryException.ACCEPTS) instanceof List<?> accepts) {
+            refusal.data().put(MemoryException.ACCEPTS, List.copyOf(accepts));
+        }
         return refusal;
+    }
+
+    /**
+     * The message of a refusal the service made, on either surface: the
+     * reason's pattern and remedy, filled from what the service holds.
+     *
+     * <p>The generic surface answers with this message too. One wording per
+     * reason means the two surfaces cannot come to say different things, and
+     * the domain's own sentence never reaches a caller on either.
+     */
+    public static String messageFor(AssistantVerb verb, MemoryException e,
+                                    ReasonCatalogue.Reason reason) {
+        return ReasonCatalogue.message(reason, valuesFor(verb, e));
+    }
+
+    /**
+     * The message of a refusal of the transport. Raised before a verb is
+     * known, so its pattern names none and is filled with nothing.
+     */
+    public static String messageFor(ReasonCatalogue.Reason reason) {
+        return ReasonCatalogue.message(reason, Map.of());
+    }
+
+    /**
+     * A header that names the surface with a value it cannot take.
+     *
+     * <p>No {@code data}: the header is not an argument of the call, so there
+     * is no argument for {@code offenders} to name, and the value sent is the
+     * caller's input and is repeated nowhere (DEC-0042).
+     */
+    public static Payloads.Refusal headerRefused(AssistantVerb verb, String header,
+                                                 String takes) {
+        ReasonCatalogue.Reason reason =
+            ReasonCatalogue.of(MemoryException.Reason.ARGUMENT_INVALID.name());
+        Map<String, String> values = new LinkedHashMap<>();
+        values.put(ReasonCatalogue.CALL, verb.call());
+        values.put(ReasonCatalogue.NAME, "the header " + header);
+        values.put(ReasonCatalogue.WHY, "it takes the value " + takes + ", sent once");
+        return new Payloads.Refusal(reason.code(), ReasonCatalogue.message(reason, values),
+            new LinkedHashMap<>());
     }
 
     /** A failure nobody foresaw, already logged under {@code reportId}. */
@@ -167,8 +212,7 @@ public final class AssistantRefusals {
      * not name is simply not used, while a value it names and is missing makes
      * the message refuse to build — which is the failure worth having.
      */
-    private static Map<String, String> valuesFor(AssistantVerb verb, MemoryException e,
-                                                 Map<String, Object> args) {
+    private static Map<String, String> valuesFor(AssistantVerb verb, MemoryException e) {
         Map<String, String> values = new LinkedHashMap<>();
         values.put(ReasonCatalogue.CALL, verb.call());
 
@@ -183,10 +227,9 @@ public final class AssistantRefusals {
         values.put(ReasonCatalogue.TYPES, String.join(", ", EntryType.wireNames()));
         values.put(ReasonCatalogue.LIMIT, String.valueOf(MemoryService.CONTENT_LIMIT));
         values.put(ReasonCatalogue.MAX, String.valueOf(PageRequest.MAX_PAGE_SIZE));
-        // The length of the content is a count, and the content itself is
-        // never read back.
-        if (fieldsOf(args).get(Names.CONTENT) instanceof String content) {
-            values.put(ReasonCatalogue.LENGTH, String.valueOf(content.length()));
+        if (e.data().get(MemoryException.ACCEPTS) instanceof List<?> accepts) {
+            values.put(ReasonCatalogue.ARGUMENTS, String.join(", ",
+                accepts.stream().map(String::valueOf).toList()));
         }
         return values;
     }
@@ -209,13 +252,6 @@ public final class AssistantRefusals {
 
     public static boolean takesAddress(AssistantVerb verb) {
         return verb.topArguments().stream().anyMatch(a -> Names.ADDRESS.equals(a.name()));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> fieldsOf(Map<String, Object> args) {
-        return args.get(AssistantVerb.FIELDS) instanceof Map<?, ?> fields
-            ? (Map<String, Object>) fields
-            : Map.of();
     }
 
     private static void putIfPresent(Map<String, String> values, String name, String value) {
