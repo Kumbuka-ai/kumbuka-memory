@@ -20,22 +20,33 @@ import java.util.List;
 public enum AnswerShape {
 
     /** One entry: the answer of read and update. */
-    ENTRY(List.of("address", "fields", "conflict_token", "next")),
+    ENTRY(Members.ENTRY),
 
     /** One entry at 201 with Location: the answer of create. */
-    ENTRY_CREATED(List.of("address", "fields", "conflict_token", "next")),
+    ENTRY_CREATED(Members.ENTRY),
 
     /** A page of entries, at both depths of query. */
     ENTRY_LISTING(List.of("objects", "next_cursor", "unaddressable")),
 
     /** What a withdrawal did, and whether the address is free again. */
-    WITHDRAWN(List.of("address", "outcome", "address_released", "next")),
+    WITHDRAWN(List.of(Members.ADDRESS, "outcome", "address_released", Members.NEXT)),
 
     /** Everything in force in a scope, grouped by type. */
-    DIGEST_VIEW(List.of("address", "scopes", "selected_types", "summary", "total_entries",
+    DIGEST_VIEW(List.of(Members.ADDRESS, "scopes", "selected_types", "summary", "total_entries",
         "total_token_estimate", "sections", "unaddressable", "truncated"));
 
     private final List<String> members;
+
+    /** The members several answers share. */
+    private static final class Members {
+
+        static final String ADDRESS = "address";
+        static final String NEXT = "next";
+        static final List<String> ENTRY = List.of(ADDRESS, "fields", "conflict_token", NEXT);
+
+        private Members() {
+        }
+    }
 
     AnswerShape(List<String> members) {
         this.members = List.copyOf(members);

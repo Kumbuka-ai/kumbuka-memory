@@ -182,7 +182,7 @@ public class MemoryService {
             .orElseThrow(MemoryService::absent);
 
         requireCurrentToken(conflictToken, entry, scope);
-        requireSomethingToDo(patch, address);
+        requireSomethingToDo(patch);
 
         String type = patch.type().map(MemoryService::requireKnownType).orElse(entry.type);
         String content = patch.content().orElse(entry.content);
@@ -325,7 +325,7 @@ public class MemoryService {
         }
     }
 
-    private static void requireSomethingToDo(Patch patch, EntryAddress address) {
+    private static void requireSomethingToDo(Patch patch) {
         if (patch.isEmpty()) {
             throw new MemoryException(MemoryException.Reason.UPDATE_EMPTY);
         }

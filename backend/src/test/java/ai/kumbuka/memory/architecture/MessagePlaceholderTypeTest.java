@@ -101,8 +101,15 @@ class MessagePlaceholderTypeTest {
     /** A placeholder type with every opening the check exists for. */
     static final class PlantedName {
 
+        private final String name;
+
         public PlantedName(String name) {
-            // planted
+            this.name = name;
+        }
+
+        @Override
+        public String toString() {
+            return name;
         }
 
         public static PlantedName of(String name) {

@@ -8,6 +8,7 @@
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.EntryView;
+import ai.kumbuka.memory.domain.MemoryException.Reason;
 import ai.kumbuka.memory.domain.NextStep;
 
 import java.nio.charset.StandardCharsets;
@@ -51,6 +52,8 @@ import java.util.TreeSet;
  * records which version it served can rely on.
  */
 public final class SurfaceDeclaration {
+
+    private static final String DESCRIPTION = "description";
 
     /** Changes when the shape of {@link #asMap()} changes, not when its content does. */
     public static final String SHAPE_VERSION = "2";
@@ -149,7 +152,7 @@ public final class SurfaceDeclaration {
             if (form.technicalAddress()) {
                 call.put("technical_address", true);
             }
-            call.put("description", verb.description());
+            call.put(DESCRIPTION, verb.description());
             call.put("does", verb.does());
             List<Map<String, Object>> arguments = new ArrayList<>();
             if (verb.writesFields()) {
@@ -158,12 +161,11 @@ public final class SurfaceDeclaration {
                 fields.put("type", "object");
                 fields.put("required", true);
                 fields.put("placement", "top");
-                fields.put("description", AssistantVerb.fieldsDescription());
+                fields.put(DESCRIPTION, AssistantVerb.fieldsDescription());
                 arguments.add(fields);
             }
-            for (Argument argument : verb.arguments()) {
-                arguments.add(argumentAsMap(argument));
-            }
+            verb.arguments().stream().map(SurfaceDeclaration::argumentAsMap)
+                .forEach(arguments::add);
             call.put("arguments", arguments);
             Map<String, Object> answer = new LinkedHashMap<>();
             answer.put("shape", form.answer().name());
@@ -181,7 +183,7 @@ public final class SurfaceDeclaration {
         declared.put("type", argument.type());
         declared.put("required", argument.required());
         declared.put("placement", argument.placement().name().toLowerCase(Locale.ROOT));
-        declared.put("description", argument.description());
+        declared.put(DESCRIPTION, argument.description());
         Object fallback = argument.keywords().get("default");
         if (fallback != null) {
             declared.put("default", fallback);
@@ -192,7 +194,7 @@ public final class SurfaceDeclaration {
             for (String value : values) {
                 Map<String, Object> one = new LinkedHashMap<>();
                 one.put("value", value);
-                one.put("description", valueDescription(argument.name(), value));
+                one.put(DESCRIPTION, valueDescription(argument.name(), value));
                 described.add(one);
             }
             declared.put("values", described);
@@ -278,38 +280,45 @@ public final class SurfaceDeclaration {
     public static Form formOf(AssistantVerb verb) {
         return switch (verb) {
             case CREATE -> new Form(EffectClass.CREATE, AddressDepth.COLLECTION, null, false,
-                AnswerShape.ENTRY_CREATED, refusals("SCOPE_LOCKED", "SCOPE_READ_ONLY",
-                    "ADDRESS_MALFORMED", "KEY_MALFORMED", "SELECTOR_ABSENT",
-                    "SELECTOR_RESERVED", "SELECTOR_MISMATCHED", "ALREADY_EXISTS",
-                    "TYPE_UNKNOWN", "CONTENT_ABSENT", "CONTENT_OVERSIZE",
-                    "REFERENCE_CREDENTIAL_BEARING", "FIELD_IMMUTABLE", "PAYLOAD_MALFORMED"));
+                AnswerShape.ENTRY_CREATED, refusals(WRITE, ADDRESSED, List.of(
+                    Reason.SELECTOR_ABSENT, Reason.SELECTOR_MISMATCHED, Reason.ALREADY_EXISTS),
+                    VALUES, BODY));
             case READ -> new Form(EffectClass.ITEM_READ, AddressDepth.ITEM, null, true,
-                AnswerShape.ENTRY, refusals("ADDRESS_MALFORMED", "KEY_MALFORMED"));
+                AnswerShape.ENTRY, refusals(ADDRESSED));
             case UPDATE -> new Form(EffectClass.FIELD_WRITE, AddressDepth.ITEM, null, false,
-                AnswerShape.ENTRY, refusals("SCOPE_LOCKED", "SCOPE_READ_ONLY",
-                    "ADDRESS_MALFORMED", "KEY_MALFORMED", "SELECTOR_RESERVED",
-                    "CONFLICT_TOKEN_MISSING", "CONFLICT_TOKEN_STALE", "UPDATE_EMPTY",
-                    "TYPE_UNKNOWN", "CONTENT_ABSENT", "CONTENT_OVERSIZE",
-                    "REFERENCE_CREDENTIAL_BEARING", "FIELD_IMMUTABLE", "PAYLOAD_MALFORMED"));
+                AnswerShape.ENTRY, refusals(WRITE, ADDRESSED, TOKEN, List.of(Reason.UPDATE_EMPTY),
+                    VALUES, BODY));
             case WITHDRAW -> new Form(EffectClass.ITEM_TRANSITION, AddressDepth.ITEM, null,
-                false, AnswerShape.WITHDRAWN, refusals("SCOPE_LOCKED", "SCOPE_READ_ONLY",
-                    "ADDRESS_MALFORMED", "KEY_MALFORMED", "SELECTOR_RESERVED",
-                    "CONFLICT_TOKEN_MISSING", "CONFLICT_TOKEN_STALE"));
+                false, AnswerShape.WITHDRAWN, refusals(WRITE, ADDRESSED, TOKEN));
             case QUERY -> new Form(EffectClass.COLLECTION_READ, AddressDepth.COLLECTION,
                 EffectClass.SCOPE_READ, false, AnswerShape.ENTRY_LISTING,
-                refusals("ADDRESS_MALFORMED", "KEY_MALFORMED", "TYPE_UNKNOWN",
-                    "PAGE_SIZE_REJECTED", "CURSOR_MALFORMED", "CURSOR_FOREIGN",
-                    "SORT_UNDECLARED"));
+                refusals(ADDRESSED, List.of(Reason.TYPE_UNKNOWN, Reason.PAGE_SIZE_REJECTED,
+                    Reason.CURSOR_MALFORMED, Reason.CURSOR_FOREIGN, Reason.SORT_UNDECLARED)));
             case DIGEST -> new Form(EffectClass.SCOPE_COMPOUND, AddressDepth.SCOPE, null, false,
-                AnswerShape.DIGEST_VIEW, refusals("ADDRESS_MALFORMED", "TYPE_UNKNOWN",
-                    "PAYLOAD_MALFORMED"));
+                AnswerShape.DIGEST_VIEW, refusals(List.of(Reason.ADDRESS_MALFORMED, Reason.TYPE_UNKNOWN),
+                    BODY));
         };
     }
 
+    // The reason groups the forms above are put together from.
+    private static final List<Enum<?>> WRITE = List.of(Reason.SCOPE_LOCKED, Reason.SCOPE_READ_ONLY,
+        Reason.SELECTOR_RESERVED);
+    private static final List<Enum<?>> ADDRESSED = List.of(Reason.ADDRESS_MALFORMED,
+        Reason.KEY_MALFORMED);
+    private static final List<Enum<?>> TOKEN = List.of(Reason.CONFLICT_TOKEN_MISSING,
+        Reason.CONFLICT_TOKEN_STALE);
+    private static final List<Enum<?>> VALUES = List.of(Reason.TYPE_UNKNOWN, Reason.CONTENT_ABSENT,
+        Reason.CONTENT_OVERSIZE, Reason.REFERENCE_CREDENTIAL_BEARING, Reason.FIELD_IMMUTABLE);
+    private static final List<Enum<?>> BODY =
+        List.of(SurfaceException.Reason.PAYLOAD_MALFORMED);
+
     /** The reasons a verb names, beside those of every call, sorted by code. */
-    private static List<String> refusals(String... own) {
+    @SafeVarargs
+    private static List<String> refusals(List<? extends Enum<?>>... groups) {
         Set<String> all = new TreeSet<>(EVERY_CALL);
-        all.addAll(List.of(own));
+        for (List<? extends Enum<?>> group : groups) {
+            group.forEach(reason -> all.add(reason.name()));
+        }
         return List.copyOf(all);
     }
 

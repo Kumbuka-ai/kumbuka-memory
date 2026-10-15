@@ -333,7 +333,7 @@ class MessageBundleTest {
                 } else if (source.startsWith("\"\"\"", i)) {
                     int end = source.indexOf("\"\"\"", i + 3);
                     end = end < 0 ? n : end;
-                    record(found, calls, line, source.substring(i + 3, end));
+                    collect(found, calls, line, source.substring(i + 3, end));
                     line += count(source, i, end);
                     i = end + 3;
                 } else if (c == '"') {
@@ -341,7 +341,7 @@ class MessageBundleTest {
                     while (end < n && source.charAt(end) != '"') {
                         end += source.charAt(end) == '\\' ? 2 : 1;
                     }
-                    record(found, calls, line, source.substring(i + 1, Math.min(end, n)));
+                    collect(found, calls, line, source.substring(i + 1, Math.min(end, n)));
                     i = end + 1;
                 } else if (c == '\'') {
                     int end = i + 1;
@@ -374,7 +374,7 @@ class MessageBundleTest {
                 : methods.contains(literal.call());
         }
 
-        private static void record(List<Found> into, Deque<String[]> calls, int line,
+        private static void collect(List<Found> into, Deque<String[]> calls, int line,
                                    String text) {
             if (!PROSE.matcher(text).find() || !LOWER_WORD.matcher(text).find()) {
                 return;

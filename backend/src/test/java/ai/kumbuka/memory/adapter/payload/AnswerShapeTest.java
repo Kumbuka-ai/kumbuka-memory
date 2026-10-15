@@ -44,10 +44,10 @@ class AnswerShapeTest {
     void every_declared_answer_names_the_members_its_records_carry() {
         assertThat(CARRIED_BY).as("every shape is held against a record")
             .containsOnlyKeys(AnswerShape.values());
-        CARRIED_BY.forEach((shape, records) -> records.forEach(record ->
+        CARRIED_BY.forEach((shape, records) -> records.forEach(carrier ->
             assertThat(shape.members())
-                .as("%s against %s", shape, record.getSimpleName())
-                .containsExactlyElementsOf(wireNames(record))));
+                .as("%s against %s", shape, carrier.getSimpleName())
+                .containsExactlyElementsOf(wireNames(carrier))));
     }
 
     @Test
@@ -59,8 +59,8 @@ class AnswerShapeTest {
     }
 
     /** The names a record carries on the wire, read off its accessors. */
-    private static List<String> wireNames(Class<?> record) {
-        return Arrays.stream(record.getRecordComponents())
+    private static List<String> wireNames(Class<?> carrier) {
+        return Arrays.stream(carrier.getRecordComponents())
             .map(RecordComponent::getAccessor)
             .map(accessor -> {
                 JsonProperty property = accessor.getAnnotation(JsonProperty.class);
