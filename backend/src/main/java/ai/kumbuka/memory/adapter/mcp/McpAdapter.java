@@ -1,8 +1,17 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.mcp;
 
 import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
+import ai.kumbuka.memory.adapter.payload.AssistantRefusals;
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.Actor;
+import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.Patch;
@@ -13,6 +22,7 @@ import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.CallerActor;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
+import ai.kumbuka.memory.surface.Texts;
 import ai.kumbuka.memory.surface.UnexpectedFailures;
 import ai.kumbuka.memory.surface.VerbSurface;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -30,7 +40,6 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.io.UncheckedIOException;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -115,16 +124,15 @@ public class McpAdapter {
         try {
             parsed = json.readValue(body == null ? "" : body, Object.class);
         } catch (JsonProcessingException notJson) {
-            return error(null, PARSE_ERROR, "The body is not JSON.");
+            return error(null, PARSE_ERROR, Texts.notices().bodyNotJson());
         }
         if (!(parsed instanceof Map<?, ?> raw)) {
-            return error(null, INVALID_REQUEST,
-                "This server takes one JSON-RPC 2.0 request object per call.");
+            return error(null, INVALID_REQUEST, Texts.notices().oneRequest());
         }
         Map<String, Object> request = objectOf(raw);
         Object id = request.get("id");
         if (!JSONRPC.equals(request.get(KEY_JSONRPC))) {
-            return error(id, INVALID_REQUEST, "The request is not a JSON-RPC 2.0 request.");
+            return error(id, INVALID_REQUEST, Texts.notices().notJsonRpc());
         }
         if (!request.containsKey("id")) {
             // A notification: the protocol forbids an answer to it.
@@ -136,8 +144,9 @@ public class McpAdapter {
             case "ping" -> result(id, Map.of());
             case "tools/list" -> result(id, Map.of("tools", tools()));
             case "tools/call" -> call(id, request);
-            default -> error(id, METHOD_NOT_FOUND, method + " is not a method of this server. "
-                + "It speaks initialize, ping, tools/list and tools/call.");
+            // The method that arrived is the caller's input and is never
+            // repeated; the answer names the methods there are (DEC-0043 R19).
+            default -> error(id, METHOD_NOT_FOUND, Texts.notices().methods());
         };
     }
 
@@ -171,26 +180,21 @@ public class McpAdapter {
     private Response call(Object id, Map<String, Object> request) {
         Map<String, Object> params = presentObject(request, "params");
         if (params == null) {
-            return error(id, INVALID_PARAMS, "The params of tools/call are an object naming the "
-                + "tool and its arguments.");
+            return error(id, INVALID_PARAMS, Texts.notices().paramsObject());
         }
         String tool = String.valueOf(params.get("name"));
         Optional<AssistantVerb> verb = AssistantVerb.byCall(tool);
         if (verb.isEmpty()) {
             // Not a refusal of a call but a call that does not exist: the
             // protocol answers it as an error of the request, and names the
-            // tools there are.
-            return error(id, INVALID_PARAMS, tool + " is not a tool of this server. Its tools "
-                + "are: " + String.join(", ",
-                    Arrays.stream(AssistantVerb.values()).map(AssistantVerb::call).toList())
-                + ".");
+            // tools there are and never the name that arrived (DEC-0043 R19).
+            return error(id, INVALID_PARAMS, Texts.notices().tools(AssistantVerb.verbNames()));
         }
         Map<String, Object> args = presentObject(params, "arguments");
         if (args == null) {
             // Present and not an object: there are no named arguments to
             // refuse one of, so this is no call yet.
-            return error(id, INVALID_PARAMS, "The arguments of " + tool + " are an object of "
-                + "named arguments.");
+            return error(id, INVALID_PARAMS, Texts.notices().argumentsObject());
         }
         return result(id, toolResult(verb.get(), args));
     }
@@ -203,7 +207,7 @@ public class McpAdapter {
         try {
             return answered(verb, args);
         } catch (RuntimeException failure) {
-            return refused(Refusals.unexpected(verb, args,
+            return refused(AssistantRefusals.unexpected(verb,
                 UnexpectedFailures.logged(verb.call(), failure)));
         }
     }
@@ -214,17 +218,17 @@ public class McpAdapter {
             return transaction.run(() -> content(invoke(verb, in), false));
         } catch (CallException e) {
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(Refusals.of(verb, e, seen(verb, args, null)));
+            return refused(AssistantRefusals.of(verb, e, seen(verb, args, null)));
         } catch (MemoryException e) {
             if (!foreseen(e)) {
                 // A reason of the generic surface arriving here — a session
                 // the read contract could not be bound for, above all — is a
                 // failure this surface did not foresee, and is answered as one.
-                return refused(Refusals.unexpected(verb, args,
+                return refused(AssistantRefusals.unexpected(verb,
                     UnexpectedFailures.logged(verb.call(), e)));
             }
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(Refusals.of(verb, e, reasonOf(e), args, seen(verb, args, e)));
+            return refused(AssistantRefusals.of(verb, e, reasonOf(e), seen(verb, args, e)));
         }
     }
 
@@ -253,7 +257,7 @@ public class McpAdapter {
                     Optional.ofNullable(in.field(Names.REFERENCE)))).entry());
             case WITHDRAW -> AssistantPayloads.WithdrawalAnswer.of(verbs.withdraw(actor,
                 AddressParser.complete(in.top(Names.ADDRESS)), in.top(Names.CONFLICT_TOKEN)));
-            case QUERY -> AssistantPayloads.ListingAnswer.of(verbs.query(actor,
+            case QUERY -> AssistantPayloads.PageAnswer.of(verbs.query(actor,
                 in.top(Names.SCOPE), in.top(Names.SELECTOR), narrowing(in)));
             case DIGEST -> Payloads.DigestResponse.of(verbs.digest(actor,
                 in.top(Names.SCOPE), in.list(Names.TYPES)));
@@ -272,6 +276,8 @@ public class McpAdapter {
         putIfPresent(asked, Names.TYPE, in.top(Names.TYPE));
         putIfPresent(asked, Names.TEXT, in.top(Names.TEXT));
         putIfPresent(asked, Names.AFTER, in.top(Names.AFTER));
+        putIfPresent(asked, Names.SORT, in.top(Names.SORT));
+        putIfPresent(asked, Names.DIRECTION, in.top(Names.DIRECTION));
         putIfPresent(asked, Names.PAGE_SIZE, in.number(Names.PAGE_SIZE));
         return asked;
     }
@@ -297,10 +303,10 @@ public class McpAdapter {
             }
         }
         Object address = null;
-        if (Refusals.takesAddress(verb)) {
+        if (AssistantRefusals.takesAddress(verb)) {
             address = args.get(Names.ADDRESS);
-        } else if (e != null) {
-            address = e.data().get(MemoryException.ADDRESS);
+        } else if (verb == AssistantVerb.CREATE) {
+            address = targetOfCreate(args);
         }
         if (!(address instanceof String complete)) {
             return Optional.empty();
@@ -322,6 +328,20 @@ public class McpAdapter {
             UnexpectedFailures.logged(verb.call(), failure);
             return Optional.empty();
         }
+    }
+
+    /**
+     * The address a create aimed at, from the scope and the key it was sent;
+     * null where the key carries no selector and so names no address.
+     */
+    private static String targetOfCreate(Map<String, Object> args) {
+        if (!(args.get(Names.SCOPE) instanceof String scope)
+            || !(args.get(AssistantVerb.FIELDS) instanceof Map<?, ?> fields)
+            || !(fields.get(Names.KEY) instanceof String key)
+            || key.indexOf(EntryAddress.SEPARATOR) < 1) {
+            return null;
+        }
+        return EntryAddress.ofKey(scope, key).canonical();
     }
 
     // ======================================================================

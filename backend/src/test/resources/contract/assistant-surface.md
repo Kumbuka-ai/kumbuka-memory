@@ -4,6 +4,13 @@ title: "The memory service's assistant surface: six verbs under the service's ow
 created: 2026-10-06
 domain: memory
 ---
+<!--
+Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+SPDX-License-Identifier: AGPL-3.0-only
+This file is part of Kumbuka and is licensed under the GNU Affero
+General Public License v3.0 only. See the LICENSE file in the
+repository root for the full licence text.
+-->
 
 # The memory service's assistant surface
 
@@ -82,8 +89,12 @@ URI, exactly as every call takes it.
 name, including an argument nested in `fields`; and every argument a call declares has the effect
 its declaration states.
 
-A **listing** (`memory_query`) carries `entries`, each in the shape above, and beside them
-`truncated`, `total`, `page_size`, `cursor`, `order` and `unaddressable`.
+A **listing** (`memory_query`) carries `objects`, each in the shape above, and beside them
+`next_cursor` and `unaddressable`; it does not repeat the page size it was asked in (ADR-0049).
+`next_cursor` is the one continuation: present, it is what `after` takes for the next page; absent,
+the page is the last. It is bound to the scope -- by its technical identity, so a scope of the same
+name in another estate is another scope --, the selector, the type and text, the sort and the
+direction it was handed out for, and is refused for any other.
 
 A **withdrawal** answers with `address`, `outcome` (`destroyed` or `tombstoned`),
 `address_released` and `next`.
@@ -100,7 +111,7 @@ carried type: `type` and `entries`, each with `address`, `key` and `content`), `
 ```
 {
   "reason": "CONFLICT_TOKEN_STALE",
-  "message": "memory_update is not possible on memory://kumbuka/convention/branch-names: the entry was changed since you read it. Read it again with memory_read and repeat the call with the new conflict token.",
+  "message": "memory_update is refused: the entry was changed since you read it. Read the entry again with memory_read and repeat the call with the new conflict token.",
   "data": {
     "attempted": "memory_update",
     "state": "...",
@@ -109,9 +120,16 @@ carried type: `type` and `entries`, each with `address`, `key` and `content`), `
 }
 ```
 
-`data.attempted` is present on every refusal. `data.state` and `data.next` are present where the
-refusal concerns an entry this caller may see. A refusal of a stale conflict token additionally
-carries the entry as this caller's own read would answer it (DEC-0041).
+`data.attempted` is present on every refusal. A refusal of a call's arguments, on every call, also
+carries `data.offenders`, naming the arguments and never their values (DEC-0042): `type` for a type
+`memory_create` or `memory_query` was sent, and for those of `memory_digest` the position of each
+wrong one as the argument's path, such as `types[1]` (DEC-0043 R19). A refusal of a name the call
+does not declare carries `data.accepts` instead, the names the call declares at that level, and
+never the name that arrived (DEC-0043 R19); a refusal of a value outside a fixed set -- a type, an
+order, a direction -- lists the declared values under `data.accepts` beside `data.offenders`. `data.state` and
+`data.next` are present where the refusal concerns an entry this caller may see. A refusal of a
+stale conflict token additionally carries the entry as this caller's own read would answer it
+(DEC-0041).
 
 ### 4.2 Rules for every message
 
@@ -121,10 +139,17 @@ carries the entry as this caller's own read would answer it (DEC-0041).
   this surface. A pattern never names a call literally; it names a step, written below as
   `<create>`, `<read>`, `<update>`, `<query>`, `<digest>`, and the surface fills in its own call for
   that step.
-- It names the complete address where there is one.
+- It repeats no value the caller sent -- no address, scope, key, selector, type, cursor, page size
+  or argument value -- and neither does any member of `data` (DEC-0042). It names the argument and
+  the form that argument takes. A refusal is written to logs, a value can be content, and the
+  caller holds what it sent.
 - It gives the specific reason in one sentence.
-- It names what the caller can do instead; `data.next` lists the same calls.
+- It ends with the remedy: the act the caller performs next, stated as what to do and never as
+  what to avoid (DEC-0042). The remedy is the last column of the table below; `data.next` lists the
+  calls it names.
 - It never repeats the content of an entry, and it never repeats the value of a reference.
+- Its message and its remedy are texts of the service's message bundles, and a placeholder in
+  them takes only a call, an argument, a position or a bound the declaration builds (DEC-0043 R18).
 - It is built from the pattern alone. A sentence produced inside the service never reaches the
   caller, in whole or in part.
 
@@ -145,28 +170,30 @@ of the three is the cause (DEC-0042).
 
 | Reason | Message pattern | What the caller can do |
 |---|---|---|
-| `NOT_FOUND` | 4.3 | check scope and address |
-| `SCOPE_LOCKED` | `<call> is not possible in scope <scope>: the scope is locked and takes no write from anyone.` | `<read>`, `<query>`, `<digest>` |
-| `SCOPE_READ_ONLY` | `<call> is not possible in scope <scope>: you may read this scope but not write to it.` | `<read>`, `<query>`, `<digest>` |
-| `ADDRESS_MALFORMED` | `<value> is not an address this service carries. An entry stands at memory://<scope>/<selector>/<id>.` | correct the address |
-| `KEY_MALFORMED` | `<key> is not a key this service stores. A key is <selector>.<id> in lowercase letters, digits, dots and hyphens.` | correct the key |
-| `SELECTOR_ABSENT` | `<call> names no selector for <key>. A key is <selector>.<id>, and the part before its first dot is the selector the entry stands under.` | write the key as <selector>.<id> |
-| `SELECTOR_RESERVED` | `The selector <selector> is reserved for entries the service lays down itself.` | use another selector |
-| `SELECTOR_MISMATCHED` | `The key <key> begins with the selector <key selector>, but <call> names the selector <selector>.` | make the two agree |
-| `ALREADY_EXISTS` | `<call> is not possible: an entry already stands at <address>. Change it with <update>.` | `<read>`, then `<update>` |
-| `CONFLICT_TOKEN_STALE` | `<call> is not possible on <address>: the entry was changed since you read it. Read it again with <read> and repeat the call with the new conflict token.` | `<read>`, then repeat |
-| `UPDATE_EMPTY` | `<call> on <address> names nothing to change. It can change content, type and reference.` | supply one of the three |
-| `TYPE_UNKNOWN` | `<value> is not a type of entry. The types are: <list>.` | use one of the list |
-| `CONTENT_ABSENT` | `<call> needs content: an entry without content is not stored.` | supply content |
-| `CONTENT_OVERSIZE` | `The content is <n> characters long. An entry holds at most <limit>.` | shorten it, or split it into several entries |
-| `REFERENCE_CREDENTIAL_BEARING` | `The reference carries a credential and is not stored. Remove the user information and every secret parameter from the URL.` | correct the reference |
-| `PAGE_SIZE_REJECTED` | `page_size = <value> is not valid for <call>: it is a whole number from 1 to <max>.` | correct the value |
-| `CURSOR_MALFORMED` | `after = <value> is not a cursor <query> handed out.` | repeat `<query>` without `after` |
-| `ACTOR_UNKNOWN` | `The token is valid but names no subject to act as.` | authenticate as a subject |
-| `ARGUMENT_UNKNOWN` | `<call> has no argument named <n>. Its arguments are: <list>.` | correct the name |
-| `ARGUMENT_MISSING` | `<call> needs <n>: <what it is>.` | supply it |
-| `ARGUMENT_INVALID` | `<n> = <value> is not valid for <call>: <why>.` -- `<why>` is a sentence of the pattern's own | correct the value |
-| `UNEXPECTED_FAILURE` | `<call> on <address> failed unexpectedly. This is a defect, not a rule. Nothing was changed. Report reference <ref>.` -- for a call without an address, `<call> in scope <scope>`; `<ref>` is written to the service's log with the failure | report the reference |
+| `NOT_FOUND` | 4.3 | Check the address, and that you are a member of the scope it names. |
+| `SCOPE_LOCKED` | `<call> is refused: the scope is locked, and a locked scope takes writes from nobody. Read the scope with <read>, <query> or <digest>, and write to it once it is unlocked.` | Read the scope with `<read>`, `<query>` or `<digest>`, and write to it once it is unlocked. |
+| `SCOPE_READ_ONLY` | `<call> is refused: your right in this scope is to read it. Read the scope with <read>, <query> or <digest>, and ask the scope's owner for the write right to change it.` | Read the scope with `<read>`, `<query>` or `<digest>`, and ask the scope's owner for the write right to change it. |
+| `ADDRESS_MALFORMED` | `<call> was given an address or a scope in a form this service does not carry. Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens.` | Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens. |
+| `KEY_MALFORMED` | `<call> was given a key or a selector in a form this service does not store. Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters.` | Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters. |
+| `SELECTOR_ABSENT` | `<call> was given a key that names no selector. The part of a key before its first dot is the selector the entry stands under. Write the key as <selector>.<id>.` | Write the key as <selector>.<id>. |
+| `SELECTOR_RESERVED` | `The selector of this key is reserved for entries the service lays down itself. Choose another selector for the key, such as decision, convention or constraint.` | Choose another selector for the key, such as decision, convention or constraint. |
+| `SELECTOR_MISMATCHED` | `The key begins with another selector than the one <call> names. Make the selector argument and the part of the key before its first dot the same.` | Make the selector argument and the part of the key before its first dot the same. |
+| `ALREADY_EXISTS` | `<call> is refused: an entry already stands at this address. Read the entry with <read> and change it with <update>, or create the new entry under another key.` | Read the entry with `<read>` and change it with `<update>`, or create the new entry under another key. |
+| `CONFLICT_TOKEN_STALE` | `<call> is refused: the entry was changed since you read it. Read the entry again with <read> and repeat the call with the new conflict token.` | Read the entry again with `<read>` and repeat the call with the new conflict token. |
+| `UPDATE_EMPTY` | `<call> names nothing to change. Send at least one of content, type and reference in fields.` | Send at least one of content, type and reference in fields. |
+| `TYPE_UNKNOWN` | `<call> was sent a type outside the entry types, which accepts lists. Send each type as one of the values accepts lists.` -- `data.accepts` lists the entry types | Send each type as one of the values accepts lists. |
+| `CONTENT_ABSENT` | `<call> needs content: an entry without content is not stored. Send the text of the entry as content.` | Send the text of the entry as content. |
+| `CONTENT_OVERSIZE` | `The content is longer than an entry holds, which is at most <limit> characters. Shorten the content to at most <limit> characters, or split it into several entries.` | Shorten the content to at most <limit> characters, or split it into several entries. |
+| `REFERENCE_CREDENTIAL_BEARING` | `The reference carries a credential and is not stored. Remove the user information and every secret parameter from the URL, then send it again.` | Remove the user information and every secret parameter from the URL, then send it again. |
+| `PAGE_SIZE_REJECTED` | `page_size is outside what <call> takes. Send page_size as a whole number from 1 to <max>.` | Send page_size as a whole number from 1 to <max>. |
+| `CURSOR_MALFORMED` | `after is not a cursor <query> handed out. Call <query> again from the first page, or send as after the next_cursor of the page you read last.` | Call `<query>` again from the first page, or send as after the next_cursor of the page you read last. |
+| `CURSOR_FOREIGN` | `after was handed out by <query> for another scope, selector, type, text, sort or direction. Call <query> again from the first page.` | Call `<query>` again from the first page. |
+| `SORT_UNDECLARED` | `sort names an order <call> does not declare. Send sort as one of the values accepts lists.` -- `data.accepts` lists the orders | Send sort as one of the values accepts lists. |
+| `ACTOR_UNKNOWN` | `The token is valid but names no subject to act as. Authenticate as a subject and call again with that token.` | Authenticate as a subject and call again with that token. |
+| `ARGUMENT_UNKNOWN` | `<call> was sent an argument outside the names it declares at that level, which are: <list>. Name each argument as one of these.` | Name each argument as one of these. |
+| `ARGUMENT_MISSING` | `<call> needs <n>. Send <n> with the call.` | Send the argument with the call. |
+| `ARGUMENT_INVALID` | `<path> is not of the form <call> takes for it. Send <path> in the form the input schema of the call gives it.` -- `<path>` is the argument, or the position of an element as `types[1]` | Send the argument in the form the input schema gives it. |
+| `UNEXPECTED_FAILURE` | `<call> failed unexpectedly. This is a defect, not a rule. Nothing was changed. Report the reference under data.report to the operator of this service.` -- `data.report` carries the reference, which is written to the service's log with the failure | Report the reference to the operator of this service. |
 
 On this surface the conflict token is a required argument wherever a call takes one, so its absence
 is answered as `ARGUMENT_MISSING`; an argument that narrows a query and is not declared is answered
@@ -176,7 +203,7 @@ foresee, including a session the read contract could not be bound for, is answer
 `UNEXPECTED_FAILURE` and never as a sentence of its own.
 
 Raised on the generic surface only, and declared in the catalogue all the same:
-`CONFLICT_TOKEN_MISSING`, `PREDICATE_UNKNOWN`, `FIELD_IMMUTABLE`, `PAYLOAD_MALFORMED`,
+`CONFLICT_TOKEN_MISSING`, `FIELD_IMMUTABLE`, `PAYLOAD_MALFORMED`,
 `VERB_NOT_CARRIED`, `ADDRESS_TRUNCATED`, `SESSION_NOT_BOUND`.
 
 A reason that is in neither list cannot be returned: the service refuses to start with an undeclared
@@ -197,8 +224,8 @@ Top-level: `scope`, `selector`. Under `fields`: `key`, `type`, `content`, option
 Result: the entry is in force.
 
 **`memory_read`**
-> Reads one entry by its complete address and hands out a fresh conflict token. Changes nothing.
-> An address that does not exist and one you may not see are answered alike.
+> Reads one entry by its complete address and hands out a fresh conflict token. Reads only. An
+> unused address and one hidden from you are answered alike.
 
 Top-level: `address`. Callable by anyone who may read the scope.
 
@@ -211,23 +238,25 @@ Top-level: `address`, `conflict_token`. Under `fields`: at least one of `content
 `reference`. Result: the entry stays in force and carries a new conflict token.
 
 **`memory_withdraw`**
-> Takes an entry out of force. Final: no call restores it, and the answer says whether its address
-> is free again. Needs the conflict token of the latest read.
+> Takes an entry out of force. Final: the entry stays out of force, and the answer says whether its
+> address is free again. Needs the conflict token of the latest read.
 
 Top-level: `address`, `conflict_token`. Callable by anyone who may write to the scope.
 
 **`memory_query`**
-> Lists the entries of a scope page by page, optionally narrowed by selector, type or text. Changes
-> nothing. Use it to find an address.
+> Lists the entries of a scope page by page, optionally narrowed by selector, type or text. Reads
+> only. Use it to find an address.
 
 Top-level: `scope`, optional `selector`, optional `type`, optional `text` (a text the entry must
-contain), optional `after` (the cursor of the previous page), optional `page_size` (1 to 200,
-default 50). Callable by anyone who may read the scope.
+contain), optional `after` (the next cursor of the previous page), optional `sort` (id or
+created_at, default id; created_at carries the key as second key), optional `direction` (asc or
+desc, default asc), optional `page_size` (1 to 200, default 50). Callable by anyone who may read
+the scope.
 
 **`memory_digest`**
-> Returns everything in force in a scope, whole and grouped by type, with a tally per type. Changes
-> nothing. Carries the types the scope's digest selection names unless `types` says otherwise. Call
-> it once at the start of a session.
+> Returns everything in force in a scope, whole and grouped by type, with a tally per type. Reads
+> only. Carries the types the scope's digest selection names, or those that types names. Call it
+> once at the start of a session.
 
 Top-level: `scope`, optional `types` (a list of type names). Callable by anyone who may read the
 scope.
@@ -265,15 +294,29 @@ that answer would drift from it, and a listed call that is then refused is what 
   reference written to the log beside the failure. The log receives the reference, the call, and
   the types and stack frames of the failure and of its causes. It never receives a message of the
   failure or of any cause: a database names the row it rejected, and that row holds the content.
-- No change to the generic surface, and none to what lies behind it: the domain, the repository,
-  the tenancy layer, the configuration and the schema answer as they did.
+- No change to the generic surface beyond what DEC-0042 binds on both surfaces: the code and the
+  status of a refusal of a call's arguments, `offenders` naming arguments and never values, and no
+  value the caller sent in any member of `data`.
 
 ## 8. Open points and recorded departures
 
-- **The generic surface departs from three rules and is left as it is.** Its messages are sentences
-  written inside the service rather than built from a pattern; its refusals carry no `attempted`
-  and no `next`; and it answers an undeclared narrowing argument as `PREDICATE_UNKNOWN`. Bringing
-  it into line changes what a running installation answers and is a decision of its own.
+- **The generic surface words its refusals from the patterns of section 4.4** (DEC-0043 R18), as
+  this surface does, and repeats no value the caller sent in its message or in any member of
+  `data`. Its refusals carry no `attempted` and no `next`. A refusal of the transport -- a body that
+  is not JSON, a verb in colon notation the address does not carry, a method the address does not
+  carry -- is raised before a verb is known, and its pattern names no call. A required argument
+  absent or sent as `null` under `fields` is `ARGUMENT_MISSING` (400), as here (DEC-0043 R17). Its
+  listing answers an undeclared argument as `ARGUMENT_UNKNOWN` (400), as this surface does, and so
+  does an address that names one entry when it is sent a parameter, listing the parameters it
+  accepts in `accepts`.
+  This service declares no filter fields per scope, so it never answers `PREDICATE_UNKNOWN`.
+- **A hop in front of the service can ask the generic listing for this surface's projection.**
+  `GET` of a listing with the header `Kumbuka-Surface: assistant` answers as `memory_query` does
+  here: `next` names this surface's calls and a refusal is built from the patterns of section 4.4,
+  with the generic surface's HTTP status. Any other value of the header, an empty one or a second
+  one, is refused as `ARGUMENT_INVALID` with 400 and no `data`, before the scope is looked at, so a
+  scope the caller cannot see answers the same: the header is not an argument, and whether its value
+  is one it takes is decidable without a scope. Only the listing reads the header so far.
 - **The code for a write to an occupied address is not decided platform-wide** (DEC-0042, "What
   this does not settle"). This contract declares the code the service answers today,
   `ALREADY_EXISTS`.
@@ -293,3 +336,11 @@ that answer would drift from it, and a listed call that is then refused is what 
 - **Reading by technical address is not offered on this surface**; it stays on the generic one.
 - **`relate` and `unrelate` are not carried.** The service holds no relation between entries.
 - **Whether the key or the address of an entry may stand in a log line is not decided.**
+- **A stale conflict token is the one refusal that carries an address the caller sent.** It
+  carries the entry as this caller's own read would answer it (DEC-0041), and a read answers with
+  the entry's address. DEC-0042 says no member of `data` repeats a value the caller supplied; the
+  two are not yet reconciled, and the entry is carried as DEC-0041 requires.
+- **The `does` of a next step on this surface describes the call rather than instructing it.**
+  DEC-0042 asks for the description of every next step as the act to perform. These texts are the
+  calls' own declarations, and rewording them belongs to the decision on how the tool descriptions
+  are worded and kept; the generic surface's `next` already states its steps as instructions.

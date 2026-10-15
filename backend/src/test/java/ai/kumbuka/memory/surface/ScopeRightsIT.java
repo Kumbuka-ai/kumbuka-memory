@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -130,9 +137,9 @@ class ScopeRightsIT {
                 + "SCOPE_LOCKED a code that exists and can never be produced")
             .isEqualTo("SCOPE_LOCKED");
         assertThat(locked.jsonPath().getString("message"))
-            .as("and the message sends the caller to where the lock is lifted, not to the "
-                + "membership")
-            .contains("lifted where it was set");
+            .as("and the message sends the caller to the lock, not to the membership")
+            .contains("once it is unlocked")
+            .doesNotContain("write right");
     }
 
     // ------------------------------------------------------------------

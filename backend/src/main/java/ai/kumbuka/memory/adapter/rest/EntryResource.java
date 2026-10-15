@@ -1,9 +1,21 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.rest;
 
+import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
+import ai.kumbuka.memory.adapter.payload.AssistantRefusals;
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.surface.AddressParser;
+import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallerActor;
+import ai.kumbuka.memory.surface.ReasonCatalogue;
+import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.VerbSurface;
 import ai.kumbuka.memory.tenancy.TenantBound;
@@ -21,6 +33,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.EntityTag;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -50,6 +63,7 @@ import java.util.UUID;
  * depths, and each one offers exactly what the verb set has at it:
  *
  * <pre>
+ *   GET    /api                             the service's declaration
  *   GET    /api/{scope}                     query, over every selector
  *   GET    /api/{uuid}                      read, by technical address
  *   POST   /api/{scope}:digest              digest
@@ -72,6 +86,19 @@ import java.util.UUID;
  * <p>The acts themselves are in {@link VerbSurface}. This class holds their
  * HTTP expression and nothing else, so an addition here would be an addition
  * with no act behind it.
+ *
+ * <h2>The surface a listing answers in</h2>
+ *
+ * A listing names calls — {@code next} on every entry, {@code attempted} on a
+ * refusal — and a call has a name per surface. Without the
+ * {@code Kumbuka-Surface} header that is this one. With
+ * {@code Kumbuka-Surface: assistant} a hop that publishes these calls as
+ * assistant tools and reaches this service over REST says so, and the
+ * listing answers in the assistant surface's projection: its {@code next}
+ * names {@code memory_read}, its refusals are worded from the reason
+ * catalogue as the service's own MCP adapter words them. Any other value is
+ * refused and nothing is read. The header is not an argument of the call, it
+ * grants nothing, and for now only {@code query} reads it.
  *
  * <h2>Why the class carries a transaction</h2>
  *
@@ -96,9 +123,44 @@ public class EntryResource {
     /** What an item URI offers. */
     private static final String ITEM_ALLOW = "GET, PATCH, POST";
 
+    /**
+     * Names the surface the caller came through, where that is not this one.
+     * It decides nothing else: who calls, and what that caller may do, come
+     * from the verified identity as always.
+     */
+    static final String SURFACE = "Kumbuka-Surface";
+
+    /** The one value {@link #SURFACE} takes: the assistant surface. */
+    static final String ASSISTANT = "assistant";
+
     @Inject VerbSurface verbs;
     @Inject CallerActor caller;
     @Inject ObjectMapper json;
+    @Inject RestCall call;
+
+    // ======================================================================
+    // Scheme depth
+    // ======================================================================
+
+    /**
+     * GET at the scheme's own address: the service's declaration (ADR-0039).
+     *
+     * <p>Every verb with its identity, effect class, arguments, answer,
+     * refusals and texts, and the version they carry together -- the statement
+     * the router builds its surface from. A statement about the scheme, so it
+     * stands at the scheme's address, {@code memory://}, which is {@code /api};
+     * a segment under it would read as a scope, and {@code declaration} is a
+     * well-formed scope name. It is the declaration {@code /mcp/declaration}
+     * serves: one declaration, two readers.
+     *
+     * <p>Authenticated as every other route of this surface. Whether the router
+     * may read it with an identity of its own rather than a caller's is a
+     * decision about a security gate and is not taken here.
+     */
+    @GET
+    public Map<String, Object> declaration() {
+        return SurfaceDeclaration.asMap();
+    }
 
     // ======================================================================
     // Scope depth
@@ -118,17 +180,19 @@ public class EntryResource {
      * <p>A technical read with query parameters is refused rather than served
      * with them ignored: it addresses one entry, so there is nothing for a
      * filter to narrow, and a parameter accepted and discarded is the failure
-     * the predicate vocabulary exists to prevent.
+     * the refusal of unknown arguments exists to prevent.
      */
     @GET
     @Path("{segment}")
-    public Response scopeGet(@PathParam("segment") String segment, @Context UriInfo uri) {
+    public Response scopeGet(@PathParam("segment") String segment, @Context UriInfo uri,
+                             @Context HttpHeaders http) {
         Optional<UUID> technical = AddressParser.technicalAddress(segment);
         if (technical.isPresent()) {
+            call.is(AssistantVerb.READ);
             refuseParametersOnAnItem(uri);
             return answer(verbs.readTechnical(caller.current(), technical.get()));
         }
-        return listing(verbs.query(caller.current(), segment, null, parametersOf(uri)));
+        return query(segment, null, uri, http);
     }
 
     /**
@@ -142,18 +206,23 @@ public class EntryResource {
     @POST
     @Path("{segment}")
     public Response scopePost(@PathParam("segment") String segment, String body) {
-        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.SCOPE, SCOPE_ALLOW,
-            "a scope carries the compound reads of this service in colon notation — "
-                + "'POST /api/<scope>:digest'. An entry is laid down under a selector, so "
-                + "a create is posted one segment further in.");
+        // A scope carries the compound reads in colon notation,
+        // 'POST /api/<scope>:digest'. An entry is laid down under a selector,
+        // so a create is posted one segment further in.
+        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.SCOPE, SCOPE_ALLOW);
 
         return switch (at.method()) {
-            case DIGEST -> Response.ok(Payloads.DigestResponse.of(
-                verbs.digest(caller.current(), at.address(),
-                    Payloads.digestTypes(read(body, Payloads.DigestRequest.class))))).build();
+            case DIGEST -> digest(at, body);
             case WITHDRAW -> throw new IllegalStateException(
                 "withdraw acts at item depth and cannot arrive here");
         };
+    }
+
+    private Response digest(CustomMethod.Split at, String body) {
+        call.is(AssistantVerb.DIGEST);
+        return Response.ok(Payloads.DigestResponse.of(
+                verbs.digest(caller.current(), at.address(),
+                    Payloads.digestTypes(read(body, Payloads.DigestRequest.class))))).build();
     }
 
     // ======================================================================
@@ -176,8 +245,8 @@ public class EntryResource {
     @Path("{scope}/{selector}")
     public Response collectionGet(@PathParam("scope") String scope,
                                   @PathParam("selector") String selector,
-                                  @Context UriInfo uri) {
-        return listing(verbs.query(caller.current(), scope, selector, parametersOf(uri)));
+                                  @Context UriInfo uri, @Context HttpHeaders http) {
+        return query(scope, selector, uri, http);
     }
 
     /**
@@ -196,14 +265,10 @@ public class EntryResource {
                                    @PathParam("selector") String segment,
                                    String body) {
         CustomMethod.split(segment, CustomMethod.Depth.COLLECTION).ifPresent(at -> {
-            throw new SurfaceException(SurfaceException.Reason.VERB_NOT_CARRIED,
-                "'" + at.verb() + "' is not a verb of this scheme at a selector. What a "
-                    + "selector carries is 'create', which is a plain POST onto it, and "
-                    + "'query', which is a GET. 'digest' acts on a whole scope and "
-                    + "'withdraw' on one entry.",
-                COLLECTION_ALLOW);
+            throw new SurfaceException(SurfaceException.Reason.VERB_NOT_CARRIED, COLLECTION_ALLOW);
         });
 
+        call.is(AssistantVerb.CREATE);
         VerbSurface.Answer answer = verbs.create(caller.current(), scope, segment,
             Payloads.newEntry(read(body, Payloads.CreateRequest.class)));
 
@@ -226,6 +291,7 @@ public class EntryResource {
                          @PathParam("selector") String selector,
                          @PathParam("id") String id,
                          @Context UriInfo uri) {
+        call.is(AssistantVerb.READ);
         refuseParametersOnAnItem(uri);
         return answer(verbs.read(caller.current(),
             new AddressParser.Parts(scope, selector, id)));
@@ -247,6 +313,7 @@ public class EntryResource {
                            @PathParam("id") String id,
                            @HeaderParam("If-Match") String ifMatch,
                            String body) {
+        call.is(AssistantVerb.UPDATE);
         VerbSurface.Answer answer = verbs.update(caller.current(),
             new AddressParser.Parts(scope, selector, id),
             unquoted(ifMatch),
@@ -268,21 +335,27 @@ public class EntryResource {
                              @PathParam("selector") String selector,
                              @PathParam("id") String segment,
                              @HeaderParam("If-Match") String ifMatch) {
-        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.ITEM, ITEM_ALLOW,
-            "an entry carries one verb in colon notation — "
-                + "'POST /api/<scope>/<selector>/<id>:withdraw'. Reading it is a GET and "
-                + "changing it is a PATCH; there is no DELETE, because a withdrawal is an "
-                + "act of this service whose effect the edition decides and not the "
-                + "removal of a resource.");
+        // An entry carries one verb in colon notation,
+        // 'POST /api/<scope>/<selector>/<id>:withdraw'. Reading it is a GET and
+        // changing it is a PATCH; there is no DELETE, because a withdrawal is an
+        // act of this service whose effect the edition decides and not the
+        // removal of a resource.
+        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.ITEM, ITEM_ALLOW);
 
         return switch (at.method()) {
-            case WITHDRAW -> Response.ok(Payloads.WithdrawnResponse.of(
-                verbs.withdraw(caller.current(),
-                    new AddressParser.Parts(scope, selector, at.address()),
-                    unquoted(ifMatch)))).build();
+            case WITHDRAW -> withdraw(scope, selector, at, ifMatch);
             case DIGEST -> throw new IllegalStateException(
                 "digest acts at scope depth and cannot arrive here");
         };
+    }
+
+    private Response withdraw(String scope, String selector, CustomMethod.Split at,
+                              String ifMatch) {
+        call.is(AssistantVerb.WITHDRAW);
+        return Response.ok(Payloads.WithdrawnResponse.of(
+                verbs.withdraw(caller.current(),
+                    new AddressParser.Parts(scope, selector, at.address()),
+                    unquoted(ifMatch)))).build();
     }
 
     // ======================================================================
@@ -294,15 +367,58 @@ public class EntryResource {
     }
 
     /**
-     * A listing, with no entity tag.
+     * {@code query}, answered on the surface the caller names.
      *
-     * <p>Deliberately untagged: the conflict token is a per-entry value and a
-     * listing has no single one. A tag over the set would be a token a caller
-     * could send back on a field write, which is a token about the wrong
-     * thing. Every entry of the listing carries its own.
+     * <p>The answer is deliberately untagged: the conflict token is a
+     * per-entry value and a listing has no single one. A tag over the set
+     * would be a token a caller could send back on a field write, which is a
+     * token about the wrong thing. Every entry of the listing carries its own.
      */
-    private static Response listing(ai.kumbuka.memory.domain.Listing found) {
-        return Response.ok(Payloads.ListingResponse.of(found)).build();
+    private Response query(String scope, String selector, UriInfo uri, HttpHeaders http) {
+        call.is(AssistantVerb.QUERY);
+        Map<String, String> asked = parametersOf(uri);
+        if (!onAssistantSurface(http.getRequestHeader(SURFACE))) {
+            return Response.ok(Payloads.PageResponse.of(
+                verbs.query(caller.current(), scope, selector, asked))).build();
+        }
+        try {
+            return Response.ok(AssistantPayloads.PageAnswer.of(
+                verbs.query(caller.current(), scope, selector, asked))).build();
+        } catch (MemoryException refused) {
+            ReasonCatalogue.Reason reason =
+                ReasonCatalogue.of(ReasonCatalogue.wireCode(refused.reason().name()));
+            if (reason.reach() != ReasonCatalogue.Reach.BOTH) {
+                // A reason the assistant surface does not answer is a failure
+                // it did not foresee; the generic form at least says what it
+                // was rather than wording it in a vocabulary it has no entry in.
+                throw refused;
+            }
+            throw new AssistantRefused(refused, AssistantRefusals.of(AssistantVerb.QUERY,
+                refused, reason, Optional.empty()));
+        }
+    }
+
+    /**
+     * Whether the caller names the assistant surface: once, with the one
+     * value it takes. An empty value or a second one is a value the header
+     * cannot take, not an absence, and is refused before the scope is looked
+     * at, so a scope this caller cannot see answers the same.
+     *
+     * <p>Without {@code data}: the header is not an argument of the call, so
+     * there is no argument name for {@code offenders} to carry, and the value
+     * sent is never repeated (DEC-0042). The dispatch and the worklist service
+     * refuse it in the same form.
+     */
+    private static boolean onAssistantSurface(List<String> named) {
+        if (named == null || named.isEmpty()) {
+            return false;
+        }
+        if (!List.of(ASSISTANT).equals(named)) {
+            MemoryException refused =
+                new MemoryException(MemoryException.Reason.ARGUMENT_INVALID);
+            throw new AssistantRefused(refused, AssistantRefusals.headerRefused());
+        }
+        return true;
     }
 
     private static Response tagged(Response.ResponseBuilder response,
@@ -324,15 +440,13 @@ public class EntryResource {
      * for the object.
      */
     private static CustomMethod.Split verbAt(String segment, CustomMethod.Depth depth,
-                                             String allow, String guidance) {
+                                             String allow) {
         return CustomMethod.split(segment, depth)
             .filter(CustomMethod.Split::isKnown)
             .orElseThrow(() -> new SurfaceException(
                 segment.indexOf(CustomMethod.SEPARATOR) < 0
                     ? SurfaceException.Reason.ADDRESS_TRUNCATED
-                    : SurfaceException.Reason.VERB_NOT_CARRIED,
-                "'" + segment + "' names no verb this address carries. " + guidance,
-                allow));
+                    : SurfaceException.Reason.VERB_NOT_CARRIED, allow));
     }
 
     /**
@@ -352,16 +466,18 @@ public class EntryResource {
         return flattened;
     }
 
+    /**
+     * Refuses every query parameter on an address that names one entry.
+     *
+     * <p>{@code ARGUMENT_UNKNOWN} with 400, as for any argument a verb does not
+     * declare (DEC-0042): {@code read} declares none, and that is decidable
+     * from the verb alone, without a scope. {@code accepts} lists the names
+     * the read takes as parameters, which are none; the names sent are the
+     * caller's input and are repeated nowhere (DEC-0043 R19).
+     */
     private static void refuseParametersOnAnItem(UriInfo uri) {
-        List<String> given = List.copyOf(uri.getQueryParameters().keySet());
-        if (!given.isEmpty()) {
-            throw MemoryException.offending(MemoryException.Reason.PREDICATE_UNKNOWN,
-                "this address names one entry, so there is nothing for a filter to "
-                    + "narrow. The parameters are refused rather than ignored: one "
-                    + "accepted and discarded would let a caller believe it had asked "
-                    + "something. Filters belong on a query, which is addressed at a "
-                    + "scope or at a selector.",
-                given);
+        if (!uri.getQueryParameters().isEmpty()) {
+            throw MemoryException.undeclared(List.of());
         }
     }
 
@@ -402,8 +518,9 @@ public class EntryResource {
         try {
             return json.readValue(body, shape);
         } catch (JsonProcessingException e) {
-            throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED,
-                "the request body is not the JSON this verb takes: " + e.getOriginalMessage());
+            // The parser's message quotes the body it rejected, so it goes
+            // nowhere: neither into the refusal nor into this exception.
+            throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED);
         }
     }
 }

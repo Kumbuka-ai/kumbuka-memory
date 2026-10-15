@@ -1,3 +1,10 @@
+<!--
+Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+SPDX-License-Identifier: AGPL-3.0-only
+This file is part of Kumbuka and is licensed under the GNU Affero
+General Public License v3.0 only. See the LICENSE file in the
+repository root for the full licence text.
+-->
 # kumbuka-memory
 
 The memory service.
@@ -32,12 +39,18 @@ until the call that withdraws it.
 
 On the assistant surface the tool list, the input schemas, the descriptions,
 the names offered as next steps and the catalogue of refusal reasons all come
-from **one declaration**, served at `GET /mcp/declaration`. Every input schema
-is closed at every level, so an argument the call does not declare is refused
-by name rather than dropped. Every refusal of a tool call is
-`{ reason, message, data }`, and its message is built from the reason's declared
-pattern alone: no sentence from inside the service, no content of an entry and
-no value of a reference reaches the caller through it. A request that is not a
+from **one declaration**, served at `GET /api` on the generic surface and at
+`GET /mcp/declaration`: every verb with its identity, its effect class in the
+router's names, its arguments, the shape of its answer, the reasons it can be
+refused with and its texts, under a version that is a hash over the whole.
+Every input schema is closed at every level, so an argument the call does not
+declare is refused with the names it does declare rather than dropped. Every
+refusal is `{ reason, message, data }` on both surfaces, and its message is
+built from the reason's texts alone: no sentence from inside the service, no
+value the caller sent, no content of an entry and no value of a reference
+reaches the caller through it. Every text a caller reads lives in the message
+bundles under `backend/src/main/resources/messages/`, and a placeholder in them
+takes only a name, a position or a bound the declaration builds. A request that is not a
 call of a tool — a body that is not JSON, an unknown method or tool, `arguments`
 that are not an object — is answered as a JSON-RPC protocol error instead. A
 failure nobody foresaw answers `UNEXPECTED_FAILURE` with a report reference that

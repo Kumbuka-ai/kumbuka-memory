@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.adapter.mcp.FailingCommit;
@@ -125,8 +132,10 @@ class UnexpectedFailureIT {
             args("address", ADDRESS, "conflict_token", token));
 
         String reference = assertUnexpected(refusal, withdraw,
-            Contract.patternOf("UNEXPECTED_FAILURE"),
-            Map.of("call", withdraw, "address", ADDRESS));
+            Contract.patternOf("UNEXPECTED_FAILURE"), Map.of("call", withdraw));
+        assertThat(refusal.text())
+            .as("the address the caller sent is not repeated (DEC-0042)")
+            .doesNotContain(ADDRESS);
         assertLoggedByShape(reference, withdraw, List.of(IllegalStateException.class,
             IllegalArgumentException.class), FailingWithdrawal.MESSAGE_MARKER,
             FailingWithdrawal.CAUSE_MARKER);
@@ -141,12 +150,15 @@ class UnexpectedFailureIT {
 
     @Test
     @TestSecurity(user = FailingCallerActor.FAILING_SUBJECT)
-    void a_call_without_an_address_answers_the_form_that_names_the_scope() {
+    void a_call_without_an_address_answers_the_same_form_and_names_no_scope() {
         String query = Contract.toolFor("query");
         Mcp.Result refusal = Mcp.call(query, args("scope", SCOPE));
 
         String reference = assertUnexpected(refusal, query,
-            Contract.unexpectedFailureWithoutAddress(), Map.of("call", query, "scope", SCOPE));
+            Contract.patternOf("UNEXPECTED_FAILURE"), Map.of("call", query));
+        assertThat(refusal.message())
+            .as("the scope the caller sent is not repeated (DEC-0042)")
+            .doesNotContain(SCOPE);
         assertLoggedByShape(reference, query, List.of(IllegalStateException.class),
             FailingCallerActor.DEFECT);
     }
@@ -195,8 +207,7 @@ class UnexpectedFailureIT {
         }
 
         String reference = assertUnexpected(refusal, update,
-            Contract.patternOf("UNEXPECTED_FAILURE"),
-            Map.of("call", update, "address", ADDRESS));
+            Contract.patternOf("UNEXPECTED_FAILURE"), Map.of("call", update));
         assertThat(logged)
             .as("the reference stands in the log, without the message of the failure")
             .anySatisfy(line -> {
@@ -217,12 +228,16 @@ class UnexpectedFailureIT {
                                            Map<String, String> values) {
         assertThat(refusal.isError()).as("%s", refusal).isTrue();
         assertThat(refusal.reason()).isEqualTo("UNEXPECTED_FAILURE");
-        Matcher message = Contract.message(pattern, values, "ref").matcher(refusal.message());
+        Matcher message = Contract.message(pattern, values).matcher(refusal.message());
         assertThat(message.matches())
             .as("the message is the contract's pattern: %s", refusal.message())
             .isTrue();
         assertThat(refusal.string("data.attempted")).isEqualTo(tool);
-        return message.group(1);
+        // The reference travels under data.report, which the message points at:
+        // a reference is no placeholder a text may take.
+        String reference = refusal.string("data.report");
+        assertThat(reference).as("the reference to report").isNotBlank();
+        return reference;
     }
 
     private void assertLoggedByShape(String reference, String call,

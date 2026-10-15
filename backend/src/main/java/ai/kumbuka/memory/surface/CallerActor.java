@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.Actor;
@@ -54,11 +61,7 @@ public class CallerActor {
             || identity.getPrincipal().getName().isBlank()) {
             LOG.warnf("a token authenticated with no subject to act as: %s",
                 MemoryException.Reason.ACTOR_UNKNOWN);
-            throw new MemoryException(MemoryException.Reason.ACTOR_UNKNOWN,
-                "this token names no subject to act as. The principal is pinned to the "
-                    + "token's 'sub' claim, which is stable; a realm that issues a token "
-                    + "without one gives this service nothing to record as the author of "
-                    + "a write and nothing to compare a private entry's owner against.");
+            throw new MemoryException(MemoryException.Reason.ACTOR_UNKNOWN);
         }
         return new Actor(identity.getPrincipal().getName());
     }

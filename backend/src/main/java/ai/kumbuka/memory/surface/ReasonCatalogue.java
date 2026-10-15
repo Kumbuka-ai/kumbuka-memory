@@ -1,84 +1,60 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.MemoryException;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.function.Function;
 
 /**
- * Every reason this service can refuse with, each with its message pattern and
- * its remedy (DEC-0043).
+ * Every reason this service can refuse with, each with its message and its
+ * remedy (DEC-0043).
  *
- * <h2>A message is built from its pattern and from nothing else</h2>
+ * <h2>The texts are in the bundles, and this table says which belongs where</h2>
  *
- * The domain's refusals carry sentences of their own, written for the generic
- * surface, and those sentences stay there. On the assistant surface a message
- * is this table's pattern with its placeholders filled from the call itself —
- * the name of the tool, an argument the caller sent, a count, a limit — and a
- * sentence produced inside the service never reaches the caller, in whole or
- * in part. A pattern that interpolated the domain's message would hand the
- * caller exactly the internals the rule keeps out.
+ * A reason's message is the text of {@link RefusalMessages} and its remedy the
+ * text of {@link RefusalRemedies}, both under the reason's code in lower camel
+ * case. What this table holds is the mapping from a reason to those two
+ * methods, with the facts each is filled with. A sentence produced inside the
+ * service never reaches a caller, in whole or in part: the domain's refusals
+ * carry no sentence at all, and a fact is one of the placeholder types the
+ * declaration builds -- a call, an argument, a position, a bound -- never a
+ * value the caller sent (DEC-0043 R18).
  *
  * <h2>Steps are named in the vocabulary of the surface</h2>
  *
- * A pattern never names a call literally. It names a step — {@code {read}},
- * {@code {update}} — and the step is filled with the tool name the declaration
- * gives it. A refusal that told an assistant to call {@code read} would name a
- * call this surface does not carry.
+ * A remedy never names a call literally. It names a step -- {@code {read}},
+ * {@code {update}} -- and the step is filled with the call's {@link VerbName}.
  *
  * <h2>Complete, or the service does not start</h2>
  *
- * {@link #requireComplete} walks every reason the service can raise — the
- * domain's, the generic surface's and this surface's own — and refuses when
- * one has no entry here. A reason not in the table could only be worded by
- * improvising, and an improvised refusal is the thing the table exists to
- * prevent; so the service refuses to start instead.
+ * {@link #requireComplete} walks every reason the service can raise -- the
+ * domain's, the generic surface's and this surface's own -- and refuses when
+ * one has no entry here, or when an entry's texts cannot be built. A reason
+ * not in the table could only be worded by improvising, and an improvised
+ * refusal is the thing the table exists to prevent; so the service refuses to
+ * start instead.
  */
 public final class ReasonCatalogue {
-
-    // --- the placeholders, spelled once ------------------------------------
-
-    public static final String CALL = "call";
-    public static final String ADDRESS = "address";
-    public static final String SCOPE = "scope";
-    public static final String KEY = "key";
-    public static final String KEY_SELECTOR = "key_selector";
-    public static final String SELECTOR = "selector";
-    public static final String FIELD = "field";
-    public static final String VALUE = "value";
-    public static final String TYPES = "types";
-    public static final String LENGTH = "length";
-    public static final String LIMIT = "limit";
-    public static final String MAX = "max";
-    public static final String NAME = "name";
-    public static final String ARGUMENTS = "arguments";
-    public static final String WHAT = "what";
-    public static final String WHY = "why";
-    public static final String REPORT = "report";
 
     /** The one code the not-found class carries on every surface. */
     public static final String NOT_FOUND = "NOT_FOUND";
 
-    /**
-     * The one message the not-found class carries.
-     *
-     * <p>The contract fixes the wording in section 4.3, and the generic
-     * surface answers the same text: a second wording would tell a caller which
-     * surface answered, and through that which hop it reached. It is held here
-     * as well as there because this package may not reach into an adapter; a
-     * probe holds both against the contract's text, and another asserts that
-     * both surfaces answer it.
-     */
-    public static final String NOT_FOUND_MESSAGE =
-        "nothing is addressed here. Check the address, and that you are a member of "
-            + "the scope it names.";
-
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{([a-z_]+)}");
+    /** The bundle names, which are the names of their files under messages/. */
+    public static final String MESSAGE_BUNDLE = "refusal";
+    public static final String REMEDY_BUNDLE = "remedy";
 
     private static final Map<String, Reason> DECLARED = declare();
 
@@ -100,161 +76,229 @@ public final class ReasonCatalogue {
     }
 
     /**
+     * What a refusal's texts are filled with. Every member is a placeholder
+     * type the declaration builds; a member a text needs and the refusal did
+     * not supply refuses to build, because a half-filled message reads as
+     * finished, which is worse than none.
+     *
+     * @param call      the call refused
+     * @param name      the argument it concerns, where it concerns one
+     * @param path      the position of the value it concerns, where it concerns one
+     * @param arguments the names the call declares, where an undeclared one arrived
+     */
+    public record Facts(VerbName call, ArgumentName name, ArgumentPath path,
+                        List<ArgumentName> arguments) {
+
+        public static Facts of(VerbName call) {
+            return new Facts(call, null, null, null);
+        }
+
+        /** The facts of a transport refusal, raised before a call is known. */
+        public static Facts none() {
+            return new Facts(null, null, null, null);
+        }
+
+        public Facts naming(ArgumentName argument) {
+            return new Facts(call, argument, path, arguments);
+        }
+
+        public Facts at(ArgumentPath position) {
+            return new Facts(call, name, position, arguments);
+        }
+
+        public Facts accepting(List<ArgumentName> declared) {
+            return new Facts(call, name, path, List.copyOf(declared));
+        }
+
+        @Override
+        public VerbName call() {
+            return required(call, "call");
+        }
+
+        @Override
+        public ArgumentName name() {
+            return required(name, "name");
+        }
+
+        @Override
+        public ArgumentPath path() {
+            return required(path, "path");
+        }
+
+        @Override
+        public List<ArgumentName> arguments() {
+            return required(arguments, "arguments");
+        }
+
+        private static <T> T required(T fact, String what) {
+            if (fact == null) {
+                throw new IllegalStateException("a refusal text needs the fact " + what
+                    + ", and the refusal supplied none");
+            }
+            return fact;
+        }
+    }
+
+    /**
      * One declared reason.
      *
-     * @param code      the code on the wire
-     * @param pattern   the message, with placeholders in braces
-     * @param alternate a second form of the same message for a call without
-     *                  an address, or null where there is none
-     * @param remedy    what the caller can do, in the surface's vocabulary
-     * @param steps     the calls the remedy names, in order; listed in
-     *                  {@code data.next} where the refusal concerns an entry
-     *                  the caller may see
-     * @param repeat    whether the remedy is to make the same call again,
-     *                  corrected
-     * @param reach     where the reason can be returned
+     * @param code    the code on the wire
+     * @param steps   the calls the remedy names, in order; listed in
+     *                {@code data.next} where the refusal concerns an entry
+     *                the caller may see
+     * @param repeat  whether the remedy is to make the same call again,
+     *                corrected
+     * @param reach   where the reason can be returned
+     * @param message what went wrong, from {@link RefusalMessages}
+     * @param remedy  what the caller does next, from {@link RefusalRemedies};
+     *                the message ends with it
      */
-    public record Reason(String code, String pattern, String alternate, String remedy,
-                         List<AssistantVerb> steps, boolean repeat, Reach reach) {
+    public record Reason(String code, List<AssistantVerb> steps, boolean repeat, Reach reach,
+                         Function<Facts, String> message, Function<Facts, String> remedy) {
 
         public Reason {
             steps = List.copyOf(steps);
         }
+
+        /** The key both bundles carry this reason's texts under. */
+        public String key() {
+            return keyOf(code);
+        }
+
+        /** The whole message: what went wrong, then what to do. */
+        public String text(Facts facts) {
+            return message.apply(facts) + " " + remedy.apply(facts);
+        }
+
+        /** The message as its source writes it, placeholders standing. */
+        public String messageTemplate() {
+            return Texts.template(MESSAGE_BUNDLE, key());
+        }
+
+        /** The remedy as its source writes it, placeholders standing. */
+        public String remedyTemplate() {
+            return Texts.template(REMEDY_BUNDLE, key());
+        }
     }
 
+    /** {@code CONTENT_OVERSIZE} as {@code contentOversize}. */
+    public static String keyOf(String code) {
+        String[] parts = code.toLowerCase(Locale.ROOT).split("_");
+        StringBuilder key = new StringBuilder(parts[0]);
+        for (int i = 1; i < parts.length; i++) {
+            key.append(Character.toUpperCase(parts[i].charAt(0))).append(parts[i].substring(1));
+        }
+        return key.toString();
+    }
+
+    /**
+     * The catalogue.
+     *
+     * <p>Every remedy is the act to perform, phrased as what to do. A caller
+     * that is a model carries out an instruction more reliably than it
+     * inverts a prohibition (DEC-0042, DEC-0043 R21).
+     */
     private static Map<String, Reason> declare() {
         Map<String, Reason> declared = new LinkedHashMap<>();
+        VerbName read = AssistantVerb.READ.verbName();
+        VerbName query = AssistantVerb.QUERY.verbName();
+        VerbName digest = AssistantVerb.DIGEST.verbName();
+        VerbName update = AssistantVerb.UPDATE.verbName();
 
-        put(declared, NOT_FOUND, NOT_FOUND_MESSAGE, "check scope and address");
-        put(declared, "SCOPE_LOCKED",
-            "{call} is not possible in scope {scope}: the scope is locked and takes no write "
-                + "from anyone.",
-            "{read}, {query}, {digest}",
+        put(declared, NOT_FOUND, f -> m().notFound(), f -> r().notFound());
+        put(declared, "SCOPE_LOCKED", f -> m().scopeLocked(f.call()),
+            f -> r().scopeLocked(read, query, digest),
             AssistantVerb.READ, AssistantVerb.QUERY, AssistantVerb.DIGEST);
-        put(declared, "SCOPE_READ_ONLY",
-            "{call} is not possible in scope {scope}: you may read this scope but not write "
-                + "to it.",
-            "{read}, {query}, {digest}",
+        put(declared, "SCOPE_READ_ONLY", f -> m().scopeReadOnly(f.call()),
+            f -> r().scopeReadOnly(read, query, digest),
             AssistantVerb.READ, AssistantVerb.QUERY, AssistantVerb.DIGEST);
-        repeat(declared, "ADDRESS_MALFORMED",
-            "{value} is not an address this service carries. An entry stands at "
-                + "memory://<scope>/<selector>/<id>.",
-            "correct the address");
-        repeat(declared, "KEY_MALFORMED",
-            "{key} is not a key this service stores. A key is <selector>.<id> in lowercase "
-                + "letters, digits, dots and hyphens.",
-            "correct the key");
-        repeat(declared, "SELECTOR_ABSENT",
-            "{call} names no selector for {key}. A key is <selector>.<id>, and the part "
-                + "before its first dot is the selector the entry stands under.",
-            "write the key as <selector>.<id>");
-        repeat(declared, "SELECTOR_RESERVED",
-            "The selector {selector} is reserved for entries the service lays down itself.",
-            "use another selector");
-        repeat(declared, "SELECTOR_MISMATCHED",
-            "The key {key} begins with the selector {key_selector}, but {call} names the "
-                + "selector {selector}.",
-            "make the two agree");
-        put(declared, "ALREADY_EXISTS",
-            "{call} is not possible: an entry already stands at {address}. Change it with "
-                + "{update}.",
-            "{read}, then {update}",
+        repeat(declared, "ADDRESS_MALFORMED", f -> m().addressMalformed(f.call()),
+            f -> r().addressMalformed());
+        repeat(declared, "KEY_MALFORMED", f -> m().keyMalformed(f.call()),
+            f -> r().keyMalformed());
+        repeat(declared, "SELECTOR_ABSENT", f -> m().selectorAbsent(f.call()),
+            f -> r().selectorAbsent());
+        repeat(declared, "SELECTOR_RESERVED", f -> m().selectorReserved(),
+            f -> r().selectorReserved());
+        repeat(declared, "SELECTOR_MISMATCHED", f -> m().selectorMismatched(f.call()),
+            f -> r().selectorMismatched());
+        put(declared, "ALREADY_EXISTS", f -> m().alreadyExists(f.call()),
+            f -> r().alreadyExists(read, update),
             AssistantVerb.READ, AssistantVerb.UPDATE);
-        put(declared, "CONFLICT_TOKEN_STALE",
-            "{call} is not possible on {address}: the entry was changed since you read it. "
-                + "Read it again with {read} and repeat the call with the new conflict token.",
-            "{read}, then repeat",
-            AssistantVerb.READ);
-        repeat(declared, "UPDATE_EMPTY",
-            "{call} on {address} names nothing to change. It can change content, type and "
-                + "reference.",
-            "supply one of the three");
-        repeat(declared, "TYPE_UNKNOWN",
-            "{value} is not a type of entry. The types are: {types}.",
-            "use one of the list");
-        repeat(declared, "CONTENT_ABSENT",
-            "{call} needs content: an entry without content is not stored.",
-            "supply content");
-        repeat(declared, "CONTENT_OVERSIZE",
-            "The content is {length} characters long. An entry holds at most {limit}.",
-            "shorten it, or split it into several entries");
-        repeat(declared, "REFERENCE_CREDENTIAL_BEARING",
-            "The reference carries a credential and is not stored. Remove the user "
-                + "information and every secret parameter from the URL.",
-            "correct the reference");
-        repeat(declared, "PAGE_SIZE_REJECTED",
-            "page_size = {value} is not valid for {call}: it is a whole number from 1 to "
-                + "{max}.",
-            "correct the value");
-        put(declared, "CURSOR_MALFORMED",
-            "after = {value} is not a cursor {query} handed out.",
-            "repeat {query} without after",
-            AssistantVerb.QUERY);
-        put(declared, "ACTOR_UNKNOWN",
-            "The token is valid but names no subject to act as.",
-            "authenticate as a subject");
-        repeat(declared, "ARGUMENT_UNKNOWN",
-            "{call} has no argument named {name}. Its arguments are: {arguments}.",
-            "correct the name");
-        repeat(declared, "ARGUMENT_MISSING",
-            "{call} needs {name}: {what}.",
-            "supply it");
-        repeat(declared, "ARGUMENT_INVALID",
-            "{name} = {value} is not valid for {call}: {why}.",
-            "correct the value");
-        declared.put("UNEXPECTED_FAILURE", new Reason("UNEXPECTED_FAILURE",
-            "{call} on {address} failed unexpectedly. This is a defect, not a rule. Nothing "
-                + "was changed. Report reference {report}.",
-            "{call} in scope {scope} failed unexpectedly. This is a defect, not a rule. "
-                + "Nothing was changed. Report reference {report}.",
-            "report the reference", List.of(), false, Reach.BOTH));
+        put(declared, "CONFLICT_TOKEN_STALE", f -> m().conflictTokenStale(f.call()),
+            f -> r().conflictTokenStale(read), AssistantVerb.READ);
+        repeat(declared, "UPDATE_EMPTY", f -> m().updateEmpty(f.call()),
+            f -> r().updateEmpty());
+        repeat(declared, "TYPE_UNKNOWN", f -> m().typeUnknown(f.call()),
+            f -> r().typeUnknown());
+        repeat(declared, "CONTENT_ABSENT", f -> m().contentAbsent(f.call()),
+            f -> r().contentAbsent());
+        repeat(declared, "CONTENT_OVERSIZE", f -> m().contentOversize(Bound.CONTENT_LIMIT),
+            f -> r().contentOversize(Bound.CONTENT_LIMIT));
+        repeat(declared, "REFERENCE_CREDENTIAL_BEARING", f -> m().referenceCredentialBearing(),
+            f -> r().referenceCredentialBearing());
+        repeat(declared, "PAGE_SIZE_REJECTED", f -> m().pageSizeRejected(f.call()),
+            f -> r().pageSizeRejected(Bound.PAGE_SIZE_MIN, Bound.PAGE_SIZE_MAX));
+        put(declared, "CURSOR_MALFORMED", f -> m().cursorMalformed(query),
+            f -> r().cursorMalformed(query), AssistantVerb.QUERY);
+        put(declared, "CURSOR_FOREIGN", f -> m().cursorForeign(query),
+            f -> r().cursorForeign(query), AssistantVerb.QUERY);
+        repeat(declared, "SORT_UNDECLARED", f -> m().sortUndeclared(f.call()),
+            f -> r().sortUndeclared());
+        put(declared, "ACTOR_UNKNOWN", f -> m().actorUnknown(), f -> r().actorUnknown());
+        repeat(declared, "ARGUMENT_UNKNOWN", f -> m().argumentUnknown(f.call(), f.arguments()),
+            f -> r().argumentUnknown());
+        repeat(declared, "ARGUMENT_MISSING", f -> m().argumentMissing(f.call(), f.name()),
+            f -> r().argumentMissing(f.name()));
+        repeat(declared, "ARGUMENT_INVALID", f -> m().argumentInvalid(f.call(), f.path()),
+            f -> r().argumentInvalid(f.path()));
+        declared.put("UNEXPECTED_FAILURE", new Reason("UNEXPECTED_FAILURE", List.of(), false,
+            Reach.BOTH, f -> m().unexpectedFailure(f.call()), f -> r().unexpectedFailure()));
 
         // --- the generic surface's own -------------------------------------
-        generic(declared, "CONFLICT_TOKEN_MISSING",
-            "{call} on {address} needs the conflict token of the latest read, and none "
-                + "arrived.",
-            "{read}, then repeat with the token");
-        generic(declared, "PREDICATE_UNKNOWN",
-            "{call} carries no predicate named {name}.",
-            "correct the name");
+        generic(declared, "CONFLICT_TOKEN_MISSING", f -> m().conflictTokenMissing(f.call()),
+            f -> r().conflictTokenMissing(read));
         // A field fixed for the life of an entry is no argument of any call on
         // the assistant surface, so naming one there is ARGUMENT_UNKNOWN.
-        generic(declared, "FIELD_IMMUTABLE",
-            "{field} of {address} is fixed for the life of the entry and cannot be changed by "
-                + "{call}.",
-            "leave the field out");
-        generic(declared, "PAYLOAD_MALFORMED",
-            "The body of {call} is not the JSON it takes.",
-            "correct the body");
-        generic(declared, "VERB_NOT_CARRIED",
-            "{name} is not a verb {address} carries.",
-            "use a verb the address carries");
-        generic(declared, "ADDRESS_TRUNCATED",
-            "{call} needs a complete address and was given a truncated one.",
-            "complete the address");
-        generic(declared, "SESSION_NOT_BOUND",
-            "{call} could not be answered: the session the read contract needs was not "
-                + "bound.",
-            "report it");
+        generic(declared, "FIELD_IMMUTABLE", f -> m().fieldImmutable(),
+            f -> r().fieldImmutable());
+        // The three transport reasons are raised before a verb is known, so
+        // their texts name none.
+        generic(declared, "PAYLOAD_MALFORMED", f -> m().payloadMalformed(),
+            f -> r().payloadMalformed());
+        generic(declared, "VERB_NOT_CARRIED", f -> m().verbNotCarried(),
+            f -> r().verbNotCarried());
+        generic(declared, "ADDRESS_TRUNCATED", f -> m().addressTruncated(),
+            f -> r().addressTruncated());
+        generic(declared, "SESSION_NOT_BOUND", f -> m().sessionNotBound(f.call()),
+            f -> r().sessionNotBound());
 
         return Map.copyOf(declared);
     }
 
-    private static void put(Map<String, Reason> into, String code, String pattern,
-                            String remedy, AssistantVerb... steps) {
-        into.put(code, new Reason(code, pattern, null, remedy, List.of(steps), false,
-            Reach.BOTH));
+    private static RefusalMessages m() {
+        return Texts.refusals();
     }
 
-    private static void repeat(Map<String, Reason> into, String code, String pattern,
-                               String remedy) {
-        into.put(code, new Reason(code, pattern, null, remedy, List.of(), true, Reach.BOTH));
+    private static RefusalRemedies r() {
+        return Texts.remedies();
     }
 
-    private static void generic(Map<String, Reason> into, String code, String pattern,
-                                String remedy) {
-        into.put(code, new Reason(code, pattern, null, remedy, List.of(), false,
-            Reach.GENERIC));
+    private static void put(Map<String, Reason> into, String code,
+                            Function<Facts, String> message, Function<Facts, String> remedy,
+                            AssistantVerb... steps) {
+        into.put(code, new Reason(code, List.of(steps), false, Reach.BOTH, message, remedy));
+    }
+
+    private static void repeat(Map<String, Reason> into, String code,
+                               Function<Facts, String> message, Function<Facts, String> remedy) {
+        into.put(code, new Reason(code, List.of(), true, Reach.BOTH, message, remedy));
+    }
+
+    private static void generic(Map<String, Reason> into, String code,
+                                Function<Facts, String> message,
+                                Function<Facts, String> remedy) {
+        into.put(code, new Reason(code, List.of(), false, Reach.GENERIC, message, remedy));
     }
 
     // ======================================================================
@@ -269,7 +313,7 @@ public final class ReasonCatalogue {
     /** The declared reasons, sorted by code so that the served declaration is stable. */
     public static List<Reason> declared() {
         return DECLARED.values().stream()
-            .sorted(java.util.Comparator.comparing(Reason::code))
+            .sorted(Comparator.comparing(Reason::code))
             .toList();
     }
 
@@ -314,7 +358,11 @@ public final class ReasonCatalogue {
 
     /**
      * Refuses a catalogue that leaves a raisable reason undeclared, or declares
-     * one without a pattern or a remedy.
+     * one whose message or remedy does not build.
+     *
+     * <p>Each entry is built once with facts of the declaration's own, so that
+     * a text the build accepted and an entry that asks it for a fact it never
+     * receives are found here, at start, and not by the first caller refused.
      *
      * @throws IllegalStateException naming every reason that is not covered
      */
@@ -328,11 +376,23 @@ public final class ReasonCatalogue {
                     + "service can raise and the catalogue does not word could only be "
                     + "answered by improvising, so the service does not start.");
         }
+        AssistantVerb sample = AssistantVerb.QUERY;
+        ArgumentName name = sample.topNames().get(0);
+        Facts facts = Facts.of(sample.verbName()).naming(name).at(ArgumentPath.of(name))
+            .accepting(sample.topNames());
         for (Reason reason : catalogue.values()) {
-            if (reason.pattern() == null || reason.pattern().isBlank()
-                || reason.remedy() == null || reason.remedy().isBlank()) {
+            String message;
+            String remedy;
+            try {
+                message = reason.message().apply(facts);
+                remedy = reason.remedy().apply(facts);
+            } catch (RuntimeException unbuildable) {
+                throw new IllegalStateException(reason.code() + " is declared with a text "
+                    + "that does not build", unbuildable);
+            }
+            if (message == null || message.isBlank() || remedy == null || remedy.isBlank()) {
                 throw new IllegalStateException(
-                    reason.code() + " is declared without a pattern or without a remedy.");
+                    reason.code() + " is declared without a message or without a remedy.");
             }
         }
     }
@@ -342,73 +402,13 @@ public final class ReasonCatalogue {
     // ======================================================================
 
     /**
-     * A pattern with its steps filled in this surface's vocabulary and its
-     * value placeholders left standing. This is the form the declaration
-     * serves.
-     */
-    public static String inVocabulary(String pattern) {
-        return fill(pattern, Map.of(), true);
-    }
-
-    /**
-     * The message for a reason, built from its pattern alone.
+     * The message for a reason: its message and its remedy, filled with the
+     * facts of this refusal and nothing else.
      *
-     * @param alternate whether to use the form for a call without an address
-     * @throws IllegalStateException when the pattern names a placeholder the
-     *         values do not fill; a half-filled message reads as finished,
-     *         which is worse than none
+     * @throws IllegalStateException when a text needs a fact the refusal did
+     *         not supply
      */
-    public static String message(Reason reason, boolean alternate, Map<String, String> values) {
-        String pattern = alternate && reason.alternate() != null
-            ? reason.alternate()
-            : reason.pattern();
-        return fill(pattern, values, false);
-    }
-
-    /**
-     * Fills every placeholder in ONE pass over the pattern.
-     *
-     * <p>One pass, and not a replace per value, because a value is often
-     * something the caller sent: an address written with a brace in it must
-     * come out as the caller wrote it, and must not be taken for a
-     * placeholder by the next replacement.
-     */
-    private static String fill(String pattern, Map<String, String> values,
-                               boolean leaveValues) {
-        Matcher at = PLACEHOLDER.matcher(pattern);
-        StringBuilder out = new StringBuilder();
-        List<String> unfilled = new ArrayList<>();
-        while (at.find()) {
-            String name = at.group(1);
-            String filled = stepName(name);
-            if (filled == null) {
-                filled = values.get(name);
-            }
-            if (filled == null) {
-                if (!leaveValues) {
-                    unfilled.add(name);
-                }
-                filled = at.group();
-            }
-            at.appendReplacement(out, Matcher.quoteReplacement(filled));
-        }
-        at.appendTail(out);
-        if (!unfilled.isEmpty()) {
-            throw new IllegalStateException("a message pattern was left with unfilled "
-                + "placeholders " + unfilled);
-        }
-        return out.toString();
-    }
-
-    /** The tool a step placeholder names, or null when the name is not a step. */
-    private static String stepName(String placeholder) {
-        return switch (placeholder) {
-            case "create" -> AssistantVerb.CREATE.call();
-            case "read" -> AssistantVerb.READ.call();
-            case "update" -> AssistantVerb.UPDATE.call();
-            case "query" -> AssistantVerb.QUERY.call();
-            case "digest" -> AssistantVerb.DIGEST.call();
-            default -> null;
-        };
+    public static String message(Reason reason, Facts facts) {
+        return reason.text(facts);
     }
 }

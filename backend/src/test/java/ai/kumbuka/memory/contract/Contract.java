@@ -244,20 +244,6 @@ public final class Contract {
         return m.find() ? m.group(1) : null;
     }
 
-    /**
-     * The form of {@code UNEXPECTED_FAILURE} for a call without an address:
-     * the pattern with its opening replaced as the cell's note says.
-     */
-    public static String unexpectedFailureWithoutAddress() {
-        String cell = refusalRows().get("UNEXPECTED_FAILURE")[0];
-        Matcher m = BACKTICKED.matcher(cell);
-        m.find();
-        String pattern = m.group(1);
-        m.find();
-        String opening = m.group(1);
-        return pattern.replace("<call> on <address>", opening);
-    }
-
     /** The placeholders a pattern names, in order. */
     public static List<String> placeholdersIn(String pattern) {
         List<String> found = new ArrayList<>();

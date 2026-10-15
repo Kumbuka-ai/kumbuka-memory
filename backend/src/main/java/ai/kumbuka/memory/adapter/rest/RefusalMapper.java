@@ -1,8 +1,18 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.rest;
 
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.MemoryException;
+import ai.kumbuka.memory.surface.AssistantVerb;
+import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.SurfaceException;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -84,12 +94,51 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
         return response.build();
     }
 
+    /**
+     * The refusals of a call's arguments, raised on this surface where a
+     * required argument is absent or {@code null} (DEC-0043 R17). 400, as the
+     * assistant surface's argument refusals are.
+     */
+    @Provider
+    public static class Arguments implements ExceptionMapper<CallException> {
+
+        @Inject RestCall call;
+
+        @Override
+        public Response toResponse(CallException e) {
+            LOG.debugf("argument refusal: %s", e.reason());
+            return Response.status(400)
+                .type(MediaType.APPLICATION_JSON)
+                .entity(Payloads.Refusal.of(verbOf(call), e))
+                .build();
+        }
+    }
+
+    /**
+     * The verb the refused request called. Every resource method states it
+     * before anything it calls can refuse, so its absence is a defect of the
+     * resource and not a condition of the caller's.
+     */
+    static AssistantVerb verbOf(RestCall call) {
+        return call.verb().orElseThrow(() -> new IllegalStateException(
+            "a refusal arrived before the resource method stated its verb"));
+    }
+
     /** The domain's refusals, on the same envelope and the same discipline. */
     @Provider
     public static class Domain implements ExceptionMapper<MemoryException> {
 
+        @Inject RestCall call;
+
         @Override
         public Response toResponse(MemoryException e) {
+            if (e instanceof AssistantRefused assistant) {
+                LOG.debugf("assistant refusal: %s", e.reason().name());
+                return Response.status(statusOf(e.reason()))
+                    .type(MediaType.APPLICATION_JSON)
+                    .entity(assistant.refusal())
+                    .build();
+            }
             int status = statusOf(e.reason());
 
             // A 5xx is ours, not the caller's, and no retry of theirs fixes
@@ -107,7 +156,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
             // this mapper's decision to make a second time; the status is.
             return Response.status(status)
                 .type(MediaType.APPLICATION_JSON)
-                .entity(Payloads.Refusal.of(e))
+                .entity(Payloads.Refusal.of(verbOf(call), e))
                 .build();
         }
 
@@ -119,15 +168,20 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
          * is a new refusal quietly becoming a 500 in a deployment nobody is
          * watching.
          */
-        private static int statusOf(MemoryException.Reason reason) {
+        static int statusOf(MemoryException.Reason reason) {
             return switch (reason) {
 
                 // The call is malformed, and no scope had to be known to say
                 // so. Grammar is the one family of check that runs before the
                 // scope is resolved, precisely because it discloses nothing.
+                // An unknown argument and an argument of the wrong value are
+                // here too: this service declares no filter fields per scope,
+                // so both are decided without one (DEC-0042).
                 case ADDRESS_MALFORMED, KEY_MALFORMED, SELECTOR_ABSENT,
                      SELECTOR_MISMATCHED, UPDATE_EMPTY, CONTENT_ABSENT,
-                     CONTENT_OVERSIZE, PAGE_SIZE_REJECTED, CURSOR_MALFORMED -> 400;
+                     CONTENT_OVERSIZE, PAGE_SIZE_REJECTED, CURSOR_MALFORMED,
+                     CURSOR_FOREIGN, SORT_UNDECLARED, ARGUMENT_UNKNOWN,
+                     ARGUMENT_INVALID -> 400;
 
                 // Not this caller. SCOPE_READ_ONLY is not a 404: the caller
                 // can already see this scope — the directory answered for it —
@@ -153,9 +207,11 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
                 // Vocabulary: the call parses and names something that is not
                 // part of the offering. A type this service does not carry, a
-                // predicate this verb does not have, a selector reserved for
-                // the service, a reference that may not be stored at all.
-                case TYPE_UNKNOWN, PREDICATE_UNKNOWN, SELECTOR_RESERVED,
+                // selector reserved for the service, a reference that may not
+                // be stored at all. No PREDICATE_UNKNOWN: this service declares
+                // no filter fields per scope, so an unknown filter is an
+                // unknown argument (DEC-0042).
+                case TYPE_UNKNOWN, SELECTOR_RESERVED,
                      FIELD_IMMUTABLE, REFERENCE_CREDENTIAL_BEARING -> 422;
 
                 // Ours, not the caller's: the session contract was not bound,

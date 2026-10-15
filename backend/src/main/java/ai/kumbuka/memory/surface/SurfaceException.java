@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 /**
@@ -46,8 +53,13 @@ public class SurfaceException extends RuntimeException {
     private final transient Reason reason;
     private final transient String allow;
 
-    public SurfaceException(Reason reason, String message) {
-        this(reason, message, null);
+    /**
+     * A refusal of the transport and nothing more: it carries no sentence of
+     * its own, and its message is the reason's name. What a caller reads is
+     * worded from the reason catalogue's bundles (DEC-0043 R18).
+     */
+    public SurfaceException(Reason reason) {
+        this(reason, null);
     }
 
     /**
@@ -55,8 +67,8 @@ public class SurfaceException extends RuntimeException {
      *              405 is required to carry. A 405 without it refuses without
      *              saying what would have worked.
      */
-    public SurfaceException(Reason reason, String message, String allow) {
-        super(message);
+    public SurfaceException(Reason reason, String allow) {
+        super(reason.name());
         this.reason = reason;
         this.allow = allow;
     }

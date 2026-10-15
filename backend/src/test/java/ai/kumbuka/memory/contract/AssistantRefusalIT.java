@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -135,8 +142,7 @@ class AssistantRefusalIT {
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", locked,
             "conflict_token", token(locked), "fields", Map.of("content", "x")));
 
-        assertRefusal(refusal, "SCOPE_LOCKED", UPDATE,
-            Map.of("call", UPDATE, "scope", LOCKED));
+        assertRefusal(refusal, "SCOPE_LOCKED", UPDATE, Map.of("call", UPDATE));
         assertConcernsAVisibleEntry(refusal, List.of(READ, QUERY, DIGEST));
     }
 
@@ -146,8 +152,7 @@ class AssistantRefusalIT {
         Mcp.Result refusal = Mcp.call(WITHDRAW, args("address", ADDRESS,
             "conflict_token", token(ADDRESS)));
 
-        assertRefusal(refusal, "SCOPE_READ_ONLY", WITHDRAW,
-            Map.of("call", WITHDRAW, "scope", SCOPE));
+        assertRefusal(refusal, "SCOPE_READ_ONLY", WITHDRAW, Map.of("call", WITHDRAW));
         assertConcernsAVisibleEntry(refusal, List.of(READ, QUERY, DIGEST));
     }
 
@@ -157,44 +162,45 @@ class AssistantRefusalIT {
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
-    void an_address_of_another_form_is_address_malformed_and_named_as_written() {
+    void an_address_of_another_form_is_address_malformed_and_not_repeated() {
         for (String written : List.of(SCOPE + "/convention/branch-names",
                 "memory://" + SCOPE + "/convention",
                 "memory://Probe_Scope/convention/branch-names")) {
-            assertRefusal(Mcp.call(READ, args("address", written)), "ADDRESS_MALFORMED", READ,
-                literal(Map.of("value", written)));
+            Mcp.Result refusal = Mcp.call(READ, args("address", written));
+            assertRefusal(refusal, "ADDRESS_MALFORMED", READ, literal(Map.of("call", READ)));
+            assertThat(refusal.text()).doesNotContain(written);
         }
     }
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
-    void a_key_of_another_form_is_key_malformed_and_named() {
+    void a_key_of_another_form_is_key_malformed_and_not_repeated() {
         assertRefusal(Mcp.call(READ, args("address", "memory://" + SCOPE + "/Convention/x")),
-            "KEY_MALFORMED", READ, literal(Map.of("key", "Convention.x")));
-        assertRefusal(create("convention", "convention.Branch_Names", "convention", "x"),
-            "KEY_MALFORMED", CREATE, literal(Map.of("key", "convention.Branch_Names")));
+            "KEY_MALFORMED", READ, literal(Map.of("call", READ)));
+        Mcp.Result refusal = create("convention", "convention.Branch_Names", "convention", "x");
+        assertRefusal(refusal, "KEY_MALFORMED", CREATE, literal(Map.of("call", CREATE)));
+        assertThat(refusal.text()).doesNotContain("Branch_Names");
     }
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void the_reserved_selector_is_selector_reserved() {
         assertRefusal(create("system", "system.boot", "convention", "x"),
-            "SELECTOR_RESERVED", CREATE, Map.of("selector", "system"));
+            "SELECTOR_RESERVED", CREATE, Map.of());
     }
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
-    void a_key_under_another_selector_is_selector_mismatched_and_names_both() {
+    void a_key_under_another_selector_is_selector_mismatched() {
         assertRefusal(create("decision", "convention.tabs", "convention", "x"),
-            "SELECTOR_MISMATCHED", CREATE, Map.of("key", "convention.tabs",
-                "key selector", "convention", "call", CREATE, "selector", "decision"));
+            "SELECTOR_MISMATCHED", CREATE, Map.of("call", CREATE));
     }
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
-    void a_key_without_a_selector_is_selector_absent_and_names_the_key() {
+    void a_key_without_a_selector_is_selector_absent() {
         assertRefusal(create("decision", "storage", "decision", "x"),
-            "SELECTOR_ABSENT", CREATE, literal(Map.of("call", CREATE, "key", "storage")));
+            "SELECTOR_ABSENT", CREATE, literal(Map.of("call", CREATE)));
     }
 
     // ======================================================================
@@ -205,8 +211,7 @@ class AssistantRefusalIT {
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void a_create_onto_a_standing_entry_is_already_exists_and_offers_read_then_update() {
         Mcp.Result refusal = create("convention", KEY, "convention", "a second one");
-        assertRefusal(refusal, "ALREADY_EXISTS", CREATE,
-            Map.of("call", CREATE, "address", ADDRESS));
+        assertRefusal(refusal, "ALREADY_EXISTS", CREATE, Map.of("call", CREATE));
         assertConcernsAVisibleEntry(refusal, List.of(READ, UPDATE));
     }
 
@@ -216,8 +221,7 @@ class AssistantRefusalIT {
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", ADDRESS,
             "conflict_token", "2000-01-01T00:00:00Z", "fields", Map.of("content", "x")));
 
-        assertRefusal(refusal, "CONFLICT_TOKEN_STALE", UPDATE,
-            Map.of("call", UPDATE, "address", ADDRESS));
+        assertRefusal(refusal, "CONFLICT_TOKEN_STALE", UPDATE, Map.of("call", UPDATE));
         assertConcernsAVisibleEntry(refusal, List.of(READ));
 
         Mcp.Result read = Mcp.call(READ, args("address", ADDRESS));
@@ -234,8 +238,7 @@ class AssistantRefusalIT {
     void an_update_that_names_nothing_is_update_empty() {
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", ADDRESS,
             "conflict_token", token(ADDRESS), "fields", Map.of()));
-        assertRefusal(refusal, "UPDATE_EMPTY", UPDATE, Map.of("call", UPDATE,
-            "address", ADDRESS));
+        assertRefusal(refusal, "UPDATE_EMPTY", UPDATE, Map.of("call", UPDATE));
         assertConcernsAVisibleEntry(refusal, List.of(UPDATE));
     }
 
@@ -246,14 +249,17 @@ class AssistantRefusalIT {
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void a_type_that_is_not_one_of_the_six_is_type_unknown_and_lists_them() {
-        Map<String, String> values = Map.of("value", "rule",
-            "list", String.join(", ", Contract.types()));
-        assertRefusal(create("decision", "decision.tabs", "rule", "x"), "TYPE_UNKNOWN", CREATE,
-            values);
-        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "type", "rule")), "TYPE_UNKNOWN",
-            QUERY, values);
-        assertRefusal(Mcp.call(DIGEST, args("scope", SCOPE, "types", List.of("rule"))),
-            "TYPE_UNKNOWN", DIGEST, values);
+        // The six are listed under data.accepts, which the message points at:
+        // a value of a fixed set is no placeholder a text may take.
+        Mcp.Result create = create("decision", "decision.tabs", "rule", "x");
+        assertRefusal(create, "TYPE_UNKNOWN", CREATE, Map.of("call", CREATE));
+        assertThat(create.strings("data.accepts")).containsExactlyElementsOf(Contract.types());
+        Mcp.Result query = Mcp.call(QUERY, args("scope", SCOPE, "type", "rule"));
+        assertRefusal(query, "TYPE_UNKNOWN", QUERY, Map.of("call", QUERY));
+        assertThat(query.strings("data.accepts")).containsExactlyElementsOf(Contract.types());
+        Mcp.Result digest = Mcp.call(DIGEST, args("scope", SCOPE, "types", List.of("rule")));
+        assertRefusal(digest, "TYPE_UNKNOWN", DIGEST, Map.of("call", DIGEST));
+        assertThat(digest.strings("data.accepts")).containsExactlyElementsOf(Contract.types());
     }
 
     @Test
@@ -271,7 +277,10 @@ class AssistantRefusalIT {
         Mcp.Result refusal = create("decision", "decision.tabs", "decision", tooLong);
 
         assertRefusal(refusal, "CONTENT_OVERSIZE", CREATE, Map.of(
-            "n", String.valueOf(tooLong.length()), "limit", String.valueOf(limit)));
+            "limit", String.valueOf(limit)));
+        assertThat(refusal.message())
+            .as("the length is a fact about the caller's input, and the limit says enough")
+            .doesNotContain(String.valueOf(tooLong.length()));
         assertThat(refusal.text()).doesNotContain("a sentence nobody should read back");
     }
 
@@ -298,8 +307,7 @@ class AssistantRefusalIT {
         int max = contractNumber("optional `page_size` \\(1 to (\\d+)");
         for (int asked : List.of(0, max + 1)) {
             assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "page_size", asked)),
-                "PAGE_SIZE_REJECTED", QUERY, Map.of("value", String.valueOf(asked),
-                    "call", QUERY, "max", String.valueOf(max)));
+                "PAGE_SIZE_REJECTED", QUERY, Map.of("call", QUERY, "max", String.valueOf(max)));
         }
     }
 
@@ -307,7 +315,36 @@ class AssistantRefusalIT {
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void a_cursor_not_handed_out_is_cursor_malformed() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "after", "!!not-a-cursor")),
-            "CURSOR_MALFORMED", QUERY, Map.of("value", "!!not-a-cursor"));
+            "CURSOR_MALFORMED", QUERY, Map.of());
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_cursor_handed_out_for_another_selector_is_cursor_foreign() {
+        create("decision", "decision.one", "decision", "first");
+        create("decision", "decision.two", "decision", "second");
+        String cursor = Mcp.call(QUERY, args("scope", SCOPE, "selector", "decision",
+            "page_size", 1)).string("next_cursor");
+        assertThat(cursor).as("a first page of one out of two hands out a cursor").isNotNull();
+
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "selector", "convention",
+                "after", cursor)),
+            "CURSOR_FOREIGN", QUERY, Map.of());
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void an_order_this_verb_does_not_declare_is_sort_undeclared() {
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "sort", "content")),
+            "SORT_UNDECLARED", QUERY, Map.of("call", QUERY));
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_direction_that_is_neither_of_the_two_is_argument_invalid() {
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "direction", "sideways")),
+            "ARGUMENT_INVALID", QUERY,
+            Map.of("path", "direction", "call", QUERY));
     }
 
     // ======================================================================
@@ -317,18 +354,22 @@ class AssistantRefusalIT {
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void an_undeclared_argument_is_refused_by_name_at_the_top_and_inside_fields() {
-        assertRefusal(Mcp.call(READ, args("address", ADDRESS, "colour", "red")),
-            "ARGUMENT_UNKNOWN", READ, Map.of("call", READ, "n", "colour",
-                "list", String.join(", ", Contract.argumentsOf(READ).top().keySet())));
+        // Answered with the declared names, never with the one that arrived
+        // (DEC-0043 R19).
+        Mcp.Result top = Mcp.call(READ, args("address", ADDRESS, "colour", "red"));
+        assertRefusal(top, "ARGUMENT_UNKNOWN", READ, Map.of("call", READ,
+            "list", String.join(", ", Contract.argumentsOf(READ).top().keySet())));
+        assertThat(top.text()).doesNotContain("colour");
 
-        assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
-                token(ADDRESS), "fields", Map.of("content", "x", "colour", "red"))),
-            "ARGUMENT_UNKNOWN", UPDATE, Map.of("call", UPDATE, "n", "colour",
-                "list", String.join(", ", Contract.argumentsOf(UPDATE).fields().keySet())));
+        Mcp.Result inFields = Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
+            token(ADDRESS), "fields", Map.of("content", "x", "colour", "red")));
+        assertRefusal(inFields, "ARGUMENT_UNKNOWN", UPDATE, Map.of("call", UPDATE,
+            "list", String.join(", ", Contract.argumentsOf(UPDATE).fields().keySet())));
+        assertThat(inFields.text()).doesNotContain("colour");
 
         assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
                 token(ADDRESS), "fields", Map.of("key", "convention.renamed"))),
-            "ARGUMENT_UNKNOWN", UPDATE, Map.of("call", UPDATE, "n", "key",
+            "ARGUMENT_UNKNOWN", UPDATE, Map.of("call", UPDATE,
                 "list", String.join(", ", Contract.argumentsOf(UPDATE).fields().keySet())));
 
         Mcp.Result narrowing = Mcp.call(QUERY, args("scope", SCOPE, "owner", "someone"));
@@ -343,25 +384,34 @@ class AssistantRefusalIT {
     void a_missing_argument_is_argument_missing_and_so_is_a_missing_conflict_token() {
         assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS,
                 "fields", Map.of("content", "x"))),
-            "ARGUMENT_MISSING", UPDATE, Map.of("call", UPDATE, "n", "conflict_token"),
-            "what it is");
+            "ARGUMENT_MISSING", UPDATE, Map.of("call", UPDATE, "n", "conflict_token"));
         assertRefusal(Mcp.call(READ, Map.of()), "ARGUMENT_MISSING", READ,
-            Map.of("call", READ, "n", "address"), "what it is");
+            Map.of("call", READ, "n", "address"));
         assertRefusal(Mcp.call(CREATE, args("scope", SCOPE, "selector", "decision",
                 "fields", Map.of("key", "decision.tabs", "type", "decision"))),
-            "ARGUMENT_MISSING", CREATE, Map.of("call", CREATE, "n", "content"), "what it is");
+            "ARGUMENT_MISSING", CREATE, Map.of("call", CREATE, "n", "content"));
     }
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void a_value_of_the_wrong_kind_is_argument_invalid() {
-        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "page_size", "fifty")),
-            "ARGUMENT_INVALID", QUERY, Map.of("n", "page_size", "call", QUERY),
-            "value", "why");
         assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
                 token(ADDRESS), "fields", "content")),
-            "ARGUMENT_INVALID", UPDATE, Map.of("n", "fields", "call", UPDATE),
-            "value", "why");
+            "ARGUMENT_INVALID", UPDATE, Map.of("path", "fields", "call", UPDATE));
+    }
+
+    /**
+     * A page size of the wrong kind is not {@code ARGUMENT_INVALID}: every page
+     * size the verb cannot take is {@code PAGE_SIZE_REJECTED} (ADR-0049), on
+     * this surface as on the generic one.
+     */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_page_size_of_the_wrong_kind_is_page_size_rejected() {
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "page_size", "fifty")),
+            "PAGE_SIZE_REJECTED", QUERY, Map.of("call", QUERY), "max");
+        assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "page_size", 7.5)),
+            "PAGE_SIZE_REJECTED", QUERY, Map.of("call", QUERY), "max");
     }
 
     @Test
@@ -370,7 +420,7 @@ class AssistantRefusalIT {
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
             token(ADDRESS), "fields", Map.of("content", List.of("a list of secrets"))));
         assertRefusal(refusal, "ARGUMENT_INVALID", UPDATE,
-            Map.of("n", "content", "call", UPDATE), "value", "why");
+            Map.of("path", "content", "call", UPDATE));
         assertThat(refusal.text()).doesNotContain("a list of secrets");
     }
 

@@ -1,13 +1,22 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.mcp;
 
+import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.surface.Argument;
+import ai.kumbuka.memory.surface.ArgumentName;
+import ai.kumbuka.memory.surface.ArgumentPath;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallException;
 
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * The arguments of one tool call, checked against the declaration before a
@@ -28,12 +37,14 @@ import java.util.Set;
  * still not acceptable — a page size of a thousand, a type that is not one of
  * the six — is not judged here: the verb judges it, and refuses with the
  * service's own reason, so that both surfaces refuse it the same way.
+ *
+ * <p>The page size is the one argument whose wrong kind is not
+ * {@code ARGUMENT_INVALID}. Every page size the verb cannot take — out of
+ * range, not a number, not a whole one — is {@code PAGE_SIZE_REJECTED}
+ * (ADR-0049), on this surface as on the generic one, where a query parameter
+ * has no kind to be wrong in.
  */
 final class CallArguments {
-
-    /** The arguments whose value may be the text of an entry, and is never shown back. */
-    private static final Set<String> WITHHELD =
-        Set.of(AssistantVerb.Names.CONTENT, AssistantVerb.Names.REFERENCE);
 
     private final Map<String, Object> top;
     private final Map<String, Object> fields;
@@ -48,7 +59,7 @@ final class CallArguments {
             check(argument, top.get(argument.name()));
         }
         if (verb.writesFields() && top.get(AssistantVerb.FIELDS) == null) {
-            throw CallException.missing(AssistantVerb.FIELDS, AssistantVerb.FIELDS_DESCRIPTION);
+            throw CallException.missing(AssistantVerb.fieldsName());
         }
         for (Argument argument : verb.fieldArguments()) {
             check(argument, fields.get(argument.name()));
@@ -58,8 +69,8 @@ final class CallArguments {
             // dropped, so the caller would believe it had removed the
             // reference while the entry kept it. Refused, because this
             // surface accepts nothing it then discards.
-            throw CallException.invalid(AssistantVerb.Names.REFERENCE, "an empty text",
-                "a reference is a URL, and this call cannot remove one");
+            throw CallException.invalid(ArgumentPath.of(
+                verb.declaredName(AssistantVerb.Names.REFERENCE).orElseThrow()));
         }
     }
 
@@ -90,11 +101,11 @@ final class CallArguments {
     // The checks
     // ======================================================================
 
-    private static void refuseUndeclared(Map<String, Object> given, List<String> declared) {
-        for (String name : given.keySet()) {
-            if (!declared.contains(name)) {
-                throw CallException.unknown(name, declared);
-            }
+    private static void refuseUndeclared(Map<String, Object> given,
+                                         List<ArgumentName> declared) {
+        List<String> spelled = declared.stream().map(ArgumentName::value).toList();
+        if (!spelled.containsAll(given.keySet())) {
+            throw CallException.unknown(declared);
         }
     }
 
@@ -105,8 +116,7 @@ final class CallArguments {
             return Map.of();
         }
         if (!(raw instanceof Map)) {
-            throw CallException.invalid(AssistantVerb.FIELDS, shown(AssistantVerb.FIELDS, raw),
-                "it is an object carrying the values this call writes");
+            throw CallException.invalid(ArgumentPath.of(AssistantVerb.fieldsName()));
         }
         return (Map<String, Object>) raw;
     }
@@ -114,20 +124,25 @@ final class CallArguments {
     private static void check(Argument argument, Object value) {
         if (value == null) {
             if (argument.required()) {
-                throw CallException.missing(argument.name(), argument.description());
+                throw CallException.missing(argument.argumentName());
             }
             return;
         }
-        String why = switch (argument.type()) {
-            case Argument.STRING -> value instanceof String ? null : "it is a text";
-            case Argument.INTEGER -> isWholeNumber(value) ? null : "it is a whole number";
-            case Argument.ARRAY -> isNonEmptyTextList(value)
-                ? null : "it is a list of at least one text";
+        boolean ofItsKind = switch (argument.type()) {
+            case Argument.STRING -> value instanceof String;
+            case Argument.INTEGER -> isWholeNumber(value);
+            case Argument.ARRAY -> {
+                requireTextElements(argument.argumentName(), value);
+                yield value instanceof List<?> list && !list.isEmpty();
+            }
             default -> throw new IllegalStateException(
                 argument.name() + " is declared with a type the check does not know");
         };
-        if (why != null) {
-            throw CallException.invalid(argument.name(), shown(argument.name(), value), why);
+        if (!ofItsKind) {
+            if (AssistantVerb.Names.PAGE_SIZE.equals(argument.name())) {
+                throw PageRequest.pageSizeRejected();
+            }
+            throw CallException.invalid(ArgumentPath.of(argument.argumentName()));
         }
     }
 
@@ -135,41 +150,18 @@ final class CallArguments {
         return value instanceof Integer || value instanceof Long || value instanceof BigInteger;
     }
 
-    private static boolean isNonEmptyTextList(Object value) {
-        return value instanceof List<?> list && !list.isEmpty()
-            && list.stream().allMatch(String.class::isInstance);
-    }
-
     /**
-     * How a value of the wrong kind is shown back: as the caller wrote it,
-     * except where it could be the text of an entry, which no refusal repeats.
+     * Refuses a list element that is not a text, naming its position as the
+     * argument's path ({@code types[2]}) and never the value (DEC-0043 R19).
      */
-    private static String shown(String name, Object value) {
-        if (WITHHELD.contains(name)) {
-            return kindOf(value);
+    private static void requireTextElements(ArgumentName name, Object value) {
+        if (!(value instanceof List<?> list)) {
+            return;
         }
-        if (value instanceof String text) {
-            return "\"" + text + "\"";
+        for (int at = 0; at < list.size(); at++) {
+            if (!(list.get(at) instanceof String)) {
+                throw CallException.invalid(ArgumentPath.at(name, at));
+            }
         }
-        if (value instanceof Number || value instanceof Boolean) {
-            return value.toString();
-        }
-        return kindOf(value);
-    }
-
-    private static String kindOf(Object value) {
-        if (value instanceof String) {
-            return "a text";
-        }
-        if (value instanceof Number) {
-            return "a number";
-        }
-        if (value instanceof Boolean) {
-            return "true or false";
-        }
-        if (value instanceof List) {
-            return "a list";
-        }
-        return "an object";
     }
 }

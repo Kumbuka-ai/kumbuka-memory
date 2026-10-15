@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 import java.util.LinkedHashMap;
@@ -100,14 +107,23 @@ public class MemoryException extends RuntimeException {
         /** The provenance pointer carries a credential. */
         REFERENCE_CREDENTIAL_BEARING,
 
+        // --- the call --------------------------------------------------------
+
+        /** The call names an argument it does not declare. */
+        ARGUMENT_UNKNOWN,
+        /** The call carries an argument whose value is not one it takes. */
+        ARGUMENT_INVALID,
+
         // --- reading ---------------------------------------------------------
 
-        /** The query names a predicate this verb does not carry. */
-        PREDICATE_UNKNOWN,
         /** The page size is outside what this verb serves. */
         PAGE_SIZE_REJECTED,
         /** The cursor is not one this verb handed out. */
         CURSOR_MALFORMED,
+        /** The cursor was handed out for another query: scope, selector, filter or order. */
+        CURSOR_FOREIGN,
+        /** The order is not one this verb declares. */
+        SORT_UNDECLARED,
 
         // --- the caller ------------------------------------------------------
 
@@ -115,8 +131,18 @@ public class MemoryException extends RuntimeException {
         ACTOR_UNKNOWN
     }
 
-    /** The key under which a refusal names the objects that caused it. */
+    /**
+     * The key under which a refusal names what caused it. For a refusal of an
+     * argument that is the argument's name, never its value (DEC-0042).
+     */
     public static final String OFFENDERS = "offenders";
+
+    /**
+     * The key under which a refusal of an undeclared name lists the names the
+     * call declares instead (DEC-0042, DEC-0043 R19). The name that arrived is
+     * the caller's input and is never repeated.
+     */
+    public static final String ACCEPTS = "accepts";
 
     /** The key under which a refusal names a complete address. */
     public static final String ADDRESS = "address";
@@ -124,28 +150,53 @@ public class MemoryException extends RuntimeException {
     private final transient Reason reason;
     private final transient Map<String, Object> data;
 
-    public MemoryException(Reason reason, String message) {
-        this(reason, message, Map.of());
+    /**
+     * A refusal and nothing more. The exception's message is the reason's
+     * name: a refusal carries no sentence of its own, because every text a
+     * caller reads is worded from the reason catalogue's bundles
+     * (code-conventions/service-construction.md, DEC-0043 R18).
+     */
+    public MemoryException(Reason reason) {
+        this(reason, Map.of());
     }
 
-    public MemoryException(Reason reason, String message, Map<String, Object> data) {
-        super(message);
+    public MemoryException(Reason reason, Map<String, Object> data) {
+        super(reason.name());
         this.reason = reason;
         this.data = Map.copyOf(data);
     }
 
     /**
-     * A refusal naming the objects that caused it.
+     * A refusal naming the arguments that caused it.
      *
      * <p>A refusal that only states the rule sends the reader back to the
      * store to work out what it was talking about. The whole value of checking
      * where the check runs is that the answer is right there.
      */
-    public static MemoryException offending(Reason reason, String message,
-                                            List<String> offenders) {
+    public static MemoryException offending(Reason reason, List<String> offenders) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put(OFFENDERS, List.copyOf(offenders));
-        return new MemoryException(reason, message, data);
+        return new MemoryException(reason, data);
+    }
+
+    /**
+     * A refusal of a value outside a fixed set, naming the argument and listing
+     * the values the set holds under {@link #ACCEPTS}: the declared ones, never
+     * the one that arrived (DEC-0043 R19).
+     */
+    public static MemoryException offending(Reason reason, List<String> offenders,
+                                            List<String> accepts) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put(OFFENDERS, List.copyOf(offenders));
+        data.put(ACCEPTS, List.copyOf(accepts));
+        return new MemoryException(reason, data);
+    }
+
+    /** A refusal of names the call does not declare, listing those it does. */
+    public static MemoryException undeclared(List<String> accepts) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put(ACCEPTS, List.copyOf(accepts));
+        return new MemoryException(Reason.ARGUMENT_UNKNOWN, data);
     }
 
     public Reason reason() {

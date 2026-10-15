@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 /**
@@ -19,11 +26,7 @@ public record Actor(String subject) {
 
     public Actor {
         if (subject == null || subject.isBlank()) {
-            throw new MemoryException(MemoryException.Reason.ACTOR_UNKNOWN,
-                "the token authenticated but names no subject to act as. Authorship is "
-                    + "derived from the token's stable subject and never from the call, "
-                    + "so there is nothing to record as the author and nothing to compare "
-                    + "a private entry's owner against.");
+            throw new MemoryException(MemoryException.Reason.ACTOR_UNKNOWN);
         }
     }
 }

@@ -1,8 +1,15 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.EntryType;
-import ai.kumbuka.memory.domain.MemoryService;
-import ai.kumbuka.memory.domain.QueryFilter;
+import ai.kumbuka.memory.domain.PageRequest;
+import ai.kumbuka.memory.domain.SortKey;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,92 +33,85 @@ import java.util.Optional;
  *
  * The tool list, every input schema, every description, the names that appear
  * in {@code next}, the argument check and the declaration served at
- * {@code /mcp/declaration}. The descriptions are the contract's normative text,
- * copied character for character; a probe compares them with the contract and
- * never with this file.
+ * {@code /mcp/declaration} and on the generic surface. The texts themselves are
+ * in the message bundles ({@link ToolDescriptions}, {@link NextStepTexts},
+ * {@link ArgumentDescriptions}); this enum names which text belongs where. A
+ * probe compares the descriptions with the contract and never with the bundle.
+ *
+ * <h2>The names a text may use</h2>
+ *
+ * Every {@link VerbName} and every {@link ArgumentName} is made here, from this
+ * declaration, and handed out from it. A text names a call or an argument only
+ * through one of those, so a name that arrived in a request can never stand in
+ * a text (code-conventions/service-construction.md).
  */
 public enum AssistantVerb {
 
     CREATE("memory_create",
-        "Lays down a new entry at a free address. The address is the scope and the key; "
-            + "the key begins with the selector. Refused if an entry already stands there: "
-            + "change it with memory_update. Callable by anyone who may write to the scope.",
-        "Lays down a new entry at a free address.",
         List.of(
-            Argument.top(Names.SCOPE, Argument.STRING, true, Descriptions.SCOPE),
+            Argument.top(Names.SCOPE, Argument.STRING, true, ArgumentDescriptions::scope),
             Argument.top(Names.SELECTOR, Argument.STRING, true,
-                "the selector the entry stands under; the key begins with it")),
+                ArgumentDescriptions::createSelector)),
         List.of(
-            Argument.field(Names.KEY, true,
-                "the key of the entry, <selector>.<id> in lowercase letters, digits, dots "
-                    + "and hyphens"),
-            Argument.field(Names.TYPE, true, Descriptions.TYPE, Descriptions.TYPE_ENUM),
-            Argument.field(Names.CONTENT, true, Descriptions.CONTENT),
-            Argument.field(Names.REFERENCE, false, Descriptions.REFERENCE))),
+            Argument.field(Names.KEY, true, ArgumentDescriptions::createKey),
+            Argument.field(Names.TYPE, true, ArgumentDescriptions::createType,
+                Keywords.TYPE_ENUM),
+            Argument.field(Names.CONTENT, true,
+                texts -> texts.createContent(Bound.CONTENT_LIMIT)),
+            Argument.field(Names.REFERENCE, false, ArgumentDescriptions::createReference))),
 
     READ("memory_read",
-        "Reads one entry by its complete address and hands out a fresh conflict token. "
-            + "Changes nothing. An address that does not exist and one you may not see are "
-            + "answered alike.",
-        "Reads the entry again and hands out a fresh conflict token.",
-        List.of(Argument.top(Names.ADDRESS, Argument.STRING, true, Descriptions.ADDRESS)),
+        List.of(Argument.top(Names.ADDRESS, Argument.STRING, true,
+            ArgumentDescriptions::address)),
         List.of()),
 
     UPDATE("memory_update",
-        "Changes the content, the type or the reference of an entry; its address is fixed "
-            + "for its life. Needs the conflict token of the latest read and is refused if "
-            + "the entry changed since. Callable by anyone who may write to the scope.",
-        "Changes the content, the type or the reference; needs the conflict token.",
         List.of(
-            Argument.top(Names.ADDRESS, Argument.STRING, true, Descriptions.ADDRESS),
+            Argument.top(Names.ADDRESS, Argument.STRING, true, ArgumentDescriptions::address),
             Argument.top(Names.CONFLICT_TOKEN, Argument.STRING, true,
-                Descriptions.CONFLICT_TOKEN)),
+                ArgumentDescriptions::conflictToken)),
         List.of(
-            Argument.field(Names.CONTENT, false, Descriptions.CONTENT),
-            Argument.field(Names.TYPE, false, Descriptions.TYPE, Descriptions.TYPE_ENUM),
-            Argument.field(Names.REFERENCE, false, Descriptions.REFERENCE))),
+            Argument.field(Names.CONTENT, false,
+                texts -> texts.updateContent(Bound.CONTENT_LIMIT)),
+            Argument.field(Names.TYPE, false, ArgumentDescriptions::updateType,
+                Keywords.TYPE_ENUM),
+            Argument.field(Names.REFERENCE, false, ArgumentDescriptions::updateReference))),
 
     WITHDRAW("memory_withdraw",
-        "Takes an entry out of force. Final: no call restores it, and the answer says "
-            + "whether its address is free again. Needs the conflict token of the latest "
-            + "read.",
-        "Takes the entry out of force; needs the conflict token.",
         List.of(
-            Argument.top(Names.ADDRESS, Argument.STRING, true, Descriptions.ADDRESS),
+            Argument.top(Names.ADDRESS, Argument.STRING, true, ArgumentDescriptions::address),
             Argument.top(Names.CONFLICT_TOKEN, Argument.STRING, true,
-                Descriptions.CONFLICT_TOKEN)),
+                ArgumentDescriptions::conflictToken)),
         List.of()),
 
     QUERY("memory_query",
-        "Lists the entries of a scope page by page, optionally narrowed by selector, type "
-            + "or text. Changes nothing. Use it to find an address.",
-        "Lists the entries of the scope page by page.",
         List.of(
-            Argument.top(Names.SCOPE, Argument.STRING, true, Descriptions.SCOPE),
+            Argument.top(Names.SCOPE, Argument.STRING, true, ArgumentDescriptions::scope),
             Argument.top(Names.SELECTOR, Argument.STRING, false,
-                "the selector whose entries alone are listed"),
-            Argument.top(Names.TYPE, Argument.STRING, false,
-                "the type whose entries alone are listed", Descriptions.TYPE_ENUM),
-            Argument.top(Names.TEXT, Argument.STRING, false, "a text the entry must contain"),
-            Argument.top(Names.AFTER, Argument.STRING, false,
-                "the cursor of the previous page, exactly as that page handed it out"),
+                ArgumentDescriptions::querySelector),
+            Argument.top(Names.TYPE, Argument.STRING, false, ArgumentDescriptions::queryType,
+                Keywords.TYPE_ENUM),
+            Argument.top(Names.TEXT, Argument.STRING, false, ArgumentDescriptions::queryText),
+            Argument.top(Names.AFTER, Argument.STRING, false, ArgumentDescriptions::queryAfter),
+            Argument.top(Names.SORT, Argument.STRING, false, ArgumentDescriptions::querySort,
+                Map.of("enum", SortKey.wireNames(),
+                    Keywords.DEFAULT, PageRequest.DEFAULT_SORT.wire())),
+            Argument.top(Names.DIRECTION, Argument.STRING, false,
+                ArgumentDescriptions::queryDirection,
+                Map.of("enum", SortKey.Direction.wireNames(),
+                    Keywords.DEFAULT, PageRequest.DEFAULT_DIRECTION.wire())),
             Argument.top(Names.PAGE_SIZE, Argument.INTEGER, false,
-                "how many entries one page carries, a whole number from 1 to "
-                    + QueryFilter.MAX_PAGE_SIZE + ", " + QueryFilter.DEFAULT_PAGE_SIZE
-                    + " when left out",
-                Map.of("minimum", 1, "maximum", QueryFilter.MAX_PAGE_SIZE,
-                    "default", QueryFilter.DEFAULT_PAGE_SIZE))),
+                texts -> texts.queryPageSize(Bound.PAGE_SIZE_MIN, Bound.PAGE_SIZE_MAX,
+                    Bound.PAGE_SIZE_DEFAULT),
+                Map.of("minimum", Bound.PAGE_SIZE_MIN.value(),
+                    "maximum", Bound.PAGE_SIZE_MAX.value(),
+                    Keywords.DEFAULT, Bound.PAGE_SIZE_DEFAULT.value()))),
         List.of()),
 
     DIGEST("memory_digest",
-        "Returns everything in force in a scope, whole and grouped by type, with a tally "
-            + "per type. Changes nothing. Carries the types the scope's digest selection "
-            + "names unless `types` says otherwise. Call it once at the start of a session.",
-        "Returns everything in force in the scope, grouped by type.",
         List.of(
-            Argument.top(Names.SCOPE, Argument.STRING, true, Descriptions.SCOPE),
-            Argument.top(Names.TYPES, Argument.ARRAY, false,
-                "a list of type names to carry instead of the scope's digest selection",
+            Argument.top(Names.SCOPE, Argument.STRING, true, ArgumentDescriptions::scope),
+            Argument.top(Names.TYPES, Argument.ARRAY, false, ArgumentDescriptions::digestTypes,
                 Map.of("items", Map.of("type", Argument.STRING,
                         "enum", EntryType.wireNames()),
                     "minItems", 1))),
@@ -120,21 +120,14 @@ public enum AssistantVerb {
     /** The name of the object that carries everything a call writes (DEC-0040). */
     public static final String FIELDS = "fields";
 
-    /** What {@code fields} is, for the refusal that finds it missing. */
-    public static final String FIELDS_DESCRIPTION =
-        "an object carrying the values this call writes";
-
     private final String call;
-    private final String description;
-    private final String does;
+    private final VerbName verbName;
     private final List<Argument> topArguments;
     private final List<Argument> fieldArguments;
 
-    AssistantVerb(String call, String description, String does, List<Argument> top,
-                  List<Argument> fields) {
+    AssistantVerb(String call, List<Argument> top, List<Argument> fields) {
         this.call = call;
-        this.description = description;
-        this.does = does;
+        this.verbName = new VerbName(call);
         this.topArguments = List.copyOf(top);
         this.fieldArguments = List.copyOf(fields);
     }
@@ -144,14 +137,35 @@ public enum AssistantVerb {
         return call;
     }
 
-    /** The contract's normative description. */
-    public String description() {
-        return description;
+    /** The tool name as a text names it. */
+    public VerbName verbName() {
+        return verbName;
     }
 
-    /** What the call does, as a {@code next} entry names it. */
+    /** The call's description, from its bundle ({@link ToolDescriptions}). */
+    public String description() {
+        ToolDescriptions texts = Texts.tools();
+        return switch (this) {
+            case CREATE -> texts.create(UPDATE.verbName);
+            case READ -> texts.read();
+            case UPDATE -> texts.update();
+            case WITHDRAW -> texts.withdraw();
+            case QUERY -> texts.query();
+            case DIGEST -> texts.digest();
+        };
+    }
+
+    /** What the call does, as a {@code next} entry names it ({@link NextStepTexts}). */
     public String does() {
-        return does;
+        NextStepTexts texts = Texts.next();
+        return switch (this) {
+            case CREATE -> texts.create();
+            case READ -> texts.read();
+            case UPDATE -> texts.update();
+            case WITHDRAW -> texts.withdraw();
+            case QUERY -> texts.query();
+            case DIGEST -> texts.digest();
+        };
     }
 
     public List<Argument> topArguments() {
@@ -179,22 +193,54 @@ public enum AssistantVerb {
      * where the call writes. This is the list an {@code ARGUMENT_UNKNOWN}
      * refusal reads out.
      */
-    public List<String> topNames() {
-        List<String> names = new ArrayList<>(topArguments.stream().map(Argument::name).toList());
+    public List<ArgumentName> topNames() {
+        List<ArgumentName> names = new ArrayList<>(
+            topArguments.stream().map(Argument::argumentName).toList());
         if (writesFields()) {
-            names.add(FIELDS);
+            names.add(Keywords.FIELDS_NAME);
         }
         return List.copyOf(names);
     }
 
     /** The names a caller may write under {@code fields}. */
-    public List<String> fieldNames() {
-        return fieldArguments.stream().map(Argument::name).toList();
+    public List<ArgumentName> fieldNames() {
+        return fieldArguments.stream().map(Argument::argumentName).toList();
+    }
+
+    /**
+     * The declared name a caller's text spells, at the top, under
+     * {@code fields} or {@code fields} itself; empty where the call declares
+     * none by that spelling. What comes back is the declaration's own
+     * instance, never one made from the text.
+     */
+    public Optional<ArgumentName> declaredName(String spelled) {
+        if (writesFields() && FIELDS.equals(spelled)) {
+            return Optional.of(Keywords.FIELDS_NAME);
+        }
+        return arguments().stream()
+            .map(Argument::argumentName)
+            .filter(name -> name.value().equals(spelled))
+            .findFirst();
+    }
+
+    /** The name of {@code fields} as a text names it. */
+    public static ArgumentName fieldsName() {
+        return Keywords.FIELDS_NAME;
+    }
+
+    /** What {@code fields} is, for the refusal that finds it missing. */
+    public static String fieldsDescription() {
+        return Texts.arguments().fields();
     }
 
     /** The call a tool name names, if any. */
     public static Optional<AssistantVerb> byCall(String call) {
         return Arrays.stream(values()).filter(v -> v.call.equals(call)).findFirst();
+    }
+
+    /** The tool names, as a text lists them. */
+    public static List<VerbName> verbNames() {
+        return Arrays.stream(values()).map(AssistantVerb::verbName).toList();
     }
 
     /** The argument names, so that the enum above and the adapter spell them once. */
@@ -210,6 +256,8 @@ public enum AssistantVerb {
         public static final String REFERENCE = "reference";
         public static final String TEXT = "text";
         public static final String AFTER = "after";
+        public static final String SORT = "sort";
+        public static final String DIRECTION = "direction";
         public static final String PAGE_SIZE = "page_size";
         public static final String TYPES = "types";
 
@@ -217,22 +265,15 @@ public enum AssistantVerb {
         }
     }
 
-    private static final class Descriptions {
+    /** The JSON-schema keywords several arguments share, and the name of fields. */
+    private static final class Keywords {
 
-        static final String SCOPE = "the scope, by its name";
-        static final String ADDRESS =
-            "the complete address of the entry, memory://<scope>/<selector>/<id>";
-        static final String CONFLICT_TOKEN =
-            "the conflict token the latest read of the entry handed out";
-        static final String TYPE = "the type of the entry, one of "
-            + String.join(", ", EntryType.wireNames());
+        /** The JSON-schema keyword for the value an omitted argument takes. */
+        static final String DEFAULT = "default";
         static final Map<String, Object> TYPE_ENUM = Map.of("enum", EntryType.wireNames());
-        static final String CONTENT = "the text of the entry, at most "
-            + MemoryService.CONTENT_LIMIT + " characters";
-        static final String REFERENCE =
-            "a provenance URL, stored and never fetched, that carries no credential";
+        static final ArgumentName FIELDS_NAME = new ArgumentName(FIELDS);
 
-        private Descriptions() {
+        private Keywords() {
         }
     }
 }

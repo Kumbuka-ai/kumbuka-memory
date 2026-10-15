@@ -1,13 +1,24 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.payload;
 
 import ai.kumbuka.memory.domain.DigestView;
 import ai.kumbuka.memory.domain.EntryView;
-import ai.kumbuka.memory.domain.Listing;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
+import ai.kumbuka.memory.domain.Page;
 import ai.kumbuka.memory.domain.Patch;
+import ai.kumbuka.memory.surface.AssistantVerb;
+import ai.kumbuka.memory.surface.CallException;
+import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceException;
+import ai.kumbuka.memory.surface.Texts;
 import ai.kumbuka.memory.surface.VerbSurface;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -173,26 +184,30 @@ public final class Payloads {
     /**
      * A page of entries, with every reason it might not be the whole set.
      *
+     * <p>The entries stand under {@code objects}, the one name every list of
+     * the platform carries them under, and the request is not repeated
+     * (ADR-0049): the page size a caller asked in is its own value.
+     *
+     * <p>{@code next_cursor} is the one continuation: present, it is what to
+     * pass as {@code after} for the next page; absent — not null, absent — the
+     * page is the last. Serialised only when there is one, so that "is there
+     * more" has one spelling and not two.
+     *
      * <p>{@code unaddressable} is not padding. An entry whose key carries no
      * selector has no address on this surface, so it cannot be listed — and a
      * listing that dropped it silently would be lying about its own
      * completeness. {@code create} refuses such a key, so a non-zero number
      * here is a statement about data that arrived from somewhere else.
      */
-    public record ListingResponse(
-        @JsonProperty("entries") List<ListedEntry> entries,
-        @JsonProperty("truncated") boolean truncated,
-        @JsonProperty("total") long total,
-        @JsonProperty("page_size") int pageSize,
-        @JsonProperty("cursor") String cursor,
-        @JsonProperty("order") String order,
+    public record PageResponse(
+        @JsonProperty("objects") List<ListedEntry> objects,
+        @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL) String nextCursor,
         @JsonProperty("unaddressable") long unaddressable) {
 
-        public static ListingResponse of(Listing listing) {
-            return new ListingResponse(
-                listing.entries().stream().map(ListedEntry::of).toList(),
-                listing.truncated(), listing.total(), listing.pageSize(),
-                listing.cursor(), listing.order(), listing.unaddressable());
+        public static PageResponse of(Page page) {
+            return new PageResponse(
+                page.objects().stream().map(ListedEntry::of).toList(),
+                page.nextCursor(), page.unaddressable());
         }
     }
 
@@ -217,9 +232,8 @@ public final class Payloads {
                 ? new NextPayload(
                     "create memory://" + withdrawn.address().scope() + "/"
                         + withdrawn.address().selector(),
-                    "the address is free again; a new entry may be laid down at it")
-                : new NextPayload("read " + address,
-                    "reads the retired entry, which still stands at this address"));
+                    Texts.next().genericAfterRelease())
+                : new NextPayload("read " + address, Texts.next().genericAfterRetirement()));
 
             return new WithdrawnResponse(address,
                 withdrawn.outcome().name().toLowerCase(Locale.ROOT),
@@ -326,11 +340,10 @@ public final class Payloads {
         /** The one code the not-found class carries. */
         public static final String NOT_FOUND = "NOT_FOUND";
 
-        /**
-         * The one message, as a constant rather than a format — and the
-         * platform's own text rather than one of this service's making.
-         *
-         * <p>Transcribed character for character from
+        /*
+         * The one message lives in the bundles as the NOT_FOUND message and
+         * remedy, and is the platform's own text rather than one of this
+         * service's making: transcribed character for character from
          * {@code RouterException.NOT_FOUND_MESSAGE} in
          * {@code Kumbuka-ai/platform}, {@code origin/main} at {@code 91d6a3d},
          * {@code router/src/main/java/ai/kumbuka/router/surface/RouterException.java},
@@ -350,9 +363,6 @@ public final class Payloads {
          * same for all three, because one that told them apart would let a
          * caller map what it may not see.
          */
-        static final String NOT_FOUND_MESSAGE =
-            "nothing is addressed here. Check the address, and that you are a member of "
-                + "the scope it names.";
 
         /**
          * The reasons that answer as the not-found class.
@@ -375,9 +385,25 @@ public final class Payloads {
             return new Refusal(reason, message, Map.of());
         }
 
-        /** The wire form of a transport refusal. */
+        /**
+         * The wire form of a transport refusal, worded from its declared
+         * pattern. The exception's own message is a note for a developer and
+         * never reaches a caller.
+         */
         public static Refusal of(SurfaceException e) {
-            return new Refusal(e.reason().name(), e.getMessage(), Map.of());
+            return new Refusal(e.reason().name(), AssistantRefusals.messageFor(
+                ReasonCatalogue.of(e.reason().name())), Map.of());
+        }
+
+        /**
+         * The wire form of a refusal of a call's arguments on the generic
+         * surface, worded as the assistant surface words it.
+         */
+        public static Refusal of(AssistantVerb verb, CallException e) {
+            Refusal assistant = AssistantRefusals.of(verb, e, Optional.empty());
+            Map<String, Object> data = new LinkedHashMap<>(assistant.data());
+            data.remove("attempted");
+            return new Refusal(assistant.reason(), assistant.message(), data);
         }
 
         /**
@@ -387,11 +413,15 @@ public final class Payloads {
          * properties of the envelope. Building the envelope twice is how two
          * paths come to differ on one of them.
          */
-        public static Refusal of(MemoryException e) {
+        public static Refusal of(AssistantVerb verb, MemoryException e) {
             if (NOT_FOUND_REASONS.contains(e.reason())) {
-                return new Refusal(NOT_FOUND, NOT_FOUND_MESSAGE, Map.of());
+                return new Refusal(NOT_FOUND, AssistantRefusals.notFound(), Map.of());
             }
-            return new Refusal(e.reason().name(), e.getMessage(), wireData(e));
+            // Worded from the reason's declared pattern, as the assistant
+            // surface words it: the domain's sentence was written beside the
+            // check and is no text addressed to a caller (DEC-0043 R18).
+            return new Refusal(e.reason().name(), AssistantRefusals.messageFor(verb, e,
+                ReasonCatalogue.of(e.reason().name())), wireData(e));
         }
 
         /**
@@ -426,8 +456,28 @@ public final class Payloads {
     public static VerbSurface.NewEntry newEntry(CreateRequest request) {
         EntryFields fields = requireFields(request == null ? null : request.fields());
         refuseImmutable(fields, true);
+        Map<String, String> given = new LinkedHashMap<>();
+        given.put(AssistantVerb.Names.KEY, fields.key());
+        given.put(AssistantVerb.Names.TYPE, fields.type());
+        given.put(AssistantVerb.Names.CONTENT, fields.content());
+        requireDeclaredFields(AssistantVerb.CREATE, given);
         return new VerbSurface.NewEntry(fields.key(), fields.type(), fields.content(),
             fields.reference());
+    }
+
+    /**
+     * Refuses a required field that is absent or {@code null}, in declaration
+     * order, as the assistant surface refuses it (DEC-0043 R17): JSON
+     * {@code null} means the argument was not sent, and a body record cannot
+     * tell the two apart anyway.
+     */
+    private static void requireDeclaredFields(AssistantVerb verb, Map<String, String> given) {
+        verb.fieldArguments().stream()
+            .filter(argument -> argument.required() && given.get(argument.name()) == null)
+            .findFirst()
+            .ifPresent(argument -> {
+                throw CallException.missing(argument.argumentName());
+            });
     }
 
     /**
@@ -456,12 +506,15 @@ public final class Payloads {
         return request == null ? null : request.types();
     }
 
+    /**
+     * {@code fields} is required by both writing verbs, so its absence and a
+     * {@code null} are both {@code ARGUMENT_MISSING}, as on the assistant
+     * surface (DEC-0043 R17). An empty object is something else: an update
+     * that names nothing to change.
+     */
     private static EntryFields requireFields(EntryFields fields) {
         if (fields == null) {
-            throw new MemoryException(MemoryException.Reason.UPDATE_EMPTY,
-                "this verb takes the values it writes under 'fields', and the body "
-                    + "carries none. The writable names are "
-                    + EntryFields.WRITABLE.stream().sorted().toList() + ".");
+            throw CallException.missing(AssistantVerb.fieldsName());
         }
         return fields;
     }
@@ -495,13 +548,6 @@ public final class Payloads {
         if (offenders.isEmpty()) {
             return;
         }
-        throw MemoryException.offending(MemoryException.Reason.FIELD_IMMUTABLE,
-            "these fields are not written by this verb. " + offenders + " "
-                + (offenders.size() == 1 ? "is" : "are") + " fixed for the life of an "
-                + "entry or derived by the service: the scope and the key are where the "
-                + "entry stands, 'private' follows the scope's kind, and the two "
-                + "timestamps are the service's record of what it did. The writable "
-                + "names are " + EntryFields.WRITABLE.stream().sorted().toList() + ".",
-            offenders);
+        throw MemoryException.offending(MemoryException.Reason.FIELD_IMMUTABLE, offenders);
     }
 }

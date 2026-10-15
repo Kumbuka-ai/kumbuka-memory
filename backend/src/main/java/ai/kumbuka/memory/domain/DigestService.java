@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.platform.Access;
@@ -38,6 +45,9 @@ import java.util.UUID;
 @ApplicationScoped
 @TenantBound
 public class DigestService {
+
+    /** The argument the chosen types travel in, and the one their refusals name. */
+    private static final String TYPES = "types";
 
     @Inject ScopeDirectory scopes;
     @Inject MemoryRepository entries;
@@ -177,19 +187,22 @@ public class DigestService {
      */
     private static List<EntryType> chosen(List<String> asked) {
         if (asked.isEmpty()) {
-            throw new MemoryException(MemoryException.Reason.TYPE_UNKNOWN,
-                "an empty type selection asks for a digest with no content in it. Leave "
-                    + "'types' out to get the estate's own selection, or name the types "
-                    + "to carry: " + String.join(", ", EntryType.wireNames()) + ".");
+            throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN, List.of(TYPES),
+                EntryType.wireNames());
         }
-        List<String> unknown = asked.stream().filter(t -> EntryType.of(t).isEmpty()).toList();
+        // Named by position, as the argument's path, and never by the value
+        // sent (DEC-0043 R19): which of several values was wrong is what the
+        // caller needs, and the value is its own input.
+        List<String> unknown = new java.util.ArrayList<>();
+        for (int at = 0; at < asked.size(); at++) {
+            String type = asked.get(at);
+            if (type == null || EntryType.of(type).isEmpty()) {
+                unknown.add(TYPES + "[" + at + "]");
+            }
+        }
         if (!unknown.isEmpty()) {
-            throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
-                "these are not kinds of entry this service carries. The six are "
-                    + String.join(", ", EntryType.wireNames()) + ". A name that is not one "
-                    + "of them is refused rather than dropped, because a section missing "
-                    + "from a digest reads as 'there are none of these'.",
-                unknown);
+            throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN, unknown,
+                EntryType.wireNames());
         }
         return asked.stream().map(t -> EntryType.of(t).orElseThrow()).toList();
     }

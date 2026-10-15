@@ -1,9 +1,17 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.payload;
 
 import ai.kumbuka.memory.domain.EntryView;
-import ai.kumbuka.memory.domain.Listing;
 import ai.kumbuka.memory.domain.MemoryService;
+import ai.kumbuka.memory.domain.Page;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
@@ -42,21 +50,22 @@ public final class AssistantPayloads {
         }
     }
 
-    /** A page of entries, with every reason it might not be the whole set. */
-    public record ListingAnswer(
-        @JsonProperty("entries") List<EntryAnswer> entries,
-        @JsonProperty("truncated") boolean truncated,
-        @JsonProperty("total") long total,
-        @JsonProperty("page_size") int pageSize,
-        @JsonProperty("cursor") String cursor,
-        @JsonProperty("order") String order,
+    /**
+     * A page of entries, with every reason it might not be the whole set.
+     *
+     * <p>The same members as on the generic surface
+     * ({@link Payloads.PageResponse}): {@code objects}, {@code next_cursor}
+     * absent on the last page, and {@code unaddressable}.
+     */
+    public record PageAnswer(
+        @JsonProperty("objects") List<EntryAnswer> objects,
+        @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL) String nextCursor,
         @JsonProperty("unaddressable") long unaddressable) {
 
-        public static ListingAnswer of(Listing listing) {
-            return new ListingAnswer(
-                listing.entries().stream().map(EntryAnswer::of).toList(),
-                listing.truncated(), listing.total(), listing.pageSize(),
-                listing.cursor(), listing.order(), listing.unaddressable());
+        public static PageAnswer of(Page page) {
+            return new PageAnswer(
+                page.objects().stream().map(EntryAnswer::of).toList(),
+                page.nextCursor(), page.unaddressable());
         }
     }
 
