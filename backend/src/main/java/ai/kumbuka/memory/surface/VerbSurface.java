@@ -28,6 +28,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -120,7 +122,7 @@ public class VerbSurface {
 
     /** Changes an entry's content, type or reference. */
     @Transactional
-    public Answer update(Actor actor, AddressParser.Parts parts, String conflictToken,
+    public Answer update(Actor actor, AddressParser.Parts parts, @Nullable String conflictToken,
                          Patch patch) {
         EntryAddress address = AddressParser.parse(parts);
         AddressParser.requireWritableSelector(address);
@@ -130,7 +132,7 @@ public class VerbSurface {
     /** Takes an entry out of force, by whatever means this edition withdraws. */
     @Transactional
     public MemoryService.Withdrawn withdraw(Actor actor, AddressParser.Parts parts,
-                                            String conflictToken) {
+                                            @Nullable String conflictToken) {
         EntryAddress address = AddressParser.parse(parts);
         AddressParser.requireWritableSelector(address);
         return memory.withdraw(actor, address, conflictToken);
@@ -139,12 +141,12 @@ public class VerbSurface {
     /**
      * One page of a scope, optionally narrowed to a selector.
      *
-     * @param selector the selector, or null for every selector of the scope
+     * @param selector the selector; absent for every selector of the scope
      * @param asked    the query parameters exactly as they arrived, so that an
      *                 unknown one can be refused instead of ignored
      */
     @Transactional
-    public Page query(Actor actor, String scope, String selector,
+    public Page query(Actor actor, String scope, @Nullable String selector,
                       Map<String, String> asked) {
         if (selector != null) {
             // Checked even though nothing is addressed by it: a caller that
@@ -158,7 +160,7 @@ public class VerbSurface {
 
     /** Everything in force in a scope, whole. */
     @Transactional
-    public DigestView digest(Actor actor, String scope, List<String> types) {
+    public DigestView digest(Actor actor, String scope, @Nullable List<String> types) {
         return digests.digest(actor, scope, types);
     }
 
@@ -209,12 +211,13 @@ public class VerbSurface {
     }
 
     private static QueryFilter filterOf(Map<String, String> asked) {
-        return new QueryFilter(typeOf(asked.get("type")), blankToNull(asked.get("text")));
+        return new QueryFilter(typeOf(asked.get("type")).orElse(null),
+            nonBlank(asked.get("text")).orElse(null));
     }
 
     private static PageRequest pageOf(Map<String, String> asked) {
         return new PageRequest(
-            blankToNull(asked.get(PageCursor.AFTER)),
+            nonBlank(asked.get(PageCursor.AFTER)).orElse(null),
             sortOf(asked.get("sort")),
             directionOf(asked.get(DIRECTION)),
             pageSizeOf(asked.get(PageRequest.PAGE_SIZE)));
@@ -228,7 +231,7 @@ public class VerbSurface {
      * default: a listing silently read in another order is one a caller
      * continues believing it knows where it stands.
      */
-    private static SortKey sortOf(String asked) {
+    private static SortKey sortOf(@Nullable String asked) {
         if (asked == null || asked.isBlank()) {
             return PageRequest.DEFAULT_SORT;
         }
@@ -243,7 +246,7 @@ public class VerbSurface {
      * two directions are a fixed value set of the argument, not an order a
      * scope declares (ADR-0049).
      */
-    private static SortKey.Direction directionOf(String asked) {
+    private static SortKey.Direction directionOf(@Nullable String asked) {
         if (asked == null || asked.isBlank()) {
             return PageRequest.DEFAULT_DIRECTION;
         }
@@ -252,15 +255,15 @@ public class VerbSurface {
             SortKey.Direction.wireNames()));
     }
 
-    private static EntryType typeOf(String asked) {
+    private static Optional<EntryType> typeOf(@Nullable String asked) {
         if (asked == null || asked.isBlank()) {
-            return null;
+            return Optional.empty();
         }
-        return EntryType.of(asked).orElseThrow(() -> MemoryException.offending(
-            MemoryException.Reason.TYPE_UNKNOWN, List.of("type"), EntryType.wireNames()));
+        return Optional.of(EntryType.of(asked).orElseThrow(() -> MemoryException.offending(
+            MemoryException.Reason.TYPE_UNKNOWN, List.of("type"), EntryType.wireNames())));
     }
 
-    private static int pageSizeOf(String asked) {
+    private static int pageSizeOf(@Nullable String asked) {
         if (asked == null || asked.isBlank()) {
             return PageRequest.DEFAULT_PAGE_SIZE;
         }
@@ -271,8 +274,8 @@ public class VerbSurface {
         }
     }
 
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
+    private static Optional<String> nonBlank(@Nullable String value) {
+        return Optional.ofNullable(value).filter(present -> !present.isBlank());
     }
 
     /**
@@ -311,7 +314,12 @@ public class VerbSurface {
      * <p>The key is among them and the scope is not. The key is stored on the
      * entry; the scope is where the entry stands and arrives as part of the
      * address.
+     *
+     * <p>Each value is absent where the caller sent none; the verb refuses the
+     * absence of the three it needs, and a reference that is absent is an
+     * entry without one.
      */
-    public record NewEntry(String key, String type, String content, String reference) {
+    public record NewEntry(@Nullable String key, @Nullable String type,
+                           @Nullable String content, @Nullable String reference) {
     }
 }

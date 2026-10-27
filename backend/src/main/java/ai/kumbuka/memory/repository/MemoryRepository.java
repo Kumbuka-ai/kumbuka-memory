@@ -20,6 +20,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 import org.hibernate.exception.ConstraintViolationException;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -475,8 +476,8 @@ public class MemoryRepository {
      * @param page     order, direction and page size
      * @param after    the position to continue after, or null for the first page
      */
-    public record Keyset(UUID scopeId, String selector, String caller, QueryFilter filter,
-                         PageRequest page, PageCursor after) {
+    public record Keyset(UUID scopeId, @Nullable String selector, String caller,
+                         QueryFilter filter, PageRequest page, @Nullable PageCursor after) {
     }
 
     /** The rows of one page, whether more follows them, and what this surface cannot show. */

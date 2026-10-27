@@ -7,6 +7,7 @@
  */
 package ai.kumbuka.memory.contract;
 
+import ai.kumbuka.memory.CounterProbe;
 import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -48,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
 @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+@CounterProbe
 class DeclarationEndpointIT {
 
     private static final String PATH = "/api";

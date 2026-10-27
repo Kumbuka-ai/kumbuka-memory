@@ -7,6 +7,7 @@
  */
 package ai.kumbuka.memory.contract;
 
+import ai.kumbuka.memory.CounterProbe;
 import ai.kumbuka.memory.platform.PlatformFixture;
 import ai.kumbuka.memory.surface.SurfaceFixture;
 import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
@@ -72,6 +73,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
+@CounterProbe
 class RefusalValueConformanceIT {
 
     private static final String SCOPE = SubstrateDatabaseResource.PROBE_SCOPE_SLUG;

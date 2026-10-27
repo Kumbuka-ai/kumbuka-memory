@@ -8,6 +8,7 @@
 package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.repository.StoredInstant;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -91,7 +92,7 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
      * @param sort      the order
      * @param direction which way it runs
      */
-    public record Binding(String scope, String selector, String filter, SortKey sort,
+    public record Binding(String scope, @Nullable String selector, String filter, SortKey sort,
                           SortKey.Direction direction) {
     }
 
@@ -103,7 +104,7 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
      * around, and a digest keeps the cursor the same length whatever was
      * searched.
      */
-    public static String fingerprint(EntryType type, String text) {
+    public static String fingerprint(@Nullable EntryType type, @Nullable String text) {
         return digestOf("type=" + (type == null ? "" : type.wire())
             + SEPARATOR + "text=" + (text == null ? "" : text));
     }

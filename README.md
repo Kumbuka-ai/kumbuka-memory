@@ -84,7 +84,7 @@ here.
 | `MEMORY_DB_PASSWORD` | `change-me-kumbuka-memory` | See the rotation note below. |
 | `MEMORY_MIGRATOR_USERNAME` | `postgres` | The **migrating** role. `CREATEROLE` and `CREATE` on the database, and the owner of everything it creates. Never the role the service connects as: an owner can drop a policy and disable row-level security. |
 | `MEMORY_MIGRATOR_PASSWORD` | `postgres` | |
-| `MEMORY_TENANT_ID` | `00000000-0000-0000-0000-000000000001` | The tenancy axis for this deployment. Read by the tenant resolver and by the Flyway callback that binds it for migrations carrying DML. Deployment identity, not a knob. |
+| `MEMORY_TENANT_ID` | none: required | The tenancy axis for this deployment. Read by the tenant resolver and by the Flyway callback that binds it for migrations carrying DML. Deployment identity, not a knob: unset, empty or not a uuid, the service refuses to start. |
 
 **Identity.** Both caller surfaces validate the same token against the same
 settings; the assistant surface adds none of its own.

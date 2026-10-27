@@ -1,5 +1,13 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.contract;
 
+import ai.kumbuka.memory.CounterProbe;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.restassured.http.ContentType;
@@ -18,6 +26,7 @@ import static io.restassured.RestAssured.given;
  * <p>Builds the JSON-RPC envelope and nothing else. What comes back is read by
  * each probe for itself; this class knows no expected value.
  */
+@CounterProbe
 public final class Mcp {
 
     public static final String PATH = "/mcp";

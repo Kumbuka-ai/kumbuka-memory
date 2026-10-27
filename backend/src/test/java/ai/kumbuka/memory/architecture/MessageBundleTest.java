@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -165,6 +166,14 @@ class MessageBundleTest {
                 + "\"Do not send this argument\"; }"))
             .as("RED STATE, observed: a sentence kept in a constant is reported")
             .hasSize(1);
+        assertThat(proseIn("Planted", "class Planted { String hint() { return "
+                + "\"send 3 entries now\"; } }"))
+            .as("RED STATE, observed: a sentence with a number between its words is prose too")
+            .hasSize(1);
+        assertThat(ProseLiterals.longestRun("send 3 entries now"))
+            .as("RED STATE, observed: counted as the longest run of words, the same sentence "
+                + "stays under the threshold and would pass for a name")
+            .isLessThan(ProseLiterals.PROSE_WORDS);
         assertThat(proseIn("Planted", "class Planted { void f() { LOG.warnf(\"a scope was "
                 + "refused: %s\", r); throw new IllegalStateException(\"the column and "
                 + "the mapping have parted\"); } }"))
@@ -285,12 +294,19 @@ class MessageBundleTest {
      * <p>Prose is three or more words written with spaces. A name, a path, a
      * pattern, a key or a single word is not, so the declared vocabulary the code
      * has to spell -- argument names, codes, JSON keys -- never counts.
+     *
+     * <p><strong>Every word of a literal counts, not a run of them</strong>, as
+     * in kumbuka-dispatch, which states the count as binding for every copy of
+     * this guard. A number or a sign between words breaks no sentence:
+     * {@code "send 3 entries now"} is prose although no three words in it stand
+     * side by side.
      */
     static final class ProseLiterals {
 
-        /** Three words or more, joined by spaces and the punctuation of a sentence. */
-        private static final Pattern PROSE =
-            Pattern.compile("[A-Za-z][A-Za-z'-]*(?:[,;:.]? +[A-Za-z][A-Za-z'-]*){2,}");
+        /** Three words or more: a sentence, or the start of one. */
+        static final int PROSE_WORDS = 3;
+
+        private static final Pattern WORD = Pattern.compile("[A-Za-z][A-Za-z'-]*");
 
         /** A sentence has a word in lower case; a list of methods or a constant does not. */
         private static final Pattern LOWER_WORD = Pattern.compile("\\b[a-z]{2,}\\b");
@@ -367,6 +383,31 @@ class MessageBundleTest {
             return found;
         }
 
+        /** Three words or more anywhere in the literal, and a space among them. */
+        static boolean isProse(String text) {
+            Matcher words = WORD.matcher(text);
+            int count = 0;
+            while (words.find()) {
+                count++;
+            }
+            return count >= PROSE_WORDS && text.contains(" ");
+        }
+
+        /**
+         * The longest run of words standing side by side, which is how prose was
+         * counted before: kept so that the guard shows on every build why that
+         * count was replaced.
+         */
+        static int longestRun(String text) {
+            int longest = 0;
+            int run = 0;
+            for (String token : text.split("\\s+")) {
+                run = WORD.matcher(token).matches() ? run + 1 : 0;
+                longest = Math.max(longest, run);
+            }
+            return longest;
+        }
+
         /** Whether a literal stands in one of the named calls. */
         static boolean within(Found literal, Set<String> methods, Set<String> constructed) {
             return literal.construct()
@@ -376,7 +417,7 @@ class MessageBundleTest {
 
         private static void collect(List<Found> into, Deque<String[]> calls, int line,
                                    String text) {
-            if (!PROSE.matcher(text).find() || !LOWER_WORD.matcher(text).find()) {
+            if (!isProse(text) || !LOWER_WORD.matcher(text).find()) {
                 return;
             }
             String[] call = calls.isEmpty() ? new String[] {"", ""} : calls.peek();

@@ -1,4 +1,13 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
+
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
@@ -65,7 +74,7 @@ public enum EntryType {
      * call or a malformed row is not this class's to decide, and the two get
      * different refusals from the callers that do decide it.
      */
-    public static Optional<EntryType> of(String wire) {
+    public static Optional<EntryType> of(@Nullable String wire) {
         return Arrays.stream(values()).filter(t -> t.wire.equals(wire)).findFirst();
     }
 }

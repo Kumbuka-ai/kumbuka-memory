@@ -7,6 +7,10 @@
  */
 package ai.kumbuka.memory.surface;
 
+import org.jspecify.annotations.Nullable;
+
+import java.util.Optional;
+
 /**
  * A refusal about the call itself rather than about the entry.
  *
@@ -51,7 +55,7 @@ public class SurfaceException extends RuntimeException {
     }
 
     private final transient Reason reason;
-    private final transient String allow;
+    private final transient @Nullable String allow;
 
     /**
      * A refusal of the transport and nothing more: it carries no sentence of
@@ -65,9 +69,10 @@ public class SurfaceException extends RuntimeException {
     /**
      * @param allow what the address does offer, for the {@code Allow} header a
      *              405 is required to carry. A 405 without it refuses without
-     *              saying what would have worked.
+     *              saying what would have worked. Absent for a refusal that
+     *              is no 405.
      */
-    public SurfaceException(Reason reason, String allow) {
+    public SurfaceException(Reason reason, @Nullable String allow) {
         super(reason.name());
         this.reason = reason;
         this.allow = allow;
@@ -77,7 +82,7 @@ public class SurfaceException extends RuntimeException {
         return reason;
     }
 
-    public String allow() {
-        return allow;
+    public Optional<String> allow() {
+        return Optional.ofNullable(allow);
     }
 }

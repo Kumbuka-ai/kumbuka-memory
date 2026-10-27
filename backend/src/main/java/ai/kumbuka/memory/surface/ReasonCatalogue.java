@@ -8,6 +8,7 @@
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.MemoryException;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -81,13 +82,16 @@ public final class ReasonCatalogue {
      * not supply refuses to build, because a half-filled message reads as
      * finished, which is worse than none.
      *
-     * @param call      the call refused
+     * <p>A member is absent where the refusal does not concern it; its
+     * accessor refuses to answer then, for the reason above.
+     *
+     * @param call      the call refused; absent for a refusal of the transport
      * @param name      the argument it concerns, where it concerns one
      * @param path      the position of the value it concerns, where it concerns one
      * @param arguments the names the call declares, where an undeclared one arrived
      */
-    public record Facts(VerbName call, ArgumentName name, ArgumentPath path,
-                        List<ArgumentName> arguments) {
+    public record Facts(@Nullable VerbName call, @Nullable ArgumentName name,
+                        @Nullable ArgumentPath path, @Nullable List<ArgumentName> arguments) {
 
         public static Facts of(VerbName call) {
             return new Facts(call, null, null, null);
@@ -130,7 +134,7 @@ public final class ReasonCatalogue {
             return required(arguments, "arguments");
         }
 
-        private static <T> T required(T fact, String what) {
+        private static <T> T required(@Nullable T fact, String what) {
             if (fact == null) {
                 throw new IllegalStateException("a refusal text needs the fact " + what
                     + ", and the refusal supplied none");

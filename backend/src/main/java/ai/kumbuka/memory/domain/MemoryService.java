@@ -15,6 +15,7 @@ import ai.kumbuka.memory.tenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Clock;
 import java.util.LinkedHashMap;
@@ -102,7 +103,7 @@ public class MemoryService {
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
 
         String type = requireKnownType(draft.type());
-        requireContent(draft.content());
+        String content = requireContent(draft.content());
         requireCleanReference(draft.reference());
 
         entries.findOccupant(scope.scopeId(), address.key(), scope.isPrivate(),
@@ -120,7 +121,7 @@ public class MemoryService {
         entry.ownerSubject = actor.subject();
         entry.type = type;
         entry.key = address.key();
-        entry.content = draft.content();
+        entry.content = content;
         entry.reference = draft.reference();
         entry.source = SOURCE_SERVICE;
         entry.laidDownAt(clock.instant());
@@ -187,7 +188,7 @@ public class MemoryService {
      * waits at the read and then compares against what the first wrote.
      */
     @Transactional
-    public EntryView update(Actor actor, EntryAddress address, String conflictToken,
+    public EntryView update(Actor actor, EntryAddress address, @Nullable String conflictToken,
                             Patch patch) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
@@ -199,7 +200,7 @@ public class MemoryService {
 
         String type = patch.type().map(MemoryService::requireKnownType).orElse(entry.type);
         String content = patch.content().orElse(entry.content);
-        String reference = patch.reference().orElse(entry.reference);
+        @Nullable String reference = patch.reference().orElse(entry.reference);
         requireContent(content);
         requireCleanReference(reference);
 
@@ -238,7 +239,8 @@ public class MemoryService {
      * changed after its caller read the token.
      */
     @Transactional
-    public Withdrawn withdraw(Actor actor, EntryAddress address, String conflictToken) {
+    public Withdrawn withdraw(Actor actor, EntryAddress address,
+                              @Nullable String conflictToken) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
         Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
@@ -280,7 +282,7 @@ public class MemoryService {
      * single not-found before anything is said about a cursor.
      */
     @Transactional
-    public Page query(Actor actor, String scopeSlug, String selector, QueryFilter filter,
+    public Page query(Actor actor, String scopeSlug, @Nullable String selector, QueryFilter filter,
                       PageRequest request) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
@@ -288,7 +290,8 @@ public class MemoryService {
         PageCursor.Binding binding = new PageCursor.Binding(PageCursor.mark(scope.scopeId()), selector,
             PageCursor.fingerprint(filter.type(), filter.text()), request.sort(),
             request.direction());
-        PageCursor after = request.after() == null ? null : PageCursor.decode(request.after());
+        String asked = request.after();
+        @Nullable PageCursor after = asked == null ? null : PageCursor.decode(asked);
         if (after != null && !after.binding().equals(binding)) {
             throw foreign();
         }
@@ -301,7 +304,7 @@ public class MemoryService {
             .map(entry -> EntryView.of(entry, scope.slug(), writable))
             .toList();
 
-        String next = null;
+        @Nullable String next = null;
         if (page.more() && !page.entries().isEmpty()) {
             Memory last = page.entries().get(page.entries().size() - 1);
             next = new PageCursor(binding, last.key, last.createdAt).encode();
@@ -313,23 +316,24 @@ public class MemoryService {
     // The checks, each in one place
     // ======================================================================
 
-    private static String requireKnownType(String type) {
+    private static String requireKnownType(@Nullable String type) {
         return EntryType.of(type)
             .orElseThrow(() -> MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
                 List.of(TYPE), EntryType.wireNames()))
             .wire();
     }
 
-    private static void requireContent(String content) {
+    private static String requireContent(@Nullable String content) {
         if (content == null || content.isBlank()) {
             throw new MemoryException(MemoryException.Reason.CONTENT_ABSENT);
         }
         if (content.length() > CONTENT_LIMIT) {
             throw new MemoryException(MemoryException.Reason.CONTENT_OVERSIZE);
         }
+        return content;
     }
 
-    private static void requireCleanReference(String reference) {
+    private static void requireCleanReference(@Nullable String reference) {
         if (reference == null) {
             return;
         }
@@ -356,7 +360,7 @@ public class MemoryService {
      * by the same code, so that a caller which lost a race can re-form its
      * write from the refusal instead of reading again.
      */
-    private void requireCurrentToken(String presented, Memory entry,
+    private void requireCurrentToken(@Nullable String presented, Memory entry,
                                      ScopeDirectory.ScopeAccess scope) {
         if (presented == null || presented.isBlank()) {
             throw new MemoryException(MemoryException.Reason.CONFLICT_TOKEN_MISSING);

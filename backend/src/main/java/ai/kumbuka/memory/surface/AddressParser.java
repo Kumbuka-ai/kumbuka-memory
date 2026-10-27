@@ -9,6 +9,7 @@ package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.MemoryException;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -142,10 +143,9 @@ public final class AddressParser {
      * entry: the key is what the table stores, so it is what a caller writes
      * and what {@code read} answers with.
      */
-    public static EntryAddress ofKey(String scope, String key) {
+    public static EntryAddress ofKey(String scope, @Nullable String key) {
         requireScope(scope);
-        requireKey(key);
-        EntryAddress address = EntryAddress.ofKey(scope, key);
+        EntryAddress address = EntryAddress.ofKey(scope, requireKey(key));
         requireSelector(address.selector());
         return address;
     }
@@ -226,22 +226,23 @@ public final class AddressParser {
         }
     }
 
-    private static void requireScope(String scope) {
+    private static void requireScope(@Nullable String scope) {
         if (scope == null || !SCOPE.matcher(scope).matches()) {
             throw new MemoryException(MemoryException.Reason.ADDRESS_MALFORMED);
         }
     }
 
-    private static void requireSelector(String selector) {
+    private static void requireSelector(@Nullable String selector) {
         if (selector == null || !SELECTOR.matcher(selector).matches()) {
             throw new MemoryException(MemoryException.Reason.KEY_MALFORMED);
         }
     }
 
-    private static void requireKey(String key) {
+    private static String requireKey(@Nullable String key) {
         if (key == null || !KEY.matcher(key).matches()) {
             throw new MemoryException(MemoryException.Reason.KEY_MALFORMED);
         }
+        return key;
     }
 
     /**

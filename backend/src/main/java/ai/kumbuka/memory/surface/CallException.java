@@ -7,6 +7,8 @@
  */
 package ai.kumbuka.memory.surface;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -45,11 +47,11 @@ public class CallException extends RuntimeException {
     }
 
     private final transient Reason reason;
-    private final transient ArgumentName name;
-    private final transient ArgumentPath path;
+    private final transient @Nullable ArgumentName name;
+    private final transient @Nullable ArgumentPath path;
     private final transient List<ArgumentName> accepts;
 
-    private CallException(Reason reason, ArgumentName name, ArgumentPath path,
+    private CallException(Reason reason, @Nullable ArgumentName name, @Nullable ArgumentPath path,
                           List<ArgumentName> accepts) {
         super(reason.name());
         this.reason = reason;

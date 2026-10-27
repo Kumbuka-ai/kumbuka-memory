@@ -7,6 +7,8 @@
  */
 package ai.kumbuka.memory.domain;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What a {@code query} was narrowed to.
  *
@@ -18,5 +20,5 @@ package ai.kumbuka.memory.domain;
  * @param type the kind of entry, or null for every kind
  * @param text a substring of the content, case-insensitively, or null
  */
-public record QueryFilter(EntryType type, String text) {
+public record QueryFilter(@Nullable EntryType type, @Nullable String text) {
 }

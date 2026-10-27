@@ -15,6 +15,7 @@ import ai.kumbuka.memory.tenancy.TenantBound;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -62,7 +63,7 @@ public class DigestService {
      *                  estate's selection
      */
     @Transactional
-    public DigestView digest(Actor actor, String scopeSlug, List<String> override) {
+    public DigestView digest(Actor actor, String scopeSlug, @Nullable List<String> override) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
 
@@ -162,16 +163,28 @@ public class DigestService {
         carried.forEach(type -> byType.put(type.wire(), new ArrayList<>()));
 
         for (Memory entry : entries.loadForDigest(scopeIds, carried, actor.subject())) {
-            byType.get(entry.type).add(new DigestView.Entry(
-                EntryAddress.ofKey(slugs.get(entry.scopeId), entry.key),
+            loaded(byType, entry.type).add(new DigestView.Entry(
+                EntryAddress.ofKey(loaded(slugs, entry.scopeId), entry.key),
                 entry.key,
                 entry.content));
         }
 
         return EntryType.inDigestOrder().stream()
             .filter(carried::contains)
-            .map(type -> new DigestView.Section(type.wire(), byType.get(type.wire())))
+            .map(type -> new DigestView.Section(type.wire(), loaded(byType, type.wire())))
             .toList();
+    }
+
+    /**
+     * The value the statement's own bounds guarantee: it reads only the carried
+     * types in the covered scopes, and both maps are keyed by exactly those.
+     */
+    private static <K, V> V loaded(Map<K, V> map, K key) {
+        V value = map.get(key);
+        if (value == null) {
+            throw new IllegalStateException("the digest statement read outside its bounds");
+        }
+        return value;
     }
 
     // ------------------------------------------------------------------

@@ -1,4 +1,13 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
+
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 
@@ -22,6 +31,9 @@ import java.time.Instant;
  * It guards the write and is not written (DEC-0040). Inside the field map it
  * would be indistinguishable from a value of the entry, and a caller handing
  * the map back would be handing back a field the entry does not have.
+ *
+ * <p>{@code reference} is the one member that may be absent, and its absence
+ * says the entry carries no provenance pointer.
  */
 public record EntryView(
     EntryAddress address,
@@ -29,7 +41,7 @@ public record EntryView(
     String key,
     String type,
     String content,
-    String reference,
+    @Nullable String reference,
     String state,
     boolean isPrivate,
     Instant createdAt,

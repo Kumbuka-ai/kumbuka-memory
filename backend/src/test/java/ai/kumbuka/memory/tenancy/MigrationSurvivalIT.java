@@ -14,7 +14,6 @@ import org.flywaydb.core.api.callback.Callback;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -64,17 +63,13 @@ class MigrationSurvivalIT {
     private static final String TENANT = "00000000-0000-0000-0000-0000000000a1";
     private static final String SCOPE = "00000000-0000-0000-0000-0000000000b1";
 
-    private static PostgreSQLContainer<?> postgres;
+    private static MigrationHarness postgres;
 
     @BeforeAll
     static void startDatabase() throws SQLException {
-        postgres = new PostgreSQLContainer<>(SubstrateDatabaseResource.POSTGRES_IMAGE)
-            .withDatabaseName("kumbuka")
-            .withUsername("postgres_admin")
-            .withPassword("test-only-admin-password");
-        postgres.start();
+        postgres = MigrationHarness.start();
 
-        try (Connection c = asAdmin(postgres.getJdbcUrl()); Statement s = c.createStatement()) {
+        try (Connection c = asAdmin(postgres.jdbcUrl()); Statement s = c.createStatement()) {
             s.execute("CREATE ROLE " + MIGRATOR + " LOGIN CREATEROLE NOSUPERUSER "
                 + "NOBYPASSRLS PASSWORD '" + MIGRATOR_PASSWORD + "'");
             s.execute("CREATE DATABASE survival");
@@ -85,14 +80,14 @@ class MigrationSurvivalIT {
     @AfterAll
     static void stopDatabase() {
         if (postgres != null) {
-            postgres.stop();
+            postgres.close();
         }
     }
 
     @Test
     void an_entry_laid_down_before_the_migrations_is_read_changed_and_withdrawn_after_them()
             throws SQLException {
-        String url = postgres.getJdbcUrl().replace("/kumbuka?", "/survival?");
+        String url = postgres.jdbcUrl().replace("/kumbuka?", "/survival?");
         migrate(url, BEFORE_THIS_RELEASE);
         assertThat(constraintNames(url))
             .as("the state before: the names V1 and V4 gave")
@@ -248,6 +243,6 @@ class MigrationSurvivalIT {
     }
 
     private static Connection asAdmin(String url) throws SQLException {
-        return DriverManager.getConnection(url, postgres.getUsername(), postgres.getPassword());
+        return DriverManager.getConnection(url, postgres.username(), postgres.password());
     }
 }

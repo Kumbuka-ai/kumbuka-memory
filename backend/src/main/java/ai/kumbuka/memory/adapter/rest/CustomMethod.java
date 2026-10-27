@@ -1,4 +1,13 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.adapter.rest;
+
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
@@ -114,10 +123,18 @@ public enum CustomMethod {
      *                depth does not carry — which is a 405 and not a 404: the
      *                address resolved, the verb did not exist
      */
-    public record Split(String address, String verb, CustomMethod method) {
+    public record Split(String address, String verb, @Nullable CustomMethod method) {
 
         public boolean isKnown() {
             return method != null;
+        }
+
+        /** The verb this split names, on a split {@link #isKnown} admitted. */
+        public CustomMethod known() {
+            if (method == null) {
+                throw new IllegalStateException("a split that names no verb has no known verb");
+            }
+            return method;
         }
     }
 }

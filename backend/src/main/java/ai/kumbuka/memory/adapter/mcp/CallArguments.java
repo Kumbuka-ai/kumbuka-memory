@@ -14,9 +14,12 @@ import ai.kumbuka.memory.surface.ArgumentPath;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallException;
 
+import org.jspecify.annotations.Nullable;
+
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The arguments of one tool call, checked against the declaration before a
@@ -78,23 +81,22 @@ final class CallArguments {
     // Reading the checked values
     // ======================================================================
 
-    String top(String name) {
-        return (String) top.get(name);
+    Optional<String> top(String name) {
+        return Optional.ofNullable((String) top.get(name));
     }
 
-    String field(String name) {
-        return (String) fields.get(name);
+    Optional<String> field(String name) {
+        return Optional.ofNullable((String) fields.get(name));
     }
 
     /** A whole number, written as text so that the verb parses it as it parses any. */
-    String number(String name) {
-        Object value = top.get(name);
-        return value == null ? null : value.toString();
+    Optional<String> number(String name) {
+        return Optional.ofNullable(top.get(name)).map(Object::toString);
     }
 
     @SuppressWarnings("unchecked")
-    List<String> list(String name) {
-        return (List<String>) top.get(name);
+    Optional<List<String>> list(String name) {
+        return Optional.ofNullable((List<String>) top.get(name));
     }
 
     // ======================================================================
@@ -121,7 +123,7 @@ final class CallArguments {
         return (Map<String, Object>) raw;
     }
 
-    private static void check(Argument argument, Object value) {
+    private static void check(Argument argument, @Nullable Object value) {
         if (value == null) {
             if (argument.required()) {
                 throw CallException.missing(argument.argumentName());

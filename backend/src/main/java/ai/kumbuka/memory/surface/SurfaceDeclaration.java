@@ -10,6 +10,7 @@ package ai.kumbuka.memory.surface;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.MemoryException.Reason;
 import ai.kumbuka.memory.domain.NextStep;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -146,8 +147,9 @@ public final class SurfaceDeclaration {
             call.put("call", verb.call());
             call.put("effect_class", form.effect().name());
             call.put("depth", form.depth().name());
-            if (form.scopeDepth() != null) {
-                call.put("at_scope_depth", form.scopeDepth().name());
+            EffectClass atScopeDepth = form.scopeDepth();
+            if (atScopeDepth != null) {
+                call.put("at_scope_depth", atScopeDepth.name());
             }
             if (form.technicalAddress()) {
                 call.put("technical_address", true);
@@ -273,7 +275,7 @@ public final class SurfaceDeclaration {
      * @param technicalAddress whether {@code memory://<uuid>} addresses an
      *                         entry for it
      */
-    public record Form(EffectClass effect, AddressDepth depth, EffectClass scopeDepth,
+    public record Form(EffectClass effect, AddressDepth depth, @Nullable EffectClass scopeDepth,
                        boolean technicalAddress, AnswerShape answer, List<String> refusals) {
     }
 
@@ -342,7 +344,7 @@ public final class SurfaceDeclaration {
         }
     }
 
-    private static void canonical(Object value, StringBuilder out) {
+    private static void canonical(@Nullable Object value, StringBuilder out) {
         if (value instanceof Map<?, ?> map) {
             out.append('{');
             map.keySet().stream().map(String::valueOf).sorted().forEach(key -> {

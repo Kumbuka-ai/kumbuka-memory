@@ -1,4 +1,9 @@
 # syntax=docker/dockerfile:1
+# Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+# SPDX-License-Identifier: AGPL-3.0-only
+# This file is part of Kumbuka and is licensed under the GNU Affero
+# General Public License v3.0 only. See the LICENSE file in the
+# repository root for the full licence text.
 # ---------------------------------------------------------------------------
 # The memory service — multi-stage build.
 #
@@ -68,9 +73,9 @@ COPY --from=app /*.jar    /app/
 COPY --from=app /app/     /app/app/
 COPY --from=app /quarkus/ /app/quarkus/
 
-# The health routes, and nothing else. There is no REST extension in this
-# service, so this port serves two paths under /q/health and 404s everything
-# else. It is deliberately not published at the edge.
+# The one port: the generic surface under /api, the assistant surface at /mcp,
+# and the health routes under /q/health. It is deliberately not published at
+# the edge.
 EXPOSE 8080
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en
 USER 1000

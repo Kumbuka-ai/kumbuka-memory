@@ -1,5 +1,13 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.contract;
 
+import ai.kumbuka.memory.CounterProbe;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -27,6 +35,7 @@ import java.util.regex.Pattern;
  * nothing: a probe over an empty result passes for every reason, the wrong
  * ones included.
  */
+@CounterProbe
 public final class Contract {
 
     private static final String RESOURCE = "/contract/assistant-surface.md";
