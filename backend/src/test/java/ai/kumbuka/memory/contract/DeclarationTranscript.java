@@ -7,6 +7,7 @@
  */
 package ai.kumbuka.memory.contract;
 
+import ai.kumbuka.memory.CounterProbe;
 import java.util.List;
 import java.util.Map;
 
@@ -28,6 +29,7 @@ import java.util.Map;
  * technical address, {@code query} a {@code COLLECTION_READ} that reaches the
  * scope as a {@code SCOPE_READ}, {@code digest} a {@code SCOPE_COMPOUND}.
  */
+@CounterProbe
 final class DeclarationTranscript {
 
     private DeclarationTranscript() {
