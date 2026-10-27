@@ -9,6 +9,7 @@ package ai.kumbuka.memory.adapter.rest;
 
 import ai.kumbuka.memory.surface.AssistantVerb;
 import jakarta.enterprise.context.RequestScoped;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Optional;
 
@@ -25,7 +26,7 @@ import java.util.Optional;
 @RequestScoped
 public class RestCall {
 
-    private AssistantVerb verb;
+    private @Nullable AssistantVerb verb;
 
     /** States the verb this request calls. */
     public void is(AssistantVerb called) {

@@ -18,6 +18,7 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.Generated;
 import org.hibernate.annotations.TenantId;
 import org.hibernate.generator.EventType;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -133,7 +134,7 @@ public class Memory {
 
     /** Optional provenance pointer. Never fetched on read, and never credential-bearing. */
     @Column(name = "reference")
-    public String reference;
+    public @Nullable String reference;
 
     // --- what state it is in ----------------------------------------------
 

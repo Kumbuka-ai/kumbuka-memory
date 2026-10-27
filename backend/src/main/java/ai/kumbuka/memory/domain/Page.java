@@ -7,6 +7,8 @@
  */
 package ai.kumbuka.memory.domain;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.List;
 
 /**
@@ -27,7 +29,7 @@ import java.util.List;
  *                      null when this page is the last
  * @param unaddressable how many entries of the scope this surface cannot show
  */
-public record Page(List<EntryView> objects, String nextCursor, long unaddressable) {
+public record Page(List<EntryView> objects, @Nullable String nextCursor, long unaddressable) {
 
     public Page {
         objects = List.copyOf(objects);

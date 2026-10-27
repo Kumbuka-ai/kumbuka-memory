@@ -22,6 +22,7 @@ import ai.kumbuka.memory.surface.Texts;
 import ai.kumbuka.memory.surface.VerbSurface;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -72,12 +73,20 @@ public final class Payloads {
      * the selector are the address and stay in the path. The key is under
      * {@code fields} because it is stored on the entry and answered by
      * {@code read} — it is a value, and the address is derived from it.
+     *
+     * @param fields the values; absent where the body carried none, which the
+     *               verb refuses
      */
-    public record CreateRequest(@JsonProperty("fields") EntryFields fields) {
+    public record CreateRequest(@JsonProperty("fields") @Nullable EntryFields fields) {
     }
 
-    /** The body of an {@code update}. The conflict token is a header, not a value. */
-    public record UpdateRequest(@JsonProperty("fields") EntryFields fields) {
+    /**
+     * The body of an {@code update}. The conflict token is a header, not a value.
+     *
+     * @param fields the values to change; absent where the body carried none,
+     *               which the verb refuses
+     */
+    public record UpdateRequest(@JsonProperty("fields") @Nullable EntryFields fields) {
     }
 
     /**
@@ -86,8 +95,10 @@ public final class Payloads {
      * <p>One member, and it overrides rather than configures: a digest asked
      * with types answers for those types once, and the estate's stored
      * selection is unchanged. There is no write surface for that selection.
+     *
+     * @param types the types to carry; absent for the estate's stored selection
      */
-    public record DigestRequest(@JsonProperty("types") List<String> types) {
+    public record DigestRequest(@JsonProperty("types") @Nullable List<String> types) {
     }
 
     // ======================================================================
@@ -103,17 +114,21 @@ public final class Payloads {
      * the verb rather than left out of this type — a caller that sent
      * {@code scope} needs to be told it is fixed, and a type that could not
      * carry it could not tell it anything.
+     *
+     * <p>Every member may be absent in a body, which says the caller did not
+     * send it. In an answer only {@code reference} is ever absent, and there
+     * it says the entry has none.
      */
     public record EntryFields(
-        @JsonProperty("scope") String scope,
-        @JsonProperty("key") String key,
-        @JsonProperty("type") String type,
-        @JsonProperty("content") String content,
-        @JsonProperty("reference") String reference,
-        @JsonProperty("state") String state,
-        @JsonProperty("private") Boolean isPrivate,
-        @JsonProperty("created_at") Instant createdAt,
-        @JsonProperty("updated_at") Instant updatedAt) {
+        @JsonProperty("scope") @Nullable String scope,
+        @JsonProperty("key") @Nullable String key,
+        @JsonProperty("type") @Nullable String type,
+        @JsonProperty("content") @Nullable String content,
+        @JsonProperty("reference") @Nullable String reference,
+        @JsonProperty("state") @Nullable String state,
+        @JsonProperty("private") @Nullable Boolean isPrivate,
+        @JsonProperty("created_at") @Nullable Instant createdAt,
+        @JsonProperty("updated_at") @Nullable Instant updatedAt) {
 
         /** The one projection of a stored entry. Used by every answer and every refusal. */
         public static EntryFields of(EntryView entry) {
@@ -201,7 +216,8 @@ public final class Payloads {
      */
     public record PageResponse(
         @JsonProperty("objects") List<ListedEntry> objects,
-        @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL) String nextCursor,
+        @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL)
+        @Nullable String nextCursor,
         @JsonProperty("unaddressable") long unaddressable) {
 
         public static PageResponse of(Page page) {
@@ -453,10 +469,10 @@ public final class Payloads {
      * and got a published entry would have been overruled in silence, and
      * would find out from the data rather than from the answer.
      */
-    public static VerbSurface.NewEntry newEntry(CreateRequest request) {
+    public static VerbSurface.NewEntry newEntry(@Nullable CreateRequest request) {
         EntryFields fields = requireFields(request == null ? null : request.fields());
         refuseImmutable(fields, true);
-        Map<String, String> given = new LinkedHashMap<>();
+        Map<String, @Nullable String> given = new LinkedHashMap<>();
         given.put(AssistantVerb.Names.KEY, fields.key());
         given.put(AssistantVerb.Names.TYPE, fields.type());
         given.put(AssistantVerb.Names.CONTENT, fields.content());
@@ -471,7 +487,8 @@ public final class Payloads {
      * {@code null} means the argument was not sent, and a body record cannot
      * tell the two apart anyway.
      */
-    private static void requireDeclaredFields(AssistantVerb verb, Map<String, String> given) {
+    private static void requireDeclaredFields(AssistantVerb verb,
+                                              Map<String, @Nullable String> given) {
         verb.fieldArguments().stream()
             .filter(argument -> argument.required() && given.get(argument.name()) == null)
             .findFirst()
@@ -490,7 +507,7 @@ public final class Payloads {
      * carries the distinction explicitly: a reference is cleared by sending
      * the empty string, which is not a value a reference may otherwise have.
      */
-    public static Patch patch(UpdateRequest request) {
+    public static Patch patch(@Nullable UpdateRequest request) {
         EntryFields fields = requireFields(request == null ? null : request.fields());
         refuseImmutable(fields, false);
 
@@ -501,9 +518,9 @@ public final class Payloads {
                 .map(reference -> reference.isEmpty() ? null : reference));
     }
 
-    /** The types a digest was asked to carry, or null for the estate's selection. */
-    public static List<String> digestTypes(DigestRequest request) {
-        return request == null ? null : request.types();
+    /** The types a digest was asked to carry, or empty for the estate's selection. */
+    public static Optional<List<String>> digestTypes(@Nullable DigestRequest request) {
+        return request == null ? Optional.empty() : Optional.ofNullable(request.types());
     }
 
     /**
@@ -512,7 +529,7 @@ public final class Payloads {
      * surface (DEC-0043 R17). An empty object is something else: an update
      * that names nothing to change.
      */
-    private static EntryFields requireFields(EntryFields fields) {
+    private static EntryFields requireFields(@Nullable EntryFields fields) {
         if (fields == null) {
             throw CallException.missing(AssistantVerb.fieldsName());
         }

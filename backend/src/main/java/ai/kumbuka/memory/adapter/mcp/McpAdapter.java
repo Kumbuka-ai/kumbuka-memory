@@ -37,6 +37,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jspecify.annotations.Nullable;
 import org.jboss.logging.Logger;
 
 import java.io.UncheckedIOException;
@@ -111,6 +112,7 @@ public class McpAdapter {
     @Inject ObjectMapper json;
     @Inject ToolTransaction transaction;
 
+    @Inject
     @ConfigProperty(name = "quarkus.application.version", defaultValue = "unknown")
     String version;
 
@@ -129,7 +131,7 @@ public class McpAdapter {
         if (!(parsed instanceof Map<?, ?> raw)) {
             return error(null, INVALID_REQUEST, Texts.notices().oneRequest());
         }
-        Map<String, Object> request = objectOf(raw);
+        Map<String, Object> request = objectOf(raw).orElseGet(Map::of);
         Object id = request.get("id");
         if (!JSONRPC.equals(request.get(KEY_JSONRPC))) {
             return error(id, INVALID_REQUEST, Texts.notices().notJsonRpc());
@@ -177,11 +179,12 @@ public class McpAdapter {
             .toList();
     }
 
-    private Response call(Object id, Map<String, Object> request) {
-        Map<String, Object> params = presentObject(request, "params");
-        if (params == null) {
+    private Response call(@Nullable Object id, Map<String, Object> request) {
+        Optional<Map<String, Object>> present = presentObject(request, "params");
+        if (present.isEmpty()) {
             return error(id, INVALID_PARAMS, Texts.notices().paramsObject());
         }
+        Map<String, Object> params = present.get();
         String tool = String.valueOf(params.get("name"));
         Optional<AssistantVerb> verb = AssistantVerb.byCall(tool);
         if (verb.isEmpty()) {
@@ -190,13 +193,13 @@ public class McpAdapter {
             // tools there are and never the name that arrived (DEC-0043 R19).
             return error(id, INVALID_PARAMS, Texts.notices().tools(AssistantVerb.verbNames()));
         }
-        Map<String, Object> args = presentObject(params, "arguments");
-        if (args == null) {
+        Optional<Map<String, Object>> args = presentObject(params, "arguments");
+        if (args.isEmpty()) {
             // Present and not an object: there are no named arguments to
             // refuse one of, so this is no call yet.
             return error(id, INVALID_PARAMS, Texts.notices().argumentsObject());
         }
-        return result(id, toolResult(verb.get(), args));
+        return result(id, toolResult(verb.get(), args.get()));
     }
 
     // ======================================================================
@@ -218,7 +221,7 @@ public class McpAdapter {
             return transaction.run(() -> content(invoke(verb, in), false));
         } catch (CallException e) {
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(AssistantRefusals.of(verb, e, seen(verb, args, null)));
+            return refused(AssistantRefusals.of(verb, e, seen(verb, args, Optional.empty())));
         } catch (MemoryException e) {
             if (!foreseen(e)) {
                 // A reason of the generic surface arriving here — a session
@@ -228,7 +231,8 @@ public class McpAdapter {
                     UnexpectedFailures.logged(verb.call(), e)));
             }
             LOG.debugf("assistant refusal: %s", e.reason());
-            return refused(AssistantRefusals.of(verb, e, reasonOf(e), seen(verb, args, e)));
+            return refused(AssistantRefusals.of(verb, e, reasonOf(e),
+                seen(verb, args, Optional.of(e))));
         }
     }
 
@@ -241,26 +245,36 @@ public class McpAdapter {
         return ReasonCatalogue.of(ReasonCatalogue.wireCode(e.reason().name()));
     }
 
+    /**
+     * The verb this call names, with its arguments.
+     *
+     * <p>A required argument is read with {@code orElseThrow}: the check in
+     * {@link CallArguments} refused the call already where it was absent, so
+     * the absence cannot arrive here.
+     */
     private Object invoke(AssistantVerb verb, CallArguments in) {
         Actor actor = caller.current();
         return switch (verb) {
             case CREATE -> AssistantPayloads.EntryAnswer.of(verbs.create(actor,
-                in.top(Names.SCOPE), in.top(Names.SELECTOR),
-                new VerbSurface.NewEntry(in.field(Names.KEY), in.field(Names.TYPE),
-                    in.field(Names.CONTENT), in.field(Names.REFERENCE))).entry());
+                in.top(Names.SCOPE).orElseThrow(), in.top(Names.SELECTOR).orElseThrow(),
+                new VerbSurface.NewEntry(in.field(Names.KEY).orElse(null),
+                    in.field(Names.TYPE).orElse(null), in.field(Names.CONTENT).orElse(null),
+                    in.field(Names.REFERENCE).orElse(null))).entry());
             case READ -> AssistantPayloads.EntryAnswer.of(verbs.read(actor,
-                AddressParser.complete(in.top(Names.ADDRESS))).entry());
+                AddressParser.complete(in.top(Names.ADDRESS).orElseThrow())).entry());
             case UPDATE -> AssistantPayloads.EntryAnswer.of(verbs.update(actor,
-                AddressParser.complete(in.top(Names.ADDRESS)), in.top(Names.CONFLICT_TOKEN),
-                new Patch(Optional.ofNullable(in.field(Names.TYPE)),
-                    Optional.ofNullable(in.field(Names.CONTENT)),
-                    Optional.ofNullable(in.field(Names.REFERENCE)))).entry());
+                AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
+                in.top(Names.CONFLICT_TOKEN).orElse(null),
+                new Patch(in.field(Names.TYPE), in.field(Names.CONTENT),
+                    in.field(Names.REFERENCE))).entry());
             case WITHDRAW -> AssistantPayloads.WithdrawalAnswer.of(verbs.withdraw(actor,
-                AddressParser.complete(in.top(Names.ADDRESS)), in.top(Names.CONFLICT_TOKEN)));
+                AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
+                in.top(Names.CONFLICT_TOKEN).orElse(null)));
             case QUERY -> AssistantPayloads.PageAnswer.of(verbs.query(actor,
-                in.top(Names.SCOPE), in.top(Names.SELECTOR), narrowing(in)));
+                in.top(Names.SCOPE).orElseThrow(), in.top(Names.SELECTOR).orElse(null),
+                narrowing(in)));
             case DIGEST -> Payloads.DigestResponse.of(verbs.digest(actor,
-                in.top(Names.SCOPE), in.list(Names.TYPES)));
+                in.top(Names.SCOPE).orElseThrow(), in.list(Names.TYPES).orElse(null)));
         };
     }
 
@@ -273,12 +287,12 @@ public class McpAdapter {
      */
     private static Map<String, String> narrowing(CallArguments in) {
         Map<String, String> asked = new LinkedHashMap<>();
-        putIfPresent(asked, Names.TYPE, in.top(Names.TYPE));
-        putIfPresent(asked, Names.TEXT, in.top(Names.TEXT));
-        putIfPresent(asked, Names.AFTER, in.top(Names.AFTER));
-        putIfPresent(asked, Names.SORT, in.top(Names.SORT));
-        putIfPresent(asked, Names.DIRECTION, in.top(Names.DIRECTION));
-        putIfPresent(asked, Names.PAGE_SIZE, in.number(Names.PAGE_SIZE));
+        in.top(Names.TYPE).ifPresent(value -> asked.put(Names.TYPE, value));
+        in.top(Names.TEXT).ifPresent(value -> asked.put(Names.TEXT, value));
+        in.top(Names.AFTER).ifPresent(value -> asked.put(Names.AFTER, value));
+        in.top(Names.SORT).ifPresent(value -> asked.put(Names.SORT, value));
+        in.top(Names.DIRECTION).ifPresent(value -> asked.put(Names.DIRECTION, value));
+        in.number(Names.PAGE_SIZE).ifPresent(value -> asked.put(Names.PAGE_SIZE, value));
         return asked;
     }
 
@@ -292,8 +306,9 @@ public class McpAdapter {
      * here from the refusal.
      */
     private Optional<EntryView> seen(AssistantVerb verb, Map<String, Object> args,
-                                     MemoryException e) {
-        if (e != null) {
+                                     Optional<MemoryException> refusal) {
+        if (refusal.isPresent()) {
+            MemoryException e = refusal.get();
             if (e.data().get(AssistantVerb.FIELDS) instanceof EntryView current) {
                 return Optional.of(current);
             }
@@ -302,11 +317,11 @@ public class McpAdapter {
                 return Optional.empty();
             }
         }
-        Object address = null;
+        @Nullable Object address = null;
         if (AssistantRefusals.takesAddress(verb)) {
             address = args.get(Names.ADDRESS);
         } else if (verb == AssistantVerb.CREATE) {
-            address = targetOfCreate(args);
+            address = targetOfCreate(args).orElse(null);
         }
         if (!(address instanceof String complete)) {
             return Optional.empty();
@@ -332,16 +347,16 @@ public class McpAdapter {
 
     /**
      * The address a create aimed at, from the scope and the key it was sent;
-     * null where the key carries no selector and so names no address.
+     * empty where the key carries no selector and so names no address.
      */
-    private static String targetOfCreate(Map<String, Object> args) {
+    private static Optional<String> targetOfCreate(Map<String, Object> args) {
         if (!(args.get(Names.SCOPE) instanceof String scope)
             || !(args.get(AssistantVerb.FIELDS) instanceof Map<?, ?> fields)
             || !(fields.get(Names.KEY) instanceof String key)
             || key.indexOf(EntryAddress.SEPARATOR) < 1) {
-            return null;
+            return Optional.empty();
         }
-        return EntryAddress.ofKey(scope, key).canonical();
+        return Optional.of(EntryAddress.ofKey(scope, key).canonical());
     }
 
     // ======================================================================
@@ -370,7 +385,7 @@ public class McpAdapter {
         return result;
     }
 
-    private static Response result(Object id, Object payload) {
+    private static Response result(@Nullable Object id, Object payload) {
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put(KEY_JSONRPC, JSONRPC);
         envelope.put("id", id);
@@ -378,7 +393,7 @@ public class McpAdapter {
         return Response.ok(envelope).build();
     }
 
-    private static Response error(Object id, int code, String message) {
+    private static Response error(@Nullable Object id, int code, String message) {
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put(KEY_JSONRPC, JSONRPC);
         envelope.put("id", id);
@@ -388,21 +403,17 @@ public class McpAdapter {
 
     /**
      * A member of a JSON object that is itself an object: absent is the empty
-     * object, and present but not an object is null.
+     * object, and present but not an object is no object at all.
      */
-    private static Map<String, Object> presentObject(Map<String, Object> in, String name) {
-        return in.containsKey(name) ? objectOf(in.get(name)) : Map.of();
+    private static Optional<Map<String, Object>> presentObject(Map<String, Object> in,
+                                                               String name) {
+        return in.containsKey(name) ? objectOf(in.get(name)) : Optional.of(Map.of());
     }
 
-    /** The value as an object, or null when it is not one. */
+    /** The value as an object, or empty when it is not one. */
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> objectOf(Object value) {
-        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
-    }
-
-    private static void putIfPresent(Map<String, String> into, String name, String value) {
-        if (value != null) {
-            into.put(name, value);
-        }
+    private static Optional<Map<String, Object>> objectOf(@Nullable Object value) {
+        return value instanceof Map<?, ?> map
+            ? Optional.of((Map<String, Object>) map) : Optional.empty();
     }
 }

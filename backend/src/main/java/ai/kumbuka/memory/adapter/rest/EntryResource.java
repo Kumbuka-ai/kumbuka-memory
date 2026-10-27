@@ -39,6 +39,7 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
 import jakarta.ws.rs.core.UriInfo;
+import org.jspecify.annotations.Nullable;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -211,7 +212,7 @@ public class EntryResource {
         // so a create is posted one segment further in.
         CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.SCOPE, SCOPE_ALLOW);
 
-        return switch (at.method()) {
+        return switch (at.known()) {
             case DIGEST -> digest(at, body);
             case WITHDRAW -> throw new IllegalStateException(
                 "withdraw acts at item depth and cannot arrive here");
@@ -222,7 +223,8 @@ public class EntryResource {
         call.is(AssistantVerb.DIGEST);
         return Response.ok(Payloads.DigestResponse.of(
                 verbs.digest(caller.current(), at.address(),
-                    Payloads.digestTypes(read(body, Payloads.DigestRequest.class))))).build();
+                    Payloads.digestTypes(read(body, Payloads.DigestRequest.class).orElse(null))
+                        .orElse(null)))).build();
     }
 
     // ======================================================================
@@ -270,7 +272,7 @@ public class EntryResource {
 
         call.is(AssistantVerb.CREATE);
         VerbSurface.Answer answer = verbs.create(caller.current(), scope, segment,
-            Payloads.newEntry(read(body, Payloads.CreateRequest.class)));
+            Payloads.newEntry(read(body, Payloads.CreateRequest.class).orElse(null)));
 
         return tagged(Response
             .created(UriBuilder.fromResource(EntryResource.class)
@@ -311,13 +313,13 @@ public class EntryResource {
     public Response update(@PathParam("scope") String scope,
                            @PathParam("selector") String selector,
                            @PathParam("id") String id,
-                           @HeaderParam("If-Match") String ifMatch,
+                           @HeaderParam("If-Match") @Nullable String ifMatch,
                            String body) {
         call.is(AssistantVerb.UPDATE);
         VerbSurface.Answer answer = verbs.update(caller.current(),
             new AddressParser.Parts(scope, selector, id),
-            unquoted(ifMatch),
-            Payloads.patch(read(body, Payloads.UpdateRequest.class)));
+            unquoted(ifMatch).orElse(null),
+            Payloads.patch(read(body, Payloads.UpdateRequest.class).orElse(null)));
         return answer(answer);
     }
 
@@ -334,7 +336,7 @@ public class EntryResource {
     public Response itemPost(@PathParam("scope") String scope,
                              @PathParam("selector") String selector,
                              @PathParam("id") String segment,
-                             @HeaderParam("If-Match") String ifMatch) {
+                             @HeaderParam("If-Match") @Nullable String ifMatch) {
         // An entry carries one verb in colon notation,
         // 'POST /api/<scope>/<selector>/<id>:withdraw'. Reading it is a GET and
         // changing it is a PATCH; there is no DELETE, because a withdrawal is an
@@ -342,7 +344,7 @@ public class EntryResource {
         // removal of a resource.
         CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.ITEM, ITEM_ALLOW);
 
-        return switch (at.method()) {
+        return switch (at.known()) {
             case WITHDRAW -> withdraw(scope, selector, at, ifMatch);
             case DIGEST -> throw new IllegalStateException(
                 "digest acts at scope depth and cannot arrive here");
@@ -350,12 +352,12 @@ public class EntryResource {
     }
 
     private Response withdraw(String scope, String selector, CustomMethod.Split at,
-                              String ifMatch) {
+                              @Nullable String ifMatch) {
         call.is(AssistantVerb.WITHDRAW);
         return Response.ok(Payloads.WithdrawnResponse.of(
                 verbs.withdraw(caller.current(),
                     new AddressParser.Parts(scope, selector, at.address()),
-                    unquoted(ifMatch)))).build();
+                    unquoted(ifMatch).orElse(null)))).build();
     }
 
     // ======================================================================
@@ -374,7 +376,8 @@ public class EntryResource {
      * would be a token a caller could send back on a field write, which is a
      * token about the wrong thing. Every entry of the listing carries its own.
      */
-    private Response query(String scope, String selector, UriInfo uri, HttpHeaders http) {
+    private Response query(String scope, @Nullable String selector, UriInfo uri,
+                           HttpHeaders http) {
         call.is(AssistantVerb.QUERY);
         Map<String, String> asked = parametersOf(uri);
         if (!onAssistantSurface(http.getRequestHeader(SURFACE))) {
@@ -489,34 +492,34 @@ public class EntryResource {
      * stripped, because refusing one of them would be refusing a caller for
      * following the other half of the same contract.
      */
-    private static String unquoted(String ifMatch) {
+    private static Optional<String> unquoted(@Nullable String ifMatch) {
         if (ifMatch == null) {
-            return null;
+            return Optional.empty();
         }
         String trimmed = ifMatch.trim();
         if (trimmed.startsWith("W/")) {
             trimmed = trimmed.substring(2).trim();
         }
         if (trimmed.length() >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
-            return trimmed.substring(1, trimmed.length() - 1);
+            return Optional.of(trimmed.substring(1, trimmed.length() - 1));
         }
-        return trimmed;
+        return Optional.of(trimmed);
     }
 
     /**
      * Deserialises the request body, after the shape has been decided.
      *
-     * <p>An absent body is null rather than an error: some verbs take one and
+     * <p>An absent body is empty rather than an error: some verbs take one and
      * some do not, and which is which is the verb's business rather than the
      * transport's. The verb refuses a missing body where it needs one, with a
      * message that says what was missing.
      */
-    private <T> T read(String body, Class<T> shape) {
+    private <T> Optional<T> read(@Nullable String body, Class<T> shape) {
         if (body == null || body.isBlank()) {
-            return null;
+            return Optional.empty();
         }
         try {
-            return json.readValue(body, shape);
+            return Optional.ofNullable(json.readValue(body, shape));
         } catch (JsonProcessingException e) {
             // The parser's message quotes the body it rejected, so it goes
             // nowhere: neither into the refusal nor into this exception.

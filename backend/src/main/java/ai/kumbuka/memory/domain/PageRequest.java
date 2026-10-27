@@ -7,6 +7,8 @@
  */
 package ai.kumbuka.memory.domain;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.List;
 
 /**
@@ -24,7 +26,7 @@ import java.util.List;
  * @param direction which way that order runs
  * @param pageSize  how many entries this page carries at most
  */
-public record PageRequest(String after, SortKey sort, SortKey.Direction direction,
+public record PageRequest(@Nullable String after, SortKey sort, SortKey.Direction direction,
                           int pageSize) {
 
     /** The order a caller gets without asking: by key. */

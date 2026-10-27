@@ -13,6 +13,7 @@ import ai.kumbuka.memory.domain.Page;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 import java.util.Locale;
@@ -59,7 +60,8 @@ public final class AssistantPayloads {
      */
     public record PageAnswer(
         @JsonProperty("objects") List<EntryAnswer> objects,
-        @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL) String nextCursor,
+        @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL)
+        @Nullable String nextCursor,
         @JsonProperty("unaddressable") long unaddressable) {
 
         public static PageAnswer of(Page page) {
