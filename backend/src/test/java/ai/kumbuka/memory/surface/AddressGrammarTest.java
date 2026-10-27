@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.MemoryException;
@@ -32,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class AddressGrammarTest {
 
-    /** The shape V1's {@code memory_key_format} carries, before the rewrite. */
+    /** The shape V1's {@code ck_memory_key_format} carries, before the rewrite. */
     private static final Pattern KEY_BACKTRACKING =
         Pattern.compile("^[a-z0-9]+([.-][a-z0-9]+)*$");
 

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.tenancy;
 
 import ai.kumbuka.memory.domain.ContentRelation;
@@ -8,6 +15,7 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 
@@ -35,6 +43,7 @@ public class OrmFixture {
 
     @Inject EntityManager em;
     @Inject TenantContext tenantContext;
+    @Inject Clock clock;
 
     /** Writes one entry for the currently bound tenant, through Hibernate. */
     @Transactional
@@ -49,6 +58,9 @@ public class OrmFixture {
         entry.type = "decision";
         entry.key = key;
         entry.content = "probe content";
+        // The times are the application's to write, from the service's clock,
+        // as MemoryService.create writes them (C20.1).
+        entry.laidDownAt(clock.instant());
         em.persist(entry);
         return entry.logicalId;
     }

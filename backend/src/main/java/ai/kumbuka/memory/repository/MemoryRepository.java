@@ -17,13 +17,16 @@ import ai.kumbuka.memory.tenancy.TenantBound;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
+import org.hibernate.exception.ConstraintViolationException;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -90,6 +93,13 @@ public class MemoryRepository {
     /** An entry whose key carries a selector, and can therefore be addressed. */
     private static final String ADDRESSABLE = "m.key IS NOT NULL AND LOCATE('.', m.key) > 1";
 
+    /**
+     * The two unique indexes of V1 that hold one entry in force per key: per
+     * shared scope, and per private scope and author.
+     */
+    private static final Set<String> KEY_UNIQUENESS =
+        Set.of("uq_memory_shared_key", "uq_memory_private_key");
+
     @Inject EntityManager em;
 
     /**
@@ -103,13 +113,52 @@ public class MemoryRepository {
      */
     @Transactional
     public Optional<Memory> findInScope(UUID scopeId, String key, String caller) {
-        return only(em.createQuery(
+        return inScope(scopeId, key, caller, LockModeType.NONE);
+    }
+
+    /**
+     * The entry in force at a key, as this caller sees it, locked for the
+     * caller's transaction.
+     *
+     * <p>A write that depends on the entry as it stands — {@code update} and
+     * {@code withdraw}, which compare a token before they write — reads it
+     * here, so two such writes on one entry decide one after the other and
+     * the second decides on what the first wrote (C10.2, C11.1). The entry
+     * answered is the row as it stands under the lock: see {@link #underLock}.
+     */
+    @Transactional
+    public Optional<Memory> lockInScope(UUID scopeId, String key, String caller) {
+        return inScope(scopeId, key, caller, LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    private Optional<Memory> inScope(UUID scopeId, String key, String caller,
+                                     LockModeType mode) {
+        Optional<Memory> found = only(em.createQuery(
                 "SELECT m FROM Memory m WHERE m.scopeId = :" + SCOPE
                     + " AND m.key = :key" + AND + IN_FORCE_AND_VISIBLE, Memory.class)
             .setParameter(SCOPE, scopeId)
             .setParameter("key", key)
             .setParameter(CALLER, caller)
+            .setLockMode(mode)
             .getResultList());
+        return mode == LockModeType.NONE ? found : found.map(this::underLock);
+    }
+
+    /**
+     * The entity as its row stands now that this transaction holds the lock.
+     * Every locking read of this repository answers through here, which
+     * {@code LockedReadRefreshTest} holds.
+     *
+     * <p>A locking query takes the lock on the current row, but where the
+     * transaction already holds the entity — an earlier read without a lock
+     * put it there — the persistence context answers that earlier object and
+     * not what the query found, and the token compared would be the one read
+     * before the lock. The refresh reads the locked row again, at the cost of
+     * one more read per locked row.
+     */
+    private <T> T underLock(T entity) {
+        em.refresh(entity);
+        return entity;
     }
 
     /**
@@ -156,17 +205,47 @@ public class MemoryRepository {
             .getResultList());
     }
 
-    /** Writes a new entry and returns it with its server-derived fields filled in. */
+    /**
+     * Writes a new entry and returns it with its server-derived fields filled
+     * in, or nothing where one of the two partial unique indexes refused it.
+     *
+     * <p>Nothing means another entry in force took the key between the
+     * caller's occupant check and this insert: two creates on one key at
+     * once, both past the check, the second waiting at the index until the
+     * first commits. That is an occupied address and not a failure, and the
+     * caller answers it as one. Any other violation stays what it is.
+     *
+     * <p>The transaction is lost either way: the database aborts it at the
+     * refused statement, so the caller ends the call rather than going on.
+     */
     @Transactional
-    public Memory insert(Memory entry) {
+    public Optional<Memory> insert(Memory entry) {
         em.persist(entry);
         // Flushed here rather than at commit so that the two partial unique
         // indexes speak while the call is still in the verb that can turn
         // their answer into a refusal. After the boundary the same violation
         // surfaces from the transaction manager, far from the caller and
         // outside the typed refusal model.
-        em.flush();
-        return entry;
+        try {
+            em.flush();
+        } catch (RuntimeException refused) {
+            if (isOccupied(refused)) {
+                return Optional.empty();
+            }
+            throw refused;
+        }
+        return Optional.of(entry);
+    }
+
+    /** Whether a failed write was refused by one of {@link #KEY_UNIQUENESS}. */
+    private static boolean isOccupied(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation
+                    && KEY_UNIQUENESS.contains(violation.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Writes the changed fields of an entry that is already attached. */

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.boundary;
 
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -146,6 +153,13 @@ class ServiceRoleConformanceIT {
                 + "guarantee: no verb writes that table, and the missing grant is what "
                 + "makes it impossible rather than merely unimplemented")
             .containsExactly("SELECT");
+        assertThat(grantsOn(OWN_SCHEMA, "idempotency_key"))
+            .as("and on the idempotency ledger of V10 the three a ledger needs: SELECT to "
+                + "recognise a repeat, INSERT to remember a first call, UPDATE to replace a "
+                + "key older than 24 hours. No DELETE: no path removes a row there. A new "
+                + "relation nobody granted is a refused statement on the first call that "
+                + "touches it, which is why the grant is asserted before any code uses it")
+            .containsExactly("INSERT", "SELECT", "UPDATE");
     }
 
     /**

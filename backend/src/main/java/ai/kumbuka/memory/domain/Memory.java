@@ -7,6 +7,7 @@
  */
 package ai.kumbuka.memory.domain;
 
+import ai.kumbuka.memory.repository.StoredInstant;
 import ai.kumbuka.memory.tenancy.StringUuidConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -173,19 +174,20 @@ public class Memory {
     // --- technical fields, server-derived ---------------------------------
 
     /**
-     * Written by the database default and read back, never sent.
+     * Written by the application from the injected clock, at the insert, and
+     * never changed afterwards (C20.1).
      *
-     * <p>{@code @Generated} is what tells Hibernate to fetch the value rather
-     * than to supply one: without it the entity would carry whatever it last
-     * saw, and an insert would try to write a null into a not-null column.
+     * <p>The column keeps its database default {@code now()}. No statement of
+     * this service relies on it; it stays for the image before this one,
+     * which inserts without a time, so that an image rollback meets a schema
+     * it can still write (N-1).
      */
-    @Generated(event = EventType.INSERT)
-    @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     public Instant createdAt;
 
     /**
-     * Written by the database default at insert; written by the verb on every
-     * change afterwards.
+     * Written by the application from the injected clock: at the insert, and
+     * on every change afterwards.
      *
      * <p>This is the entry's conflict token. A caller reads it, hands it back
      * on the next write, and the write is refused when it is no longer the
@@ -195,18 +197,34 @@ public class Memory {
      * now would fire for a direct SQL writer as well, which would make a token
      * change that no verb produced.
      *
-     * <p>{@code insertable = false} keeps the insert on the database's clock
-     * together with {@code created_at}, so a fresh entry's two timestamps
-     * come from one source and are equal. {@code updatable = true} is what
-     * lets the verb move it afterwards.
-     *
-     * <p>A verb that moves it takes the moment from
-     * {@link ai.kumbuka.memory.repository.StoredInstant}, never from
-     * {@code Instant.now()} directly: this column keeps microseconds and a
-     * platform clock may offer more, and the difference is the token. The
-     * reasoning is there rather than repeated here.
+     * <p>It is moved only through {@link #laidDownAt} and {@link #changedAt},
+     * which keep it at the precision the column stores and strictly rising.
      */
-    @Generated(event = EventType.INSERT)
-    @Column(name = "updated_at", nullable = false, insertable = false)
+    @Column(name = "updated_at", nullable = false)
     public Instant updatedAt;
+
+    /**
+     * Stamps an entry being laid down: it is created and last changed at the
+     * same moment, at the precision the column keeps.
+     */
+    public void laidDownAt(Instant at) {
+        this.createdAt = StoredInstant.asStored(at);
+        this.updatedAt = this.createdAt;
+    }
+
+    /**
+     * Stamps a write that changed the entry: the change time, and with it the
+     * conflict token, becomes {@code max(at, previous + 1 µs)} (C10.1).
+     *
+     * <p>Two writes in one microsecond therefore answer two tokens, and a
+     * clock set back never hands out a token the entry already had. A write
+     * that changes nothing does not call this, and keeps its token
+     * (DEC-0041).
+     */
+    public void changedAt(Instant at) {
+        Instant now = StoredInstant.asStored(at);
+        Instant floor = StoredInstant.asStored(updatedAt)
+            .plus(1, StoredInstant.COLUMN_PRECISION);
+        this.updatedAt = now.isBefore(floor) ? floor : now;
+    }
 }

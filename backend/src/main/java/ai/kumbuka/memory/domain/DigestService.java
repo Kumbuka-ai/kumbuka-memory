@@ -222,7 +222,7 @@ public class DigestService {
         if (!unknown.isEmpty()) {
             throw new IllegalStateException(
                 "memory.digest_preference.types carries " + unknown + ", which is not a "
-                    + "kind of entry this service knows. digest_preference_types_known "
+                    + "kind of entry this service knows. ck_digest_preference_types_known "
                     + "should have refused the row, so either the constraint or this "
                     + "vocabulary has moved without the other.");
         }

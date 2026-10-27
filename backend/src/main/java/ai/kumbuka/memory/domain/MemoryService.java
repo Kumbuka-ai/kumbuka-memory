@@ -10,13 +10,13 @@ package ai.kumbuka.memory.domain;
 import ai.kumbuka.memory.platform.Access;
 import ai.kumbuka.memory.platform.ScopeDirectory;
 import ai.kumbuka.memory.repository.MemoryRepository;
-import ai.kumbuka.memory.repository.StoredInstant;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import ai.kumbuka.memory.tenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
+import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,8 +54,8 @@ import java.util.regex.Pattern;
 public class MemoryService {
 
     /**
-     * The longest an entry may be, restated from {@code memory_content_len}
-     * in V1.
+     * The longest an entry may be, restated from {@code ck_memory_content_len}
+     * (V1, named so by V9).
      *
      * <p>Checked here as well as there. The table's constraint is the backstop
      * that also holds against SQL which never came through a verb; this is the
@@ -81,6 +81,7 @@ public class MemoryService {
     @Inject MemoryRepository entries;
     @Inject TenantContext tenants;
     @Inject Withdrawal withdrawal;
+    @Inject Clock clock;
 
     // ======================================================================
     // create
@@ -122,8 +123,14 @@ public class MemoryService {
         entry.content = draft.content();
         entry.reference = draft.reference();
         entry.source = SOURCE_SERVICE;
+        entry.laidDownAt(clock.instant());
 
-        return EntryView.of(entries.insert(entry), scope.slug(), true);
+        // The occupant check above answers the ordinary case. A second create
+        // on the same key that passed it at the same time meets the unique
+        // index at the insert instead; the repository reports that as an
+        // absent insert, and it is the same occupied address.
+        Memory laidDown = entries.insert(entry).orElseThrow(MemoryService::occupied);
+        return EntryView.of(laidDown, scope.slug(), true);
     }
 
     // ======================================================================
@@ -172,13 +179,19 @@ public class MemoryService {
      * allocates no new token and leaves the change time alone (DEC-0041). The
      * answer is the entry as it stands, with the token the caller already had
      * — so a retry that arrives twice is not a second version.
+     *
+     * <p>The entry is read under {@code PESSIMISTIC_WRITE} and refreshed under
+     * the lock, and only then is the token compared (C10.2, C11.1). The read,
+     * the comparison and the write stand in this one transaction, which the
+     * adapter's transaction joins, so a second writer with the same token
+     * waits at the read and then compares against what the first wrote.
      */
     @Transactional
     public EntryView update(Actor actor, EntryAddress address, String conflictToken,
                             Patch patch) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
-        Memory entry = entries.findInScope(scope.scopeId(), address.key(), actor.subject())
+        Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
             .orElseThrow(MemoryService::absent);
 
         requireCurrentToken(conflictToken, entry, scope);
@@ -203,7 +216,7 @@ public class MemoryService {
         entry.reference = reference;
         entry.updatedBy = actor.subject();
         entry.updatedSource = SOURCE_SERVICE;
-        entry.updatedAt = StoredInstant.now();
+        entry.changedAt(clock.instant());
 
         return EntryView.of(entries.update(entry), scope.slug(), true);
     }
@@ -219,12 +232,16 @@ public class MemoryService {
      * everything around it — that the scope permits a write, that the entry is
      * this caller's to see, that the token is current — and the edition's
      * implementation is handed an entry that has passed all of it.
+     *
+     * <p>Read under {@code PESSIMISTIC_WRITE} and refreshed under the lock,
+     * as {@code update} is, so that a withdrawal never removes an entry that
+     * changed after its caller read the token.
      */
     @Transactional
     public Withdrawn withdraw(Actor actor, EntryAddress address, String conflictToken) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
-        Memory entry = entries.findInScope(scope.scopeId(), address.key(), actor.subject())
+        Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
             .orElseThrow(MemoryService::absent);
 
         requireCurrentToken(conflictToken, entry, scope);

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.tenancy;
 
 import io.quarkus.test.common.QuarkusTestResource;
@@ -328,6 +335,64 @@ class RowLevelSecurityProbeIT {
         }
     }
 
+    /**
+     * The same two guarantees on the idempotency ledger of V10, which carries
+     * its own policy and which no code reads or writes yet: its isolation is
+     * asserted here before the first caller can depend on it.
+     */
+    @Test
+    void the_idempotency_ledger_is_isolated_and_refuses_a_foreign_tenant_write()
+            throws SQLException {
+        try (Connection c = Db.asService()) {
+            Db.bindTenant(c, tenantB);
+            insertLedgerRow(c, tenantB);
+            c.commit();
+
+            Db.bindTenant(c, tenantB);
+            assertThat(countLedgerRows(c))
+                .as("the key is really in the ledger, counted under its own tenant")
+                .isEqualTo(1);
+
+            Db.bindTenant(c, tenantA);
+            assertThat(countLedgerRows(c))
+                .as("and tenant A sees none of it")
+                .isZero();
+
+            try {
+                insertLedgerRow(c, tenantB);
+                throw new AssertionError(
+                    "a session bound to tenant A wrote a ledger row owned by tenant B — the "
+                        + "ledger's policy is missing its WITH CHECK");
+            } catch (SQLException expected) {
+                assertThat(expected.getMessage()).contains("row-level security");
+            } finally {
+                c.rollback();
+            }
+        }
+    }
+
+    private static void insertLedgerRow(Connection c, UUID tenant) throws SQLException {
+        try (var st = c.prepareStatement("""
+                INSERT INTO memory.idempotency_key (tenant_id, scope_id, caller_subject,
+                    idempotency_key, call_name, argument_digest, entry_logical_id,
+                    first_seen_at)
+                VALUES (?, ?::uuid, 'probe', ?, 'create', 'digest', gen_random_uuid(), now())
+                """)) {
+            st.setObject(1, tenant);
+            st.setString(2, SubstrateDatabaseResource.SCOPE_ID);
+            st.setString(3, "key-" + UUID.randomUUID());
+            st.executeUpdate();
+        }
+    }
+
+    private static long countLedgerRows(Connection c) throws SQLException {
+        try (var s = c.createStatement();
+             var rs = s.executeQuery("SELECT count(*) FROM memory.idempotency_key")) {
+            rs.next();
+            return rs.getLong(1);
+        }
+    }
+
     private static long countRelations(Connection c) throws SQLException {
         try (var s = c.createStatement();
              var rs = s.executeQuery("SELECT count(*) FROM " + Db.RELATION_TABLE)) {
@@ -340,7 +405,7 @@ class RowLevelSecurityProbeIT {
      * A key that is unique to the tenant and satisfies the key-format check.
      *
      * <p>A uuid renders as lower-case hexadecimal separated by hyphens, which
-     * is exactly what {@code memory_key_format} admits — so the probe can
+     * is exactly what {@code ck_memory_key_format} admits — so the probe can
      * carry the tenant in the key it later counts on, and the count in a
      * failing assertion says which tenant it was about.
      */

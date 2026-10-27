@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.repository;
 
 import java.time.Instant;
@@ -23,7 +30,8 @@ import java.time.temporal.ChronoUnit;
  *
  * <h2>Why the precision is fixed here rather than at each assignment</h2>
  *
- * There is one assignment today and there will be more. A rule applied at
+ * There are two assignments today, {@code Memory.laidDownAt} and
+ * {@code Memory.changedAt}, and there will be more. A rule applied at
  * each of them is a rule that holds until somebody adds the next one, and the
  * omission would not fail anywhere near the line that caused it — it would
  * fail at a caller's SECOND write, in another service, against a token this
@@ -59,16 +67,11 @@ public final class StoredInstant {
     private StoredInstant() {
     }
 
-    /** Now, as the row will hold it. */
-    public static Instant now() {
-        return asStored(Instant.now());
-    }
-
     /**
      * A moment reduced to what the column keeps of it.
      *
-     * <p>Separate from {@link #now()}, and the separation is what makes the
-     * rule testable at all. Asserted through {@code now()} the reduction is
+     * <p>It takes a moment rather than reading one, and that is what makes the
+     * rule testable at all. Asserted through a read of the clock the reduction is
      * invisible wherever the platform clock is already coarse — measured on
      * macOS on 2026-09-22: with the truncation removed, a probe reading
      * {@code now()} a thousand times stayed green, because that clock ticks
