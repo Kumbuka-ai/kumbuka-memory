@@ -1,5 +1,13 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.repository;
 
+import ai.kumbuka.memory.domain.Memory;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -19,16 +27,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * defect — but it does mean the gate is one a developer cannot observe
  * failing locally.
  *
- * <p>The first attempt at closing that here read {@link StoredInstant#now()}
+ * <p>The first attempt at closing that here read the service's clock
  * a thousand times and asserted no sub-microsecond digit came back. Measured
  * on macOS on 2026-09-22, with the truncation removed: still green, three
  * tests, no failures. The clock never offered a finer digit, so nothing
  * observed whether one would have been dropped.
  *
  * <p>So the reduction is asked directly, with a moment supplied rather than
- * read. {@link StoredInstant#asStored} is the derivation {@code now()} itself
- * runs on, so this is not a second path built to be testable — it is the same
- * one, given an input the platform cannot flatten first.
+ * read. {@link StoredInstant#asStored} is the derivation every stamp of an
+ * entry runs on ({@code Memory.laidDownAt} and {@code Memory.changedAt}, fed
+ * from the injected clock), so this is not a second path built to be
+ * testable — it is the same one, given an input the platform cannot flatten
+ * first.
  */
 class StoredInstantTest {
 
@@ -75,41 +85,50 @@ class StoredInstantTest {
     }
 
     /**
-     * {@code now()} runs the clock through that same derivation.
+     * The stamps of an entry run the moment through that same derivation.
      *
-     * <p>Green on a microsecond platform whether or not it does, which is why
-     * it is not the gate — it is here so that a future {@code now()} which
-     * stopped calling {@code asStored} is at least red on Linux without
-     * needing a database.
+     * <p>Since the time comes from the injected clock, a stamp is handed its
+     * moment, so a nanosecond one is asked of it directly: a stamp that
+     * stopped calling {@code asStored} is red here on any platform.
      */
     @Test
-    void now_carries_no_digit_the_column_would_drop() {
-        for (int reading = 0; reading < 1000; reading++) {
-            assertThat(StoredInstant.now().getNano() % 1000).isZero();
-        }
+    void a_stamp_carries_no_digit_the_column_would_drop() {
+        Instant nanosecondPrecise = Instant.ofEpochSecond(1_774_000_000L, 123_456_789);
+        Memory entry = new Memory();
+
+        entry.laidDownAt(nanosecondPrecise);
+        assertThat(entry.createdAt.getNano()).isEqualTo(123_456_000);
+        assertThat(entry.updatedAt).isEqualTo(entry.createdAt);
+
+        entry.changedAt(nanosecondPrecise.plusSeconds(1));
+        assertThat(entry.updatedAt.getNano()).isEqualTo(123_456_000);
     }
 
     /**
-     * It is still a clock, and it is THIS clock.
+     * It is the moment it is given, and it never falls back.
      *
-     * <p>Bracketed between two readings of {@code Instant.now()} rather than
-     * compared with a second reading of itself after a sleep. A sleeping test
-     * says only that the value moved, which a counter would satisfy too, and
-     * it pays for that with wall-clock time and a timing assumption. The
-     * bracket says the value is the current moment — which rules out a
-     * constant, a counter, and a clock reading something other than now.
-     *
-     * <p>The lower bound is truncated because the value under test is: an
-     * untruncated {@code before} can be later than a truncated reading taken
-     * after it, by up to a microsecond, and the test would fail on that alone
-     * roughly whenever the reading crossed a microsecond boundary.
+     * <p>The stamp of a change is {@code max(at, previous + 1 µs)} (C10.1): a
+     * later moment is taken as it is, and one that is not later than the last
+     * stamp moves the stamp on by one microsecond rather than back to it, so
+     * no two changes of one entry share a token.
      */
     @Test
-    void it_answers_the_current_moment() {
-        Instant before = StoredInstant.asStored(Instant.now());
-        Instant moment = StoredInstant.now();
-        Instant after = Instant.now();
+    void a_change_takes_its_moment_and_never_falls_back() {
+        Instant laid = Instant.ofEpochSecond(1_774_000_000L, 123_456_000);
+        Memory entry = new Memory();
+        entry.laidDownAt(laid);
 
-        assertThat(moment).isBetween(before, after);
+        entry.changedAt(laid.plusSeconds(60));
+        assertThat(entry.updatedAt).as("a later moment is taken")
+            .isEqualTo(laid.plusSeconds(60));
+
+        entry.changedAt(laid);
+        assertThat(entry.updatedAt).as("an earlier one moves the stamp on by one microsecond")
+            .isEqualTo(laid.plusSeconds(60).plus(1, ChronoUnit.MICROS));
+
+        entry.changedAt(laid.plusSeconds(60).plusNanos(500));
+        assertThat(entry.updatedAt).as("and so does one inside the same microsecond")
+            .isEqualTo(laid.plusSeconds(60).plus(2, ChronoUnit.MICROS));
+        assertThat(entry.createdAt).as("no change moves the creation").isEqualTo(laid);
     }
 }

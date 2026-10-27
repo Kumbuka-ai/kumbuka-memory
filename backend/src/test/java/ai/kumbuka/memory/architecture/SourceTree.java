@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.architecture;
 
 import java.io.IOException;
@@ -5,7 +12,9 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -118,5 +127,39 @@ final class SourceTree {
             .map(line -> line.substring("import ".length(), line.indexOf(';')))
             .map(String::strip)
             .toList();
+    }
+
+    /** The file form of a versioned migration, its version and step captured. */
+    static final Pattern MIGRATION = Pattern.compile("V(\\d+)(?:_(\\d+))?__([^.]*)\\.sql");
+
+    /** Every migration file, in the order Flyway applies them. */
+    static List<Path> migrations() {
+        Path direct = Paths.get("src", "main", "resources", "db", "migration");
+        Path fromRepoRoot = Paths.get("backend", "src", "main", "resources", "db", "migration");
+        Path dir = Files.isDirectory(direct) ? direct : fromRepoRoot;
+        assertThat(Files.isDirectory(dir))
+            .as("migration directory %s must exist — run from the module directory", dir)
+            .isTrue();
+        try (Stream<Path> found = Files.list(dir)) {
+            return found.filter(Files::isRegularFile)
+                .sorted(Comparator.comparingInt(SourceTree::versionOf)
+                    .thenComparingInt(SourceTree::stepOf)
+                    .thenComparing(Path::toString))
+                .toList();
+        } catch (IOException unreadable) {
+            throw new UncheckedIOException(unreadable);
+        }
+    }
+
+    /** The version a migration file names; past every version where it names none. */
+    static int versionOf(Path migration) {
+        Matcher m = MIGRATION.matcher(migration.getFileName().toString());
+        return m.matches() ? Integer.parseInt(m.group(1)) : Integer.MAX_VALUE;
+    }
+
+    /** The step within its version a migration file names; 0 where it names none. */
+    static int stepOf(Path migration) {
+        Matcher m = MIGRATION.matcher(migration.getFileName().toString());
+        return m.matches() && m.group(2) != null ? Integer.parseInt(m.group(2)) : 0;
     }
 }

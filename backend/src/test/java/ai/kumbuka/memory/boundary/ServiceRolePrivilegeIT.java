@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.boundary;
 
 import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
@@ -88,9 +95,27 @@ class ServiceRolePrivilegeIT {
     /** What a read-only table of this schema grants the runtime role. */
     private static final Set<String> READ_ONLY_PERMITTED = Set.of("SELECT");
 
+    /**
+     * The tables the runtime role may read, add to and change, but not delete
+     * from.
+     *
+     * <p>{@code idempotency_key} (V10) is the 24-hour ledger behind the
+     * idempotency key of {@code create}: a key spent longer ago than that is
+     * replaced in place by the next call that spends it, so no path of the
+     * service deletes a row there, and the missing grant makes that a fact.
+     * A literal, for the reason {@link #READ_ONLY_TABLES} gives.
+     */
+    private static final Set<String> NO_DELETE_TABLES = Set.of("idempotency_key");
+
+    /** What a table without deletion grants the runtime role. */
+    private static final Set<String> NO_DELETE_PERMITTED = Set.of("SELECT", "INSERT", "UPDATE");
+
     /** What the named table grants the runtime role, and nothing besides. */
     private static Set<String> permittedOn(String table) {
-        return READ_ONLY_TABLES.contains(table) ? READ_ONLY_PERMITTED : PERMITTED;
+        if (READ_ONLY_TABLES.contains(table)) {
+            return READ_ONLY_PERMITTED;
+        }
+        return NO_DELETE_TABLES.contains(table) ? NO_DELETE_PERMITTED : PERMITTED;
     }
 
     /**
@@ -142,11 +167,13 @@ class ServiceRolePrivilegeIT {
         assertThat(tables)
             .as("the probe must have had something to check, and both tables of the model "
                 + "must be among what it checked")
-            .contains("memory", "content_relation", "digest_preference", HISTORY_TABLE);
+            .contains("memory", "content_relation", "digest_preference", "idempotency_key",
+                HISTORY_TABLE);
 
         assertThat(defects)
             .as("the runtime role %s may hold exactly %s on a writable domain table of "
-                + "schema %s — and SELECT alone on " + READ_ONLY_TABLES + " — "
+                + "schema %s — and SELECT alone on " + READ_ONLY_TABLES + ", and no DELETE "
+                + "on " + NO_DELETE_TABLES + " — "
                 + "and nothing whatever on %s. TRUNCATE in particular bypasses row-level "
                 + "security independently of every policy, so a role holding it can cross "
                 + "the tenant boundary without any part of the isolation apparatus seeing "
@@ -224,7 +251,8 @@ class ServiceRolePrivilegeIT {
         try (Connection c = DriverManager.getConnection(url(),
                 SubstrateDatabaseResource.SERVICE_ROLE, SubstrateDatabaseResource.SERVICE_PASSWORD);
              Statement s = c.createStatement()) {
-            for (String table : List.of("memory", "content_relation", "digest_preference")) {
+            for (String table : List.of("memory", "content_relation", "digest_preference",
+                    "idempotency_key")) {
                 try (ResultSet rs = s.executeQuery(
                         "SELECT count(*) FROM " + schema() + "." + table)) {
                     rs.next();

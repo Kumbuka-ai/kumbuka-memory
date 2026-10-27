@@ -68,8 +68,8 @@ public final class AddressParser {
 
     /**
      * The key, as the table stores it: lower-case alphanumeric segments
-     * separated by dots or dashes. Restated from {@code memory_key_format} in
-     * V1.
+     * separated by dots or dashes. Restated from {@code ck_memory_key_format}
+     * (V1, named so by V9).
      */
     private static final Pattern KEY =
         Pattern.compile("^[a-z0-9]++(?:[.-][a-z0-9]++)*+$");

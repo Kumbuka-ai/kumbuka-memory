@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.tenancy;
 
 import io.quarkus.test.common.QuarkusTestResource;
@@ -62,11 +69,13 @@ class ColdStartIT {
             assertThat(list(c, "SELECT table_name FROM information_schema.tables "
                 + "WHERE table_schema = 'memory' AND table_type = 'BASE TABLE' "
                 + "AND table_name <> 'flyway_schema_history' ORDER BY table_name"))
-                .as("V1 the two tables of the model, V4 the digest's type selection. "
+                .as("V1 the two tables of the model, V4 the digest's type selection, V10 "
+                    + "the idempotency ledger. "
                     + "Listed exactly rather than by count: a table that appeared here "
                     + "without a migration naming it is a table nothing enumerated the "
                     + "privileges of")
-                .containsExactly("content_relation", "digest_preference", "memory");
+                .containsExactly("content_relation", "digest_preference", "idempotency_key",
+                    "memory");
 
             assertThat(list(c, "SELECT polname FROM pg_policy p "
                 + "JOIN pg_class cl ON cl.oid = p.polrelid "
@@ -83,7 +92,8 @@ class ColdStartIT {
                     + "something a reader discovers in the catalogue")
                 .containsExactly("content_relation_tenant_isolation",
                     "digest_preference_platform_default",
-                    "digest_preference_tenant_isolation", "memory_tenant_isolation");
+                    "digest_preference_tenant_isolation", "idempotency_key_tenant_isolation",
+                    "memory_tenant_isolation");
 
             assertThat(scalar(c, "SELECT count(*) FROM pg_trigger t "
                 + "JOIN pg_class cl ON cl.oid = t.tgrelid "

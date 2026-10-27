@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.tenancy;
 
 import io.quarkus.test.common.QuarkusTestResource;
@@ -45,16 +52,16 @@ class CheckConstraintProbeIT {
 
     /** Every check constraint this schema is supposed to carry. */
     private static final List<String> ENTRY_CHECKS = List.of(
-        "memory_content_len",
-        "memory_key_format",
-        "memory_lock_check",
-        "memory_reference_no_credentials",
-        "memory_source_check",
-        "memory_state_check",
-        "memory_type_check",
-        "memory_updated_source_check");
+        "ck_memory_content_len",
+        "ck_memory_key_format",
+        "ck_memory_lock",
+        "ck_memory_reference_no_credentials",
+        "ck_memory_source",
+        "ck_memory_state",
+        "ck_memory_type",
+        "ck_memory_updated_source");
 
-    private static final String RELATION_CHECK = "content_relation_kind_check";
+    private static final String RELATION_CHECK = "ck_content_relation_kind";
 
     private UUID tenant;
 
@@ -88,19 +95,19 @@ class CheckConstraintProbeIT {
 
     @Test
     void content_longer_than_the_limit_is_refused() throws SQLException {
-        assertRefusedBy("memory_content_len",
+        assertRefusedBy("ck_memory_content_len",
             entry -> entry.content = "x".repeat(1501));
     }
 
     @Test
     void a_key_that_is_not_lower_case_kebab_is_refused() throws SQLException {
-        assertRefusedBy("memory_key_format",
+        assertRefusedBy("ck_memory_key_format",
             entry -> entry.key = "Not A Key");
     }
 
     @Test
     void an_unknown_lock_value_is_refused() throws SQLException {
-        assertRefusedBy("memory_lock_check",
+        assertRefusedBy("ck_memory_lock",
             entry -> entry.lock = "padlock");
     }
 
@@ -115,10 +122,10 @@ class CheckConstraintProbeIT {
      */
     @Test
     void a_credential_bearing_reference_is_refused_at_the_database() throws SQLException {
-        assertRefusedBy("memory_reference_no_credentials",
+        assertRefusedBy("ck_memory_reference_no_credentials",
             entry -> entry.reference = "https://someone:hunter2@example.org/a-document");
 
-        assertRefusedBy("memory_reference_no_credentials",
+        assertRefusedBy("ck_memory_reference_no_credentials",
             entry -> entry.reference = "https://example.org/a-document?access_token=abcdef");
 
         // And the green half: an ordinary URL is stored, so the refusals above
@@ -136,25 +143,49 @@ class CheckConstraintProbeIT {
 
     @Test
     void an_unknown_write_channel_is_refused() throws SQLException {
-        assertRefusedBy("memory_source_check",
+        assertRefusedBy("ck_memory_source",
             entry -> entry.source = "carrier-pigeon");
+    }
+
+    /**
+     * The channels V8 widened the two checks by: {@code rest} is admitted as
+     * the channel an entry was laid down through and as the channel of its
+     * last edit, beside the four V1 admitted. Without this case the widening
+     * would be asserted nowhere but in the migration that makes it.
+     */
+    @Test
+    void every_channel_of_this_service_is_admitted_rest_among_them() throws SQLException {
+        for (String channel : List.of("console", "mcp", "system", "import", "rest")) {
+            Entry entry = new Entry();
+            entry.key = key("channel-" + channel);
+            entry.source = channel;
+            entry.updatedSource = channel;
+            try (Connection c = Db.asService()) {
+                Db.bindTenant(c, tenant);
+                try {
+                    insert(c, entry);
+                } finally {
+                    c.rollback();
+                }
+            }
+        }
     }
 
     @Test
     void an_unknown_state_is_refused() throws SQLException {
-        assertRefusedBy("memory_state_check",
+        assertRefusedBy("ck_memory_state",
             entry -> entry.state = "ambiguous");
     }
 
     @Test
     void an_unknown_type_is_refused() throws SQLException {
-        assertRefusedBy("memory_type_check",
+        assertRefusedBy("ck_memory_type",
             entry -> entry.type = "anecdote");
     }
 
     @Test
     void an_unknown_edit_channel_is_refused() throws SQLException {
-        assertRefusedBy("memory_updated_source_check",
+        assertRefusedBy("ck_memory_updated_source",
             entry -> entry.updatedSource = "carrier-pigeon");
     }
 
@@ -179,7 +210,7 @@ class CheckConstraintProbeIT {
 
     /**
      * The red state, for the check that has never had a gate: with
-     * {@code memory_reference_no_credentials} dropped, the same
+     * {@code ck_memory_reference_no_credentials} dropped, the same
      * credential-bearing URL is stored without complaint.
      *
      * <p>Dropping a constraint requires ownership, so it happens on the
@@ -196,7 +227,7 @@ class CheckConstraintProbeIT {
             Db.bindTenant(owner, tenant);
             try {
                 Db.exec(owner, "ALTER TABLE " + Db.ENTRY_TABLE
-                    + " DROP CONSTRAINT memory_reference_no_credentials");
+                    + " DROP CONSTRAINT ck_memory_reference_no_credentials");
 
                 Db.insertEntry(owner, tenant, key("red"), credentialUrl);
 
@@ -226,7 +257,7 @@ class CheckConstraintProbeIT {
             assertThat(checkNames(c, "memory"))
                 .as("and restored, so the red state was the dropped constraint and "
                     + "nothing else")
-                .contains("memory_reference_no_credentials");
+                .contains("ck_memory_reference_no_credentials");
         }
     }
 

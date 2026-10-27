@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.tenancy.OrmFixture;
@@ -70,7 +77,8 @@ class EntryIdentityIT {
                 assertThat(found.lock).isEqualTo("none");
                 assertThat(found.source).isEqualTo("mcp");
                 assertThat(found.createdAt)
-                    .as("created_at is written by the database and read back, never sent")
+                    .as("created_at is written by the application from the clock and kept "
+                        + "by the insert")
                     .isNotNull();
 
                 assertThat(orm.find(logicalId, 2))
