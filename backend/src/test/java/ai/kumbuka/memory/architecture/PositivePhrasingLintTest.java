@@ -35,10 +35,23 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>What it refuses</h2>
  *
- * The words R21 lists, as whole words and in any case, and {@code n't}
- * wherever it stands. It keeps no list of exceptions: a text that needs one of
- * these words is rewritten until it does not, because the distinction between
- * a negated fact and a prohibition is where the rule slips (DEC-0043, A8).
+ * The words R21 lists, as whole words and in any case. It keeps no list of
+ * exceptions: a text that needs one of these words is rewritten until it does
+ * not, because the distinction between a negated fact and a prohibition is
+ * where the rule slips (DEC-0043, A8).
+ *
+ * <p>The pattern is kumbuka-dispatch's, which states it as the binding form
+ * for every service that copies this lint: the phrase is matched as
+ * {@code \binstead\s+of\b}, so a line break or a second space between its
+ * words does not hide it, and the contraction as {@code n't\b}, at the end
+ * of any word.
+ *
+ * <h2>How many texts it reads</h2>
+ *
+ * At least {@link #FLOOR}, so that a bundle read empty or not found at all
+ * cannot pass as a bundle with nothing to refuse. The reference asks for more
+ * than 100 of its 139 texts; this service has 80, and the floor keeps the
+ * same margin below them.
  */
 class PositivePhrasingLintTest {
 
@@ -46,24 +59,30 @@ class PositivePhrasingLintTest {
     static final List<String> INSTRUCTING = List.of("remedy", "next", "tool", "argument",
         "value");
 
-    /** The words of DEC-0043 R21, as whole words, ignoring case. */
+    /** The words of DEC-0043 R21, whole and in any case; "n't" ends a word. */
     private static final Pattern FORBIDDEN = Pattern.compile(
-        "\\b(not|never|no|none|nothing|nobody|neither|nor|cannot|without|avoid|unless"
-            + "|instead of|refrain)\\b|n't",
+        "\\b(not|never|no|none|nothing|nobody|neither|nor|cannot|without|avoid|unless|"
+            + "refrain)\\b|n't\\b|\\binstead\\s+of\\b",
         Pattern.CASE_INSENSITIVE);
+
+    /** The fewest instructing texts the lint must have read. */
+    static final int FLOOR = 60;
 
     @Test
     void every_instructing_text_is_phrased_as_the_act_to_perform() {
         List<String> offences = new ArrayList<>();
+        int read = 0;
         for (String bundle : INSTRUCTING) {
             Path file = MessageBundleTest.messages().resolve(bundle + ".properties");
             assertThat(Files.isRegularFile(file)).as("%s exists", file).isTrue();
             Properties texts = MessageBundleTest.texts(file);
             assertThat(texts).as("%s holds texts", file).isNotEmpty();
+            read += texts.size();
             for (String key : texts.stringPropertyNames()) {
                 offences.addAll(prohibitions(bundle + "." + key, texts.getProperty(key)));
             }
         }
+        assertThat(read).as("the lint reads every instructing text").isGreaterThan(FLOOR);
         assertThat(offences)
             .as("a model carries out an instruction more reliably than it inverts a "
                 + "prohibition; state the act, and a fact as what is there (DEC-0043 R21)")
@@ -83,6 +102,12 @@ class PositivePhrasingLintTest {
                 + "it is unlocked."))
             .as("RED STATE, observed: a forbidden word inside a longer one is not a match")
             .isEmpty();
+        assertThat(prohibitions("planted", "Read the entry instead\nof sending it again."))
+            .as("RED STATE, observed: the phrase across a line break is reported")
+            .hasSize(1);
+        assertThat(prohibitions("planted", "Read the entry instead  of sending it again."))
+            .as("RED STATE, observed: and across a second space")
+            .hasSize(1);
     }
 
     // ======================================================================
