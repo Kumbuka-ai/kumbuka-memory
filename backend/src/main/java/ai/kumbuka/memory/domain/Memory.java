@@ -14,7 +14,9 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import org.hibernate.annotations.Generated;
 import org.hibernate.annotations.TenantId;
 import org.hibernate.generator.EventType;
@@ -26,23 +28,20 @@ import java.util.UUID;
 /**
  * One curated entry.
  *
- * <p><strong>Every column of the table is mapped, and that is the point of
- * having this class at all today.</strong> The service has no verb surface,
- * so nothing reads or writes an entry through this mapping yet. What it does
- * is give {@code hibernate.hbm2ddl.auto=validate} something to validate:
- * every field below is a claim about a column's name and type that fails at
- * boot when the schema and the model drift apart. A mapping that named only
- * the columns some future verb happens to need would leave the rest of the
- * table unchecked and would still have to be completed later, by somebody
- * reading the migration instead of the model.
+ * <p>Every verb that reads or writes an entry does it through this mapping:
+ * {@link MemoryService} decides, {@code MemoryRepository} loads and stores.
+ * <strong>Every column of the table is mapped</strong>, because
+ * {@code quarkus.hibernate-orm.database.generation=validate} checks each field
+ * below against its column at boot: a mapping that named only the columns the
+ * verbs happen to need would leave the rest of the table unchecked when the
+ * schema and the model drift apart.
  *
  * <p>The fields are grouped exactly as the columns are grouped in V1, and for
  * the same reason.
  *
- * <p><strong>What is deliberately not here:</strong> no repository, no
- * service, no named query and no lifecycle callback. Code with no caller has
- * no red probe either, and untested code waiting for its seam is the state
- * assumptions come from.
+ * <p>One lifecycle callback, {@link #refuseAnUnstampedWrite}: it turns the
+ * rule that every changing write moves the conflict token into a refusal at
+ * the flush.
  */
 @Entity
 @IdClass(MemoryId.class)
@@ -199,10 +198,19 @@ public class Memory {
      * change that no verb produced.
      *
      * <p>It is moved only through {@link #laidDownAt} and {@link #changedAt},
-     * which keep it at the precision the column stores and strictly rising.
+     * which keep it at the precision the column stores and strictly rising,
+     * and a changed row that did not pass {@link #changedAt} is refused when
+     * it is flushed ({@link #refuseAnUnstampedWrite}).
      */
     @Column(name = "updated_at", nullable = false)
     public Instant updatedAt;
+
+    /**
+     * Whether the change about to be flushed passed {@link #changedAt}. Not a
+     * column: it lives for one write of one loaded entry.
+     */
+    @Transient
+    private boolean stamped;
 
     /**
      * Stamps an entry being laid down: it is created and last changed at the
@@ -227,5 +235,25 @@ public class Memory {
         Instant floor = StoredInstant.asStored(updatedAt)
             .plus(1, StoredInstant.COLUMN_PRECISION);
         this.updatedAt = now.isBefore(floor) ? floor : now;
+        this.stamped = true;
+    }
+
+    /**
+     * Refuses a changed row whose write did not pass {@link #changedAt}: a
+     * write the token would not fence, refused here rather than stored
+     * (C10.1).
+     *
+     * <p>Called by the persistence context only for an update it found the
+     * row changed in. A create is a persist and never arrives here, and a
+     * write that changes nothing flushes nothing and keeps its token
+     * (DEC-0041).
+     */
+    @PreUpdate
+    void refuseAnUnstampedWrite() {
+        if (!stamped) {
+            throw new IllegalStateException("an entry is written without changedAt(), "
+                + "and its conflict token would not move");
+        }
+        this.stamped = false;
     }
 }

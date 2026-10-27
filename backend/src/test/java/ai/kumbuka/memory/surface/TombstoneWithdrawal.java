@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.domain.Memory;
@@ -48,7 +55,7 @@ public class TombstoneWithdrawal implements Withdrawal {
     @Transactional
     public Outcome withdraw(Memory entry) {
         entry.isDeleted = true;
-        entry.updatedAt = Instant.now();
+        entry.changedAt(Instant.now());
         entries.update(entry);
         return Outcome.TOMBSTONED;
     }
