@@ -39,10 +39,13 @@ until the call that withdraws it.
 
 On the assistant surface the tool list, the input schemas, the descriptions,
 the names offered as next steps and the catalogue of refusal reasons all come
-from **one declaration**, served at `GET /api` on the generic surface and at
-`GET /mcp/declaration`: every verb with its identity, its effect class in the
+from **one declaration**, served at `GET /api/declaration` with its version as
+the `ETag` (and, until the router reads it from there, also at `GET /api` and
+`GET /mcp/declaration`): every verb with its identity, its effect class in the
 router's names, its arguments, the shape of its answer, the reasons it can be
-refused with and its texts, under a version that is a hash over the whole.
+refused with and its texts, under a version that is a hash over the whole. Each
+release publishes it beside the jar as
+`ai.kumbuka:kumbuka-memory:<version>:json:declaration`.
 Every input schema is closed at every level, so an argument the call does not
 declare is refused with the names it does declare rather than dropped. Every
 refusal is `{ reason, message, data }` on both surfaces, and its message is

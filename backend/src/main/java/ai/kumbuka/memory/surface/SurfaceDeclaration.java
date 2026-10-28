@@ -7,6 +7,7 @@
  */
 package ai.kumbuka.memory.surface;
 
+import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.MemoryException.Reason;
 import ai.kumbuka.memory.domain.NextStep;
@@ -16,7 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,37 +28,58 @@ import java.util.TreeSet;
 
 /**
  * The service as one declaration: its calls, its reasons, and the next steps
- * an answer offers (ADR-0039).
+ * an answer offers (ADR-0039), in the shape of contract section 5.
  *
- * <p>Served whole on both surfaces -- {@code GET /api} on the
- * generic one, which is where the router reads it, and
- * {@code GET /mcp/declaration} -- so that what the service carries can be read
- * without calling it, and checked at start, so that a declaration nobody could
- * serve is never served.
+ * <p>Served at {@code GET /api/declaration}, with its version as the
+ * {@code ETag}, which is where the router reads it (C5.1). Until the router
+ * binds it from there, the same declaration is also served at {@code GET /api}
+ * and {@code GET /mcp/declaration}, the one exception C5.1 names; both go in
+ * memory's breaking step. {@link DeclarationGuard} checks it at start, so that
+ * a declaration nobody could serve is never served (C5.6).
  *
  * <h2>What it carries per verb</h2>
  *
- * Its identity {@code memory_<verb>}; its effect class, in the router's own
- * names ({@link EffectClass}), with the address depth it acts at and any
- * further reach; its arguments with type, requiredness, default, the values a
- * fixed set holds with a description each, and bounds; the shape of its
- * answer; the reasons a refusal of it may name; and its texts, taken from the
- * message bundles. The reasons themselves are declared once, beside the calls,
- * with their message and remedy as the bundles write them.
+ * Its identity {@code memory_<verb>} and its name on the REST surface; its
+ * effect class, in the router's own names ({@link EffectClass}), with any
+ * further reach; its arguments with type, requiredness, placement, a default
+ * in its own JSON type, the values a fixed set holds with a description each,
+ * and bounds; the shape of its answer; the reasons a refusal of it may name;
+ * and its description, taken from the message bundles. The reasons themselves
+ * are declared once, beside the calls, with their messages and remedy as the
+ * bundles write them.
+ *
+ * <h2>The selectors are fixed values</h2>
+ *
+ * A selector of this service is the word of an entry type in hyphen form
+ * ({@link EntryType#selector()}), so the arguments that carry one declare the
+ * six as their fixed values (C5.4). They are declared here and nowhere else:
+ * the input schema of the assistant surface and the address grammar do not
+ * hold a selector to them yet.
  *
  * <h2>Versioned by its content</h2>
  *
  * {@code version} is a SHA-256 over everything else the declaration carries,
- * so that any change -- a text, an argument, a reason -- yields a new version
- * and an unchanged declaration keeps its own, which is what a reader that
- * records which version it served can rely on.
+ * {@code shape_version} and {@code scheme} included, so that any change -- a
+ * text, an argument, a reason -- yields a new version and an unchanged
+ * declaration keeps its own, which is what a reader that records which
+ * version it served can rely on.
  */
 public final class SurfaceDeclaration {
 
     private static final String DESCRIPTION = "description";
 
-    /** Changes when the shape of {@link #asMap()} changes, not when its content does. */
-    public static final String SHAPE_VERSION = "2";
+    /**
+     * Changes when the shape of {@link #asMap()} changes, not when its content
+     * does: one value for every service, today {@code "3"} (C5.5).
+     */
+    public static final String SHAPE_VERSION = "3";
+
+    /**
+     * The most characters a call's description may carry. A description over
+     * it refuses the start ({@link DeclarationGuard}), and with it every test
+     * that boots the service.
+     */
+    public static final int DESCRIPTION_BUDGET = 500;
 
     private SurfaceDeclaration() {
     }
@@ -129,9 +151,11 @@ public final class SurfaceDeclaration {
         declaration.put("service", "memory");
         declaration.put("scheme", "memory");
         declaration.put("address_form", "memory://<scope>/<selector>/<id>");
+        declaration.put("technical_address_form", "memory://<uuid>");
+        declaration.put("effect_classes",
+            Arrays.stream(EffectClass.values()).map(Enum::name).toList());
         declaration.put("calls", callsAsMaps());
         declaration.put("reasons", reasonsAsMaps());
-        declaration.put("answered_as", collapsed());
         Map<String, Object> versioned = new LinkedHashMap<>();
         versioned.put("version", versionOf(declaration));
         versioned.putAll(declaration);
@@ -145,8 +169,8 @@ public final class SurfaceDeclaration {
             Map<String, Object> call = new LinkedHashMap<>();
             call.put("identity", verb.call());
             call.put("call", verb.call());
+            call.put("rest_name", verb.name().toLowerCase(Locale.ROOT));
             call.put("effect_class", form.effect().name());
-            call.put("depth", form.depth().name());
             EffectClass atScopeDepth = form.scopeDepth();
             if (atScopeDepth != null) {
                 call.put("at_scope_depth", atScopeDepth.name());
@@ -155,14 +179,13 @@ public final class SurfaceDeclaration {
                 call.put("technical_address", true);
             }
             call.put(DESCRIPTION, verb.description());
-            call.put("does", verb.does());
             List<Map<String, Object>> arguments = new ArrayList<>();
             if (verb.writesFields()) {
                 Map<String, Object> fields = new LinkedHashMap<>();
                 fields.put("name", AssistantVerb.FIELDS);
                 fields.put("type", "object");
                 fields.put("required", true);
-                fields.put("placement", "top");
+                fields.put("placement", Argument.Placement.TOP.name());
                 fields.put(DESCRIPTION, AssistantVerb.fieldsDescription());
                 arguments.add(fields);
             }
@@ -184,22 +207,25 @@ public final class SurfaceDeclaration {
         declared.put("name", argument.name());
         declared.put("type", argument.type());
         declared.put("required", argument.required());
-        declared.put("placement", argument.placement().name().toLowerCase(Locale.ROOT));
+        declared.put("placement", argument.placement().name());
         declared.put(DESCRIPTION, argument.description());
+        // Already a value of the argument's own type in the keywords: the
+        // input schema publishes the same one (C5.4).
         Object fallback = argument.keywords().get("default");
         if (fallback != null) {
             declared.put("default", fallback);
         }
-        List<String> values = valuesOf(argument);
+        List<Value> values = valuesOf(argument);
         if (!values.isEmpty()) {
-            List<Map<String, Object>> described = new ArrayList<>();
-            for (String value : values) {
-                Map<String, Object> one = new LinkedHashMap<>();
-                one.put("value", value);
-                one.put(DESCRIPTION, valueDescription(argument.name(), value));
-                described.add(one);
-            }
-            declared.put("values", described);
+            declared.put("values", values.stream().map(Value::name).toList());
+            declared.put("value_descriptions", values.stream()
+                .map(value -> {
+                    Map<String, Object> described = new LinkedHashMap<>();
+                    described.put("value", value.name());
+                    described.put(DESCRIPTION, value.description());
+                    return described;
+                })
+                .toList());
         }
         for (String bound : List.of("minimum", "maximum", "minItems")) {
             if (argument.keywords().containsKey(bound)) {
@@ -209,14 +235,30 @@ public final class SurfaceDeclaration {
         return declared;
     }
 
-    /** The fixed set an argument's values come from, or of its elements for a list. */
-    @SuppressWarnings("unchecked")
-    private static List<String> valuesOf(Argument argument) {
+    /** One value of a fixed set, with what it means. */
+    private record Value(String name, String description) {
+    }
+
+    /**
+     * The fixed set an argument's values come from, or of its elements for a
+     * list; for an argument that carries a selector, the six selectors.
+     */
+    private static List<Value> valuesOf(Argument argument) {
+        if (AssistantVerb.Names.SELECTOR.equals(argument.name())) {
+            return EntryType.inDigestOrder().stream()
+                .map(type -> new Value(type.selector(), typeDescription(type)))
+                .toList();
+        }
         Object values = argument.keywords().get("enum");
         if (values == null && argument.keywords().get("items") instanceof Map<?, ?> items) {
             values = items.get("enum");
         }
-        return values instanceof List<?> list ? (List<String>) list : List.of();
+        if (!(values instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream().map(String::valueOf)
+            .map(value -> new Value(value, valueDescription(argument.name(), value)))
+            .toList();
     }
 
     /** What one value of a fixed set means, from its bundle ({@link ValueDescriptions}). */
@@ -227,19 +269,33 @@ public final class SurfaceDeclaration {
             case "sort=created_at" -> texts.sortCreatedAt();
             case "direction=asc" -> texts.directionAsc();
             case "direction=desc" -> texts.directionDesc();
-            default -> switch (value) {
-                case "constraint" -> texts.typeConstraint();
-                case "decision" -> texts.typeDecision();
-                case "convention" -> texts.typeConvention();
-                case "glossary" -> texts.typeGlossary();
-                case "status" -> texts.typeStatus();
-                case "open_question" -> texts.typeOpenQuestion();
-                default -> throw new IllegalStateException(argument + " declares a value "
-                    + "that has no description in the value bundle");
-            };
+            default -> EntryType.of(value).map(SurfaceDeclaration::typeDescription)
+                .orElseThrow(() -> new IllegalStateException(argument + " declares a value "
+                    + "that has no description in the value bundle"));
         };
     }
 
+    /** What an entry type means; its selector means the same. */
+    private static String typeDescription(EntryType type) {
+        ValueDescriptions texts = Texts.values();
+        return switch (type) {
+            case CONSTRAINT -> texts.typeConstraint();
+            case DECISION -> texts.typeDecision();
+            case CONVENTION -> texts.typeConvention();
+            case GLOSSARY -> texts.typeGlossary();
+            case STATUS -> texts.typeStatus();
+            case OPEN_QUESTION -> texts.typeOpenQuestion();
+        };
+    }
+
+    /**
+     * The reasons, in the form of the reference: the message under its key
+     * and as its bundle writes it, and the remedy.
+     *
+     * <p>{@code message_pattern} is the message as this service sends it,
+     * which ends with the remedy: the pattern a reader matches a refusal
+     * against.
+     */
     private static List<Map<String, Object>> reasonsAsMaps() {
         List<Map<String, Object>> reasons = new ArrayList<>();
         for (ReasonCatalogue.Reason reason : ReasonCatalogue.declared()) {
@@ -247,10 +303,11 @@ public final class SurfaceDeclaration {
             declared.put("reason", reason.code());
             declared.put("message_pattern",
                 reason.messageTemplate() + " " + reason.remedyTemplate());
+            Map<String, Object> message = new LinkedHashMap<>();
+            message.put("key", reason.key());
+            message.put("template", reason.messageTemplate());
+            declared.put("messages", List.of(message));
             declared.put("remedy", reason.remedyTemplate());
-            declared.put("steps", reason.steps().stream().map(AssistantVerb::call).toList());
-            declared.put("surface", reason.reach() == ReasonCatalogue.Reach.BOTH
-                ? "both" : "generic");
             reasons.add(declared);
         }
         return reasons;
@@ -266,37 +323,37 @@ public final class SurfaceDeclaration {
         "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED");
 
     /**
-     * What the router needs of a verb beside its arguments: its effect class
-     * and depth, the further address forms it reaches, the shape of its
-     * answer, and the reasons it can be refused with.
+     * What the router needs of a verb beside its arguments: its effect class,
+     * the further address forms it reaches, the shape of its answer, and the
+     * reasons it can be refused with.
      *
      * @param scopeDepth       the class it acts with on a scope address, where
      *                         it reaches one beyond its own depth
      * @param technicalAddress whether {@code memory://<uuid>} addresses an
      *                         entry for it
      */
-    public record Form(EffectClass effect, AddressDepth depth, @Nullable EffectClass scopeDepth,
+    public record Form(EffectClass effect, @Nullable EffectClass scopeDepth,
                        boolean technicalAddress, AnswerShape answer, List<String> refusals) {
     }
 
     public static Form formOf(AssistantVerb verb) {
         return switch (verb) {
-            case CREATE -> new Form(EffectClass.CREATE, AddressDepth.COLLECTION, null, false,
+            case CREATE -> new Form(EffectClass.CREATE, null, false,
                 AnswerShape.ENTRY_CREATED, refusals(WRITE, ADDRESSED, List.of(
                     Reason.SELECTOR_ABSENT, Reason.SELECTOR_MISMATCHED, Reason.ALREADY_EXISTS),
                     VALUES, BODY));
-            case READ -> new Form(EffectClass.ITEM_READ, AddressDepth.ITEM, null, true,
+            case READ -> new Form(EffectClass.ITEM_READ, null, true,
                 AnswerShape.ENTRY, refusals(ADDRESSED));
-            case UPDATE -> new Form(EffectClass.FIELD_WRITE, AddressDepth.ITEM, null, false,
+            case UPDATE -> new Form(EffectClass.FIELD_WRITE, null, false,
                 AnswerShape.ENTRY, refusals(WRITE, ADDRESSED, TOKEN, List.of(Reason.UPDATE_EMPTY),
                     VALUES, BODY));
-            case WITHDRAW -> new Form(EffectClass.ITEM_TRANSITION, AddressDepth.ITEM, null,
+            case WITHDRAW -> new Form(EffectClass.ITEM_TRANSITION, null,
                 false, AnswerShape.WITHDRAWN, refusals(WRITE, ADDRESSED, TOKEN));
-            case QUERY -> new Form(EffectClass.COLLECTION_READ, AddressDepth.COLLECTION,
+            case QUERY -> new Form(EffectClass.COLLECTION_READ,
                 EffectClass.SCOPE_READ, false, AnswerShape.ENTRY_LISTING,
                 refusals(ADDRESSED, List.of(Reason.TYPE_UNKNOWN, Reason.PAGE_SIZE_REJECTED,
                     Reason.CURSOR_MALFORMED, Reason.CURSOR_FOREIGN, Reason.SORT_UNDECLARED)));
-            case DIGEST -> new Form(EffectClass.SCOPE_COMPOUND, AddressDepth.SCOPE, null, false,
+            case DIGEST -> new Form(EffectClass.SCOPE_COMPOUND, null, false,
                 AnswerShape.DIGEST_VIEW, refusals(List.of(Reason.ADDRESS_MALFORMED, Reason.TYPE_UNKNOWN),
                     BODY));
         };
@@ -369,74 +426,5 @@ public final class SurfaceDeclaration {
 
     private static String quoted(String text) {
         return '"' + text.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
-    }
-
-    /** The raised reasons that are answered under another code. */
-    private static Map<String, String> collapsed() {
-        Map<String, String> collapsed = new LinkedHashMap<>();
-        for (String raised : ReasonCatalogue.raisable()) {
-            String code = ReasonCatalogue.wireCode(raised);
-            if (!code.equals(raised)) {
-                collapsed.put(raised, code);
-            }
-        }
-        return collapsed;
-    }
-
-    // ======================================================================
-    // The check at start
-    // ======================================================================
-
-    /**
-     * Refuses a declaration that could not be served as stated.
-     *
-     * @param catalogue the reason catalogue to check, so that a start can be
-     *                  observed refusing an incomplete one
-     * @throws IllegalStateException naming what is wrong
-     */
-    public static void requireServable(Map<String, ReasonCatalogue.Reason> catalogue) {
-        ReasonCatalogue.requireComplete(catalogue);
-        Set<String> seen = new HashSet<>();
-        for (AssistantVerb verb : AssistantVerb.values()) {
-            if (!seen.add(verb.call())) {
-                throw new IllegalStateException(
-                    "two calls are declared as " + verb.call() + "; a tool list is flat");
-            }
-            if (verb.description() == null || verb.description().isBlank()) {
-                throw new IllegalStateException(verb.call() + " is declared without a "
-                    + "description, and the description is all a caller has to go on");
-            }
-            requireDescribedArguments(verb.call(), verb.arguments());
-            List<String> undeclared = formOf(verb).refusals().stream()
-                .filter(code -> !catalogue.containsKey(code))
-                .toList();
-            if (!undeclared.isEmpty()) {
-                throw new IllegalStateException(verb.call() + " is declared to refuse with "
-                    + undeclared + ", which the catalogue does not declare");
-            }
-        }
-        // Built once, so that a text or a value description it cannot find
-        // stops the start rather than the first reader of the declaration.
-        asMap();
-    }
-
-    /**
-     * Refuses a call with no arguments, or an argument with no description.
-     *
-     * <p>A call with none would have an empty closed schema and nothing for
-     * the undeclared-argument refusal to name instead; an argument with no
-     * description leaves the missing-argument refusal unable to say what the
-     * value is.
-     */
-    public static void requireDescribedArguments(String call, List<Argument> arguments) {
-        if (arguments.isEmpty()) {
-            throw new IllegalStateException(call + " is declared with no arguments");
-        }
-        for (Argument argument : arguments) {
-            if (argument.description() == null || argument.description().isBlank()) {
-                throw new IllegalStateException(
-                    call + " declares " + argument.name() + " without a description");
-            }
-        }
     }
 }

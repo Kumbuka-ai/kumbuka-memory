@@ -34,8 +34,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * a map as the shape of the answer itself.
  *
  * <p>The declaration is the one answer C7.1 admits as a map: its version is a
- * hash over its canonical form (ADR-0039). It is served from two methods while
- * the transitional second path stands (C5.1), and those two are named here by
+ * hash over its canonical form (ADR-0039). Its own path answers it inside a
+ * response that carries the version as the entity tag; the two transitional
+ * paths of C5.1 serve it as a map, and those two methods are named here by
  * hand rather than recognised by their shape, so that a third map cannot pass
  * as a declaration.
  *
@@ -47,9 +48,9 @@ class PayloadShapeTest {
 
     private static final String ADAPTER = "adapter";
 
-    /** The two methods that serve the declaration, the one map C7.1 admits. */
+    /** The two methods that serve the declaration as a map, the one map C7.1 admits. */
     private static final Set<String> DECLARATION = Set.of(
-        SourceTree.BASE + ".adapter.rest.EntryResource.declaration",
+        SourceTree.BASE + ".adapter.rest.EntryResource.schemeDeclaration",
         SourceTree.BASE + ".adapter.mcp.McpAdapter.declaration");
 
     @Test

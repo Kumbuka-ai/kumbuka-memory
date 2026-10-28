@@ -35,19 +35,39 @@ final class DeclarationTranscript {
     private DeclarationTranscript() {
     }
 
-    /** One argument: its name, type, whether required, default, the values it takes. */
-    record Arg(String name, String type, boolean required, Object fallback,
+    /**
+     * One argument: its name, type, whether required, where it sits, default,
+     * the values it takes.
+     */
+    record Arg(String name, String type, boolean required, String placement, Object fallback,
                List<String> values) {
+
+        Arg(String name, String type, boolean required, Object fallback, List<String> values) {
+            this(name, type, required, "TOP", fallback, values);
+        }
+
+        /** The same argument, written under {@code fields}. */
+        Arg field() {
+            return new Arg(name, type, required, "FIELDS", fallback, values);
+        }
     }
 
     /** One verb as the declaration must carry it. */
-    record Verb(String identity, String effectClass, String depth, String atScopeDepth,
+    record Verb(String identity, String restName, String effectClass, String atScopeDepth,
                 boolean technicalAddress, List<Arg> arguments, String answer,
                 List<String> members, List<String> refusals) {
     }
 
+    /** The values of the type an entry carries, as the service takes them today. */
     static final List<String> TYPES = List.of("constraint", "decision", "convention",
         "glossary", "status", "open_question");
+
+    /**
+     * The selectors, fixed by the service: the word of each type, with hyphens
+     * (contract C5.4: a selector the service fixes is declared as fixed values).
+     */
+    static final List<String> SELECTORS = List.of("constraint", "decision", "convention",
+        "glossary", "status", "open-question");
 
     private static final List<String> ENTRY = List.of("address", "fields", "conflict_token",
         "next");
@@ -63,37 +83,37 @@ final class DeclarationTranscript {
         Arg token = new Arg("conflict_token", "string", true, null, List.of());
         Arg fields = new Arg("fields", "object", true, null, List.of());
         return List.of(
-            new Verb("memory_create", "CREATE", "COLLECTION", null, false, List.of(fields,
-                scope, new Arg("selector", "string", true, null, List.of()),
-                new Arg("key", "string", true, null, List.of()),
-                new Arg("type", "string", true, null, TYPES),
-                new Arg("content", "string", true, null, List.of()),
-                new Arg("reference", "string", false, null, List.of())),
+            new Verb("memory_create", "create", "CREATE", null, false, List.of(fields,
+                scope, new Arg("selector", "string", true, null, SELECTORS),
+                new Arg("key", "string", true, null, List.of()).field(),
+                new Arg("type", "string", true, null, TYPES).field(),
+                new Arg("content", "string", true, null, List.of()).field(),
+                new Arg("reference", "string", false, null, List.of()).field()),
                 "ENTRY_CREATED", ENTRY, with("SCOPE_LOCKED", "SCOPE_READ_ONLY",
                     "ADDRESS_MALFORMED", "KEY_MALFORMED", "SELECTOR_ABSENT",
                     "SELECTOR_RESERVED", "SELECTOR_MISMATCHED", "ALREADY_EXISTS",
                     "TYPE_UNKNOWN", "CONTENT_ABSENT", "CONTENT_OVERSIZE",
                     "REFERENCE_CREDENTIAL_BEARING", "FIELD_IMMUTABLE", "PAYLOAD_MALFORMED")),
-            new Verb("memory_read", "ITEM_READ", "ITEM", null, true, List.of(address),
+            new Verb("memory_read", "read", "ITEM_READ", null, true, List.of(address),
                 "ENTRY", ENTRY, with("ADDRESS_MALFORMED", "KEY_MALFORMED")),
-            new Verb("memory_update", "FIELD_WRITE", "ITEM", null, false, List.of(fields,
+            new Verb("memory_update", "update", "FIELD_WRITE", null, false, List.of(fields,
                 address, token,
-                new Arg("content", "string", false, null, List.of()),
-                new Arg("type", "string", false, null, TYPES),
-                new Arg("reference", "string", false, null, List.of())),
+                new Arg("content", "string", false, null, List.of()).field(),
+                new Arg("type", "string", false, null, TYPES).field(),
+                new Arg("reference", "string", false, null, List.of()).field()),
                 "ENTRY", ENTRY, with("SCOPE_LOCKED", "SCOPE_READ_ONLY", "ADDRESS_MALFORMED",
                     "KEY_MALFORMED", "SELECTOR_RESERVED", "CONFLICT_TOKEN_MISSING",
                     "CONFLICT_TOKEN_STALE", "UPDATE_EMPTY", "TYPE_UNKNOWN", "CONTENT_ABSENT",
                     "CONTENT_OVERSIZE", "REFERENCE_CREDENTIAL_BEARING", "FIELD_IMMUTABLE",
                     "PAYLOAD_MALFORMED")),
-            new Verb("memory_withdraw", "ITEM_TRANSITION", "ITEM", null, false,
+            new Verb("memory_withdraw", "withdraw", "ITEM_TRANSITION", null, false,
                 List.of(address, token), "WITHDRAWN",
                 List.of("address", "outcome", "address_released", "next"),
                 with("SCOPE_LOCKED", "SCOPE_READ_ONLY", "ADDRESS_MALFORMED", "KEY_MALFORMED",
                     "SELECTOR_RESERVED", "CONFLICT_TOKEN_MISSING", "CONFLICT_TOKEN_STALE")),
-            new Verb("memory_query", "COLLECTION_READ", "COLLECTION", "SCOPE_READ", false,
+            new Verb("memory_query", "query", "COLLECTION_READ", "SCOPE_READ", false,
                 List.of(scope,
-                    new Arg("selector", "string", false, null, List.of()),
+                    new Arg("selector", "string", false, null, SELECTORS),
                     new Arg("type", "string", false, null, TYPES),
                     new Arg("text", "string", false, null, List.of()),
                     new Arg("after", "string", false, null, List.of()),
@@ -104,7 +124,7 @@ final class DeclarationTranscript {
                 with("ADDRESS_MALFORMED", "KEY_MALFORMED", "TYPE_UNKNOWN",
                     "PAGE_SIZE_REJECTED", "CURSOR_MALFORMED", "CURSOR_FOREIGN",
                     "SORT_UNDECLARED")),
-            new Verb("memory_digest", "SCOPE_COMPOUND", "SCOPE", null, false,
+            new Verb("memory_digest", "digest", "SCOPE_COMPOUND", null, false,
                 List.of(scope, new Arg("types", "array", false, null, TYPES)),
                 "DIGEST_VIEW", List.of("address", "scopes", "selected_types", "summary",
                     "total_entries", "total_token_estimate", "sections", "unaddressable",
