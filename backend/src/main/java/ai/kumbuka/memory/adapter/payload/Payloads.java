@@ -34,9 +34,10 @@ import java.util.Set;
 /**
  * The wire, and nothing but the wire.
  *
- * <p>Every shape a caller sends or reads is declared here as a record, so that
- * the contract is a file somebody can open rather than a set of map literals
- * spread through a resource class. The names on the wire are written out with
+ * <p>Every shape a caller sends or reads is declared in this package as a
+ * record — the entry, page, digest and refusal shapes here, the protocol's own
+ * envelopes in files of their own — so that the contract is a file somebody
+ * can open rather than a set of map literals spread through a resource class. The names on the wire are written out with
  * {@code @JsonProperty} rather than left to a naming strategy: the strategy is
  * a global setting, and a global setting is a thing that changes every name at
  * once when somebody adjusts it for one.
