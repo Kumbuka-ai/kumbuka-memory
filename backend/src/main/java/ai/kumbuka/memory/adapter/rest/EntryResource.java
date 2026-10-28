@@ -221,9 +221,9 @@ public class EntryResource {
 
     private Response digest(CustomMethod.Split at, String body) {
         call.is(AssistantVerb.DIGEST);
-        return Response.ok(Payloads.DigestResponse.of(
+        return Response.ok(Payloads.DigestPayload.of(
                 verbs.digest(caller.current(), at.address(),
-                    Payloads.digestTypes(read(body, Payloads.DigestRequest.class).orElse(null))
+                    Payloads.digestTypes(read(body, Payloads.DigestRequestPayload.class).orElse(null))
                         .orElse(null)))).build();
     }
 
@@ -272,14 +272,14 @@ public class EntryResource {
 
         call.is(AssistantVerb.CREATE);
         VerbSurface.Answer answer = verbs.create(caller.current(), scope, segment,
-            Payloads.newEntry(read(body, Payloads.CreateRequest.class).orElse(null)));
+            Payloads.newEntry(read(body, Payloads.CreateRequestPayload.class).orElse(null)));
 
         return tagged(Response
             .created(UriBuilder.fromResource(EntryResource.class)
                 .path("{scope}/{selector}/{id}")
                 .build(scope, answer.entry().address().selector(),
                     answer.entry().address().id()))
-            .entity(Payloads.EntryResponse.of(answer)), answer);
+            .entity(Payloads.EntryPayload.of(answer)), answer);
     }
 
     // ======================================================================
@@ -319,7 +319,7 @@ public class EntryResource {
         VerbSurface.Answer answer = verbs.update(caller.current(),
             new AddressParser.Parts(scope, selector, id),
             unquoted(ifMatch).orElse(null),
-            Payloads.patch(read(body, Payloads.UpdateRequest.class).orElse(null)));
+            Payloads.patch(read(body, Payloads.UpdateRequestPayload.class).orElse(null)));
         return answer(answer);
     }
 
@@ -354,7 +354,7 @@ public class EntryResource {
     private Response withdraw(String scope, String selector, CustomMethod.Split at,
                               @Nullable String ifMatch) {
         call.is(AssistantVerb.WITHDRAW);
-        return Response.ok(Payloads.WithdrawnResponse.of(
+        return Response.ok(Payloads.WithdrawnPayload.of(
                 verbs.withdraw(caller.current(),
                     new AddressParser.Parts(scope, selector, at.address()),
                     unquoted(ifMatch).orElse(null)))).build();
@@ -365,7 +365,7 @@ public class EntryResource {
     // ======================================================================
 
     private static Response answer(VerbSurface.Answer answer) {
-        return tagged(Response.ok(Payloads.EntryResponse.of(answer)), answer);
+        return tagged(Response.ok(Payloads.EntryPayload.of(answer)), answer);
     }
 
     /**
@@ -381,11 +381,11 @@ public class EntryResource {
         call.is(AssistantVerb.QUERY);
         Map<String, String> asked = parametersOf(uri);
         if (!onAssistantSurface(http.getRequestHeader(SURFACE))) {
-            return Response.ok(Payloads.PageResponse.of(
+            return Response.ok(Payloads.PagePayload.of(
                 verbs.query(caller.current(), scope, selector, asked))).build();
         }
         try {
-            return Response.ok(AssistantPayloads.PageAnswer.of(
+            return Response.ok(AssistantPayloads.AssistantPagePayload.of(
                 verbs.query(caller.current(), scope, selector, asked))).build();
         } catch (MemoryException refused) {
             ReasonCatalogue.Reason reason =

@@ -30,15 +30,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AnswerShapeTest {
 
     private static final Map<AnswerShape, List<Class<?>>> CARRIED_BY = Map.of(
-        AnswerShape.ENTRY, List.of(Payloads.EntryResponse.class,
-            AssistantPayloads.EntryAnswer.class),
-        AnswerShape.ENTRY_CREATED, List.of(Payloads.EntryResponse.class,
-            AssistantPayloads.EntryAnswer.class),
-        AnswerShape.ENTRY_LISTING, List.of(Payloads.PageResponse.class,
-            AssistantPayloads.PageAnswer.class),
-        AnswerShape.WITHDRAWN, List.of(Payloads.WithdrawnResponse.class,
-            AssistantPayloads.WithdrawalAnswer.class),
-        AnswerShape.DIGEST_VIEW, List.of(Payloads.DigestResponse.class));
+        AnswerShape.ENTRY, List.of(Payloads.EntryPayload.class,
+            AssistantPayloads.AssistantEntryPayload.class),
+        AnswerShape.ENTRY_CREATED, List.of(Payloads.EntryPayload.class,
+            AssistantPayloads.AssistantEntryPayload.class),
+        AnswerShape.ENTRY_LISTING, List.of(Payloads.PagePayload.class,
+            AssistantPayloads.AssistantPagePayload.class),
+        AnswerShape.WITHDRAWN, List.of(Payloads.WithdrawnPayload.class,
+            AssistantPayloads.AssistantWithdrawnPayload.class),
+        AnswerShape.DIGEST_VIEW, List.of(Payloads.DigestPayload.class));
 
     @Test
     void every_declared_answer_names_the_members_its_records_carry() {
@@ -54,8 +54,8 @@ class AnswerShapeTest {
     void the_check_reports_a_member_left_out() {
         assertThat(List.of("address", "fields", "conflict_token"))
             .as("RED STATE, observed: the declaration of ENTRY without next differs from "
-                + "what EntryResponse carries")
-            .isNotEqualTo(wireNames(Payloads.EntryResponse.class));
+                + "what EntryPayload carries")
+            .isNotEqualTo(wireNames(Payloads.EntryPayload.class));
     }
 
     /** The names a record carries on the wire, read off its accessors. */

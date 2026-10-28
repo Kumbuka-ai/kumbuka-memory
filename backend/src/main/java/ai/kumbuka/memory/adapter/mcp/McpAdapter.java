@@ -9,7 +9,17 @@ package ai.kumbuka.memory.adapter.mcp;
 
 import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
 import ai.kumbuka.memory.adapter.payload.AssistantRefusals;
+import ai.kumbuka.memory.adapter.payload.CapabilitiesPayload;
+import ai.kumbuka.memory.adapter.payload.EmptyPayload;
+import ai.kumbuka.memory.adapter.payload.InitializePayload;
 import ai.kumbuka.memory.adapter.payload.Payloads;
+import ai.kumbuka.memory.adapter.payload.RpcErrorBodyPayload;
+import ai.kumbuka.memory.adapter.payload.RpcErrorPayload;
+import ai.kumbuka.memory.adapter.payload.RpcResultPayload;
+import ai.kumbuka.memory.adapter.payload.ServerInfoPayload;
+import ai.kumbuka.memory.adapter.payload.TextContentPayload;
+import ai.kumbuka.memory.adapter.payload.ToolListPayload;
+import ai.kumbuka.memory.adapter.payload.ToolResultPayload;
 import ai.kumbuka.memory.domain.Actor;
 import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.EntryView;
@@ -143,8 +153,8 @@ public class McpAdapter {
         String method = String.valueOf(request.get("method"));
         return switch (method) {
             case "initialize" -> result(id, initialize());
-            case "ping" -> result(id, Map.of());
-            case "tools/list" -> result(id, Map.of("tools", tools()));
+            case "ping" -> result(id, new EmptyPayload());
+            case "tools/list" -> result(id, new ToolListPayload(McpTools.declared()));
             case "tools/call" -> call(id, request);
             // The method that arrived is the caller's input and is never
             // repeated; the answer names the methods there are (DEC-0043 R19).
@@ -159,24 +169,9 @@ public class McpAdapter {
         return SurfaceDeclaration.asMap();
     }
 
-    private Map<String, Object> initialize() {
-        Map<String, Object> answer = new LinkedHashMap<>();
-        answer.put("protocolVersion", PROTOCOL_VERSION);
-        answer.put("capabilities", Map.of("tools", Map.of()));
-        answer.put("serverInfo", Map.of("name", "kumbuka-memory", "version", version));
-        return answer;
-    }
-
-    private static List<Map<String, Object>> tools() {
-        return McpTools.declared().stream()
-            .map(tool -> {
-                Map<String, Object> listed = new LinkedHashMap<>();
-                listed.put("name", tool.name());
-                listed.put("description", tool.description());
-                listed.put("inputSchema", tool.inputSchema());
-                return listed;
-            })
-            .toList();
+    private InitializePayload initialize() {
+        return new InitializePayload(PROTOCOL_VERSION, new CapabilitiesPayload(new EmptyPayload()),
+            new ServerInfoPayload("kumbuka-memory", version));
     }
 
     private Response call(@Nullable Object id, Map<String, Object> request) {
@@ -206,7 +201,7 @@ public class McpAdapter {
     // One tool call
     // ======================================================================
 
-    private Map<String, Object> toolResult(AssistantVerb verb, Map<String, Object> args) {
+    private ToolResultPayload toolResult(AssistantVerb verb, Map<String, Object> args) {
         try {
             return answered(verb, args);
         } catch (RuntimeException failure) {
@@ -215,7 +210,7 @@ public class McpAdapter {
         }
     }
 
-    private Map<String, Object> answered(AssistantVerb verb, Map<String, Object> args) {
+    private ToolResultPayload answered(AssistantVerb verb, Map<String, Object> args) {
         try {
             CallArguments in = new CallArguments(verb, args);
             return transaction.run(() -> content(invoke(verb, in), false));
@@ -255,25 +250,25 @@ public class McpAdapter {
     private Object invoke(AssistantVerb verb, CallArguments in) {
         Actor actor = caller.current();
         return switch (verb) {
-            case CREATE -> AssistantPayloads.EntryAnswer.of(verbs.create(actor,
+            case CREATE -> AssistantPayloads.AssistantEntryPayload.of(verbs.create(actor,
                 in.top(Names.SCOPE).orElseThrow(), in.top(Names.SELECTOR).orElseThrow(),
                 new VerbSurface.NewEntry(in.field(Names.KEY).orElse(null),
                     in.field(Names.TYPE).orElse(null), in.field(Names.CONTENT).orElse(null),
                     in.field(Names.REFERENCE).orElse(null))).entry());
-            case READ -> AssistantPayloads.EntryAnswer.of(verbs.read(actor,
+            case READ -> AssistantPayloads.AssistantEntryPayload.of(verbs.read(actor,
                 AddressParser.complete(in.top(Names.ADDRESS).orElseThrow())).entry());
-            case UPDATE -> AssistantPayloads.EntryAnswer.of(verbs.update(actor,
+            case UPDATE -> AssistantPayloads.AssistantEntryPayload.of(verbs.update(actor,
                 AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
                 in.top(Names.CONFLICT_TOKEN).orElse(null),
                 new Patch(in.field(Names.TYPE), in.field(Names.CONTENT),
                     in.field(Names.REFERENCE))).entry());
-            case WITHDRAW -> AssistantPayloads.WithdrawalAnswer.of(verbs.withdraw(actor,
+            case WITHDRAW -> AssistantPayloads.AssistantWithdrawnPayload.of(verbs.withdraw(actor,
                 AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
                 in.top(Names.CONFLICT_TOKEN).orElse(null)));
-            case QUERY -> AssistantPayloads.PageAnswer.of(verbs.query(actor,
+            case QUERY -> AssistantPayloads.AssistantPagePayload.of(verbs.query(actor,
                 in.top(Names.SCOPE).orElseThrow(), in.top(Names.SELECTOR).orElse(null),
                 narrowing(in)));
-            case DIGEST -> Payloads.DigestResponse.of(verbs.digest(actor,
+            case DIGEST -> Payloads.DigestPayload.of(verbs.digest(actor,
                 in.top(Names.SCOPE).orElseThrow(), in.list(Names.TYPES).orElse(null)));
         };
     }
@@ -363,7 +358,7 @@ public class McpAdapter {
     // The wire
     // ======================================================================
 
-    private Map<String, Object> refused(Payloads.Refusal refusal) {
+    private ToolResultPayload refused(Payloads.RefusalPayload refusal) {
         return content(refusal, true);
     }
 
@@ -371,34 +366,23 @@ public class McpAdapter {
      * A tool result: the answer as structured content, and the same answer as
      * JSON text for a client that reads only text.
      */
-    private Map<String, Object> content(Object payload, boolean isError) {
+    private ToolResultPayload content(Object payload, boolean isError) {
         String text;
         try {
             text = json.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
             throw new UncheckedIOException(e);
         }
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("content", List.of(Map.of("type", "text", "text", text)));
-        result.put("structuredContent", payload);
-        result.put("isError", isError);
-        return result;
+        return new ToolResultPayload(List.of(TextContentPayload.text(text)), payload, isError);
     }
 
     private static Response result(@Nullable Object id, Object payload) {
-        Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put(KEY_JSONRPC, JSONRPC);
-        envelope.put("id", id);
-        envelope.put("result", payload);
-        return Response.ok(envelope).build();
+        return Response.ok(new RpcResultPayload(JSONRPC, id, payload)).build();
     }
 
     private static Response error(@Nullable Object id, int code, String message) {
-        Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put(KEY_JSONRPC, JSONRPC);
-        envelope.put("id", id);
-        envelope.put("error", Map.of("code", code, "message", message));
-        return Response.ok(envelope).build();
+        return Response.ok(new RpcErrorPayload(JSONRPC, id, new RpcErrorBodyPayload(code, message)))
+            .build();
     }
 
     /**

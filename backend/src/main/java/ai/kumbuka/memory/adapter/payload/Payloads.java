@@ -20,7 +20,6 @@ import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.Texts;
 import ai.kumbuka.memory.surface.VerbSurface;
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.jspecify.annotations.Nullable;
 
@@ -44,7 +43,7 @@ import java.util.Set;
  *
  * <h2>One projection, two paths</h2>
  *
- * {@link EntryFields#of} is the only place a stored entry becomes a field map.
+ * {@link EntryFieldsPayload#of} is the only place a stored entry becomes a field map.
  * A stale-token refusal carries the entry as the caller's own {@code read}
  * would answer it (DEC-0041), and it gets there through this same method — a
  * second projection on the refusal path is exactly what that node forbids,
@@ -77,7 +76,7 @@ public final class Payloads {
      * @param fields the values; absent where the body carried none, which the
      *               verb refuses
      */
-    public record CreateRequest(@JsonProperty("fields") @Nullable EntryFields fields) {
+    public record CreateRequestPayload(@JsonProperty("fields") @Nullable EntryFieldsPayload fields) {
     }
 
     /**
@@ -86,7 +85,7 @@ public final class Payloads {
      * @param fields the values to change; absent where the body carried none,
      *               which the verb refuses
      */
-    public record UpdateRequest(@JsonProperty("fields") @Nullable EntryFields fields) {
+    public record UpdateRequestPayload(@JsonProperty("fields") @Nullable EntryFieldsPayload fields) {
     }
 
     /**
@@ -98,7 +97,7 @@ public final class Payloads {
      *
      * @param types the types to carry; absent for the estate's stored selection
      */
-    public record DigestRequest(@JsonProperty("types") @Nullable List<String> types) {
+    public record DigestRequestPayload(@JsonProperty("types") @Nullable List<String> types) {
     }
 
     // ======================================================================
@@ -119,7 +118,7 @@ public final class Payloads {
      * send it. In an answer only {@code reference} is ever absent, and there
      * it says the entry has none.
      */
-    public record EntryFields(
+    public record EntryFieldsPayload(
         @JsonProperty("scope") @Nullable String scope,
         @JsonProperty("key") @Nullable String key,
         @JsonProperty("type") @Nullable String type,
@@ -131,8 +130,8 @@ public final class Payloads {
         @JsonProperty("updated_at") @Nullable Instant updatedAt) {
 
         /** The one projection of a stored entry. Used by every answer and every refusal. */
-        public static EntryFields of(EntryView entry) {
-            return new EntryFields(entry.scope(), entry.key(), entry.type(), entry.content(),
+        public static EntryFieldsPayload of(EntryView entry) {
+            return new EntryFieldsPayload(entry.scope(), entry.key(), entry.type(), entry.content(),
                 entry.reference(), entry.state(), entry.isPrivate(),
                 entry.createdAt(), entry.updatedAt());
         }
@@ -162,16 +161,16 @@ public final class Payloads {
      * token guards the write and is not written; the steps are computed per
      * caller and are not values of the entry.
      */
-    public record EntryResponse(
+    public record EntryPayload(
         @JsonProperty("address") String address,
-        @JsonProperty("fields") EntryFields fields,
+        @JsonProperty("fields") EntryFieldsPayload fields,
         @JsonProperty("conflict_token") String conflictToken,
         @JsonProperty("next") List<NextPayload> next) {
 
-        public static EntryResponse of(VerbSurface.Answer answer) {
-            return new EntryResponse(
+        public static EntryPayload of(VerbSurface.Answer answer) {
+            return new EntryPayload(
                 answer.entry().address().canonical(),
-                EntryFields.of(answer.entry()),
+                EntryFieldsPayload.of(answer.entry()),
                 answer.entry().conflictToken(),
                 NextPayload.of(answer.next()));
         }
@@ -184,14 +183,14 @@ public final class Payloads {
      * steps (DEC-0040). A listing that carried one token for the set would be
      * handing out a token about the wrong thing.
      */
-    public record ListedEntry(
+    public record ListedEntryPayload(
         @JsonProperty("address") String address,
-        @JsonProperty("fields") EntryFields fields,
+        @JsonProperty("fields") EntryFieldsPayload fields,
         @JsonProperty("conflict_token") String conflictToken,
         @JsonProperty("next") List<NextPayload> next) {
 
-        public static ListedEntry of(EntryView entry) {
-            return new ListedEntry(entry.address().canonical(), EntryFields.of(entry),
+        public static ListedEntryPayload of(EntryView entry) {
+            return new ListedEntryPayload(entry.address().canonical(), EntryFieldsPayload.of(entry),
                 entry.conflictToken(), NextPayload.of(VerbSurface.nextFor(entry)));
         }
     }
@@ -205,8 +204,9 @@ public final class Payloads {
      *
      * <p>{@code next_cursor} is the one continuation: present, it is what to
      * pass as {@code after} for the next page; absent — not null, absent — the
-     * page is the last. Serialised only when there is one, so that "is there
-     * more" has one spelling and not two.
+     * page is the last. A null cursor is absent on the wire like every other
+     * member with no value, so that "is there more" has one spelling and not
+     * two.
      *
      * <p>{@code unaddressable} is not padding. An entry whose key carries no
      * selector has no address on this surface, so it cannot be listed — and a
@@ -214,15 +214,14 @@ public final class Payloads {
      * completeness. {@code create} refuses such a key, so a non-zero number
      * here is a statement about data that arrived from somewhere else.
      */
-    public record PageResponse(
-        @JsonProperty("objects") List<ListedEntry> objects,
-        @JsonProperty("next_cursor") @JsonInclude(JsonInclude.Include.NON_NULL)
-        @Nullable String nextCursor,
+    public record PagePayload(
+        @JsonProperty("objects") List<ListedEntryPayload> objects,
+        @JsonProperty("next_cursor") @Nullable String nextCursor,
         @JsonProperty("unaddressable") long unaddressable) {
 
-        public static PageResponse of(Page page) {
-            return new PageResponse(
-                page.objects().stream().map(ListedEntry::of).toList(),
+        public static PagePayload of(Page page) {
+            return new PagePayload(
+                page.objects().stream().map(ListedEntryPayload::of).toList(),
                 page.nextCursor(), page.unaddressable());
         }
     }
@@ -236,13 +235,13 @@ public final class Payloads {
      * and whether the address is free again, which is what decides whether
      * {@code create} is open on it next.
      */
-    public record WithdrawnResponse(
+    public record WithdrawnPayload(
         @JsonProperty("address") String address,
         @JsonProperty("outcome") String outcome,
         @JsonProperty("address_released") boolean addressReleased,
         @JsonProperty("next") List<NextPayload> next) {
 
-        public static WithdrawnResponse of(MemoryService.Withdrawn withdrawn) {
+        public static WithdrawnPayload of(MemoryService.Withdrawn withdrawn) {
             String address = withdrawn.address().canonical();
             List<NextPayload> next = List.of(withdrawn.addressReleased()
                 ? new NextPayload(
@@ -251,7 +250,7 @@ public final class Payloads {
                     Texts.next().genericAfterRelease())
                 : new NextPayload("read " + address, Texts.next().genericAfterRetirement()));
 
-            return new WithdrawnResponse(address,
+            return new WithdrawnPayload(address,
                 withdrawn.outcome().name().toLowerCase(Locale.ROOT),
                 withdrawn.addressReleased(), next);
         }
@@ -290,7 +289,7 @@ public final class Payloads {
      * selection is; the sections carry only the selected ones, and each tally
      * says which it was.
      */
-    public record DigestResponse(
+    public record DigestPayload(
         @JsonProperty("address") String address,
         @JsonProperty("scopes") List<String> scopes,
         @JsonProperty("selected_types") List<String> selectedTypes,
@@ -301,8 +300,8 @@ public final class Payloads {
         @JsonProperty("unaddressable") long unaddressable,
         @JsonProperty("truncated") boolean truncated) {
 
-        public static DigestResponse of(DigestView digest) {
-            return new DigestResponse(
+        public static DigestPayload of(DigestView digest) {
+            return new DigestPayload(
                 "memory://" + digest.scope(),
                 digest.scopes(),
                 digest.selectedTypes(),
@@ -338,20 +337,26 @@ public final class Payloads {
      * {@code data} (DEC-0042). The not-found class is collapsed here and
      * nowhere else.
      *
-     * <p>An empty detail means the member is ABSENT and not present-and-empty,
-     * which is why {@code data} is serialised only when it has something in
-     * it. The distinction carries a guarantee: the not-found class must carry
-     * no {@code data} at all, because a member present on one answer and
-     * missing on another is a difference the three collapsed cases could be
-     * told apart by. Carried by the serialiser rather than by a null in the
-     * record, so that no caller of this type has to remember which absence to
-     * construct.
+     * <p>An empty detail means the member is ABSENT and not present-and-empty.
+     * The distinction carries a guarantee: the not-found class must carry no
+     * {@code data} at all, because a member present on one answer and missing
+     * on another is a difference the three collapsed cases could be told apart
+     * by. Carried by the constructor, which turns a detail with nothing in it
+     * into no detail, so that no caller of this type has to remember which
+     * absence to construct.
+     *
+     * @param data absent where the refusal names nothing machine-readable
      */
-    public record Refusal(
+    public record RefusalPayload(
         @JsonProperty("reason") String reason,
         @JsonProperty("message") String message,
-        @JsonProperty("data") @JsonInclude(JsonInclude.Include.NON_EMPTY)
-        Map<String, Object> data) {
+        @JsonProperty("data") @Nullable RefusalDataPayload data) {
+
+        public RefusalPayload {
+            if (RefusalDataPayload.NONE.equals(data)) {
+                data = null;
+            }
+        }
 
         /** The one code the not-found class carries. */
         public static final String NOT_FOUND = "NOT_FOUND";
@@ -396,30 +401,25 @@ public final class Payloads {
             MemoryException.Reason.ENTRY_ABSENT,
             MemoryException.Reason.SCOPE_UNRESOLVED);
 
-        /** A refusal with a reason and a message and nothing machine-readable. */
-        public static Refusal of(String reason, String message) {
-            return new Refusal(reason, message, Map.of());
-        }
-
         /**
          * The wire form of a transport refusal, worded from its declared
          * pattern. The exception's own message is a note for a developer and
          * never reaches a caller.
          */
-        public static Refusal of(SurfaceException e) {
-            return new Refusal(e.reason().name(), AssistantRefusals.messageFor(
-                ReasonCatalogue.of(e.reason().name())), Map.of());
+        public static RefusalPayload of(SurfaceException e) {
+            return new RefusalPayload(e.reason().name(), AssistantRefusals.messageFor(
+                ReasonCatalogue.of(e.reason().name())), null);
         }
 
         /**
          * The wire form of a refusal of a call's arguments on the generic
          * surface, worded as the assistant surface words it.
          */
-        public static Refusal of(AssistantVerb verb, CallException e) {
-            Refusal assistant = AssistantRefusals.of(verb, e, Optional.empty());
-            Map<String, Object> data = new LinkedHashMap<>(assistant.data());
-            data.remove("attempted");
-            return new Refusal(assistant.reason(), assistant.message(), data);
+        public static RefusalPayload of(AssistantVerb verb, CallException e) {
+            RefusalPayload assistant = AssistantRefusals.of(verb, e, Optional.empty());
+            RefusalDataPayload data = assistant.data();
+            return new RefusalPayload(assistant.reason(), assistant.message(),
+                data == null ? null : data.unattempted());
         }
 
         /**
@@ -429,14 +429,14 @@ public final class Payloads {
          * properties of the envelope. Building the envelope twice is how two
          * paths come to differ on one of them.
          */
-        public static Refusal of(AssistantVerb verb, MemoryException e) {
+        public static RefusalPayload of(AssistantVerb verb, MemoryException e) {
             if (NOT_FOUND_REASONS.contains(e.reason())) {
-                return new Refusal(NOT_FOUND, AssistantRefusals.notFound(), Map.of());
+                return new RefusalPayload(NOT_FOUND, AssistantRefusals.notFound(), null);
             }
             // Worded from the reason's declared pattern, as the assistant
             // surface words it: the domain's sentence was written beside the
             // check and is no text addressed to a caller (DEC-0043 R18).
-            return new Refusal(e.reason().name(), AssistantRefusals.messageFor(verb, e,
+            return new RefusalPayload(e.reason().name(), AssistantRefusals.messageFor(verb, e,
                 ReasonCatalogue.of(e.reason().name())), wireData(e));
         }
 
@@ -449,12 +449,35 @@ public final class Payloads {
          * this is where it becomes fields — through the same method every
          * answer uses, which is what stops the refusal path growing a
          * projection of its own.
+         *
+         * <p>The domain's detail is a closed set of members, each read here by
+         * name. A member this method does not know is a defect between the two
+         * layers and fails loud, rather than leaving the wire without it.
          */
-        private static Map<String, Object> wireData(MemoryException e) {
-            Map<String, Object> wire = new LinkedHashMap<>();
-            e.data().forEach((name, value) -> wire.put(name,
-                value instanceof EntryView entry ? EntryFields.of(entry) : value));
-            return wire;
+        private static RefusalDataPayload wireData(MemoryException e) {
+            RefusalDataPayload data = RefusalDataPayload.NONE;
+            for (Map.Entry<String, Object> member : e.data().entrySet()) {
+                data = switch (member.getKey()) {
+                    case MemoryException.OFFENDERS -> data.offending(strings(member.getValue()));
+                    case MemoryException.ACCEPTS -> data.accepting(strings(member.getValue()));
+                    case MemoryException.ADDRESS, STALE_TOKEN, AssistantVerb.FIELDS -> data;
+                    default -> throw new IllegalStateException("the domain's refusal carries "
+                        + "a member the wire does not declare: " + member.getKey());
+                };
+            }
+            if (e.data().get(AssistantVerb.FIELDS) instanceof EntryView entry) {
+                data = data.current(String.valueOf(e.data().get(MemoryException.ADDRESS)),
+                    String.valueOf(e.data().get(STALE_TOKEN)), EntryFieldsPayload.of(entry));
+            }
+            return data;
+        }
+
+        /** The member under which a stale-token refusal names the current token. */
+        private static final String STALE_TOKEN = "conflict_token";
+
+        private static List<String> strings(Object listed) {
+            return listed instanceof List<?> list
+                ? list.stream().map(String::valueOf).toList() : List.of(String.valueOf(listed));
         }
     }
 
@@ -469,8 +492,8 @@ public final class Payloads {
      * and got a published entry would have been overruled in silence, and
      * would find out from the data rather than from the answer.
      */
-    public static VerbSurface.NewEntry newEntry(@Nullable CreateRequest request) {
-        EntryFields fields = requireFields(request == null ? null : request.fields());
+    public static VerbSurface.NewEntry newEntry(@Nullable CreateRequestPayload request) {
+        EntryFieldsPayload fields = requireFields(request == null ? null : request.fields());
         refuseImmutable(fields, true);
         Map<String, @Nullable String> given = new LinkedHashMap<>();
         given.put(AssistantVerb.Names.KEY, fields.key());
@@ -507,8 +530,8 @@ public final class Payloads {
      * carries the distinction explicitly: a reference is cleared by sending
      * the empty string, which is not a value a reference may otherwise have.
      */
-    public static Patch patch(@Nullable UpdateRequest request) {
-        EntryFields fields = requireFields(request == null ? null : request.fields());
+    public static Patch patch(@Nullable UpdateRequestPayload request) {
+        EntryFieldsPayload fields = requireFields(request == null ? null : request.fields());
         refuseImmutable(fields, false);
 
         return new Patch(
@@ -519,7 +542,7 @@ public final class Payloads {
     }
 
     /** The types a digest was asked to carry, or empty for the estate's selection. */
-    public static Optional<List<String>> digestTypes(@Nullable DigestRequest request) {
+    public static Optional<List<String>> digestTypes(@Nullable DigestRequestPayload request) {
         return request == null ? Optional.empty() : Optional.ofNullable(request.types());
     }
 
@@ -529,7 +552,7 @@ public final class Payloads {
      * surface (DEC-0043 R17). An empty object is something else: an update
      * that names nothing to change.
      */
-    private static EntryFields requireFields(@Nullable EntryFields fields) {
+    private static EntryFieldsPayload requireFields(@Nullable EntryFieldsPayload fields) {
         if (fields == null) {
             throw CallException.missing(AssistantVerb.fieldsName());
         }
@@ -542,7 +565,7 @@ public final class Payloads {
      * @param creating whether the key is admissible, which it is on a create
      *                 and never afterwards
      */
-    private static void refuseImmutable(EntryFields fields, boolean creating) {
+    private static void refuseImmutable(EntryFieldsPayload fields, boolean creating) {
         List<String> offenders = new java.util.ArrayList<>();
         if (fields.scope() != null) {
             offenders.add("scope");
