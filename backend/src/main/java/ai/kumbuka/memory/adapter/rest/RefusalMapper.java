@@ -84,7 +84,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
         Response.ResponseBuilder response = Response.status(e.reason().status())
             .type(MediaType.APPLICATION_JSON)
-            .entity(Payloads.Refusal.of(e));
+            .entity(Payloads.RefusalPayload.of(e));
 
         // A 405 without Allow refuses without saying what would have worked,
         // which is the one thing the status is required to carry.
@@ -107,7 +107,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
             LOG.debugf("argument refusal: %s", e.reason());
             return Response.status(400)
                 .type(MediaType.APPLICATION_JSON)
-                .entity(Payloads.Refusal.of(verbOf(call), e))
+                .entity(Payloads.RefusalPayload.of(verbOf(call), e))
                 .build();
         }
     }
@@ -154,7 +154,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
             // this mapper's decision to make a second time; the status is.
             return Response.status(status)
                 .type(MediaType.APPLICATION_JSON)
-                .entity(Payloads.Refusal.of(verbOf(call), e))
+                .entity(Payloads.RefusalPayload.of(verbOf(call), e))
                 .build();
         }
 

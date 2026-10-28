@@ -26,16 +26,16 @@ import ai.kumbuka.memory.domain.MemoryException;
  */
 class AssistantRefused extends MemoryException {
 
-    private final transient Payloads.Refusal refusal;
+    private final transient Payloads.RefusalPayload refusal;
 
-    AssistantRefused(MemoryException refused, Payloads.Refusal refusal) {
+    AssistantRefused(MemoryException refused, Payloads.RefusalPayload refusal) {
         super(refused.reason(), refused.data());
         initCause(refused);
         this.refusal = refusal;
     }
 
     /** The envelope the assistant surface answers with. */
-    Payloads.Refusal refusal() {
+    Payloads.RefusalPayload refusal() {
         return refusal;
     }
 }

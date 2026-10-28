@@ -8,6 +8,7 @@
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.adapter.mcp.McpTools;
+import ai.kumbuka.memory.adapter.payload.ToolPayload;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.NextStep;
 import ai.kumbuka.memory.surface.AssistantVerb;
@@ -16,8 +17,11 @@ import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -39,6 +43,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
 class DeclarationConformanceIT {
 
+    /** The service's own mapper: the schema is read as the wire carries it. */
+    @Inject ObjectMapper json;
+
     // ======================================================================
     // The tool list
     // ======================================================================
@@ -57,7 +64,7 @@ class DeclarationConformanceIT {
     @Test
     void every_description_is_the_contract_s_normative_text() {
         Map<String, String> expected = Contract.descriptions();
-        for (McpTools.Tool tool : McpTools.declared()) {
+        for (ToolPayload tool : McpTools.declared()) {
             assertThat(tool.description())
                 .as("the description of %s is normative text, compared character for "
                     + "character with the contract's lines joined by one space", tool.name())
@@ -71,9 +78,9 @@ class DeclarationConformanceIT {
 
     @Test
     void every_schema_is_closed_at_every_level() {
-        for (McpTools.Tool tool : McpTools.declared()) {
+        for (ToolPayload tool : McpTools.declared()) {
             List<String> open = new ArrayList<>();
-            collectOpenObjects(tool.name(), tool.inputSchema(), open);
+            collectOpenObjects(tool.name(), schemaOf(tool), open);
             assertThat(open)
                 .as("an object schema without additionalProperties: false admits an argument "
                     + "the call does not declare, and a caller that sends one is told nothing")
@@ -83,9 +90,9 @@ class DeclarationConformanceIT {
 
     @Test
     void every_schema_carries_exactly_the_arguments_of_section_5() {
-        for (McpTools.Tool tool : McpTools.declared()) {
+        for (ToolPayload tool : McpTools.declared()) {
             Contract.Arguments expected = Contract.argumentsOf(tool.name());
-            Map<String, Object> schema = tool.inputSchema();
+            Map<String, Object> schema = schemaOf(tool);
 
             Map<String, Boolean> top = new LinkedHashMap<>(expected.top());
             if (!expected.fields().isEmpty()) {
@@ -207,11 +214,16 @@ class DeclarationConformanceIT {
     // ======================================================================
 
     private static List<String> toolNames() {
-        return McpTools.declared().stream().map(McpTools.Tool::name).toList();
+        return McpTools.declared().stream().map(ToolPayload::name).toList();
     }
 
     private static List<String> callsOf(List<NextStep> next) {
         return next.stream().map(NextStep::call).toList();
+    }
+
+    /** A tool's input schema as the wire carries it. */
+    private Map<String, Object> schemaOf(ToolPayload tool) {
+        return json.convertValue(tool.inputSchema(), new TypeReference<>() { });
     }
 
     @SuppressWarnings("unchecked")

@@ -20,9 +20,7 @@ import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import ai.kumbuka.memory.surface.Texts;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -65,11 +63,6 @@ import java.util.regex.Pattern;
  */
 public final class AssistantRefusals {
 
-    private static final String ATTEMPTED = "attempted";
-    private static final String STATE = "state";
-    private static final String NEXT = "next";
-    private static final String REPORT = "report";
-
     /** An offender as the domain names it: an argument, or one of its elements. */
     private static final Pattern OFFENDER = Pattern.compile("([a-z_]+)(?:\\[(\\d+)])?");
 
@@ -81,21 +74,21 @@ public final class AssistantRefusals {
     // ======================================================================
 
     /** A refusal the argument check made. */
-    public static Payloads.Refusal of(AssistantVerb verb, CallException e,
+    public static Payloads.RefusalPayload of(AssistantVerb verb, CallException e,
                                       Optional<EntryView> seen) {
         ReasonCatalogue.Reason reason = ReasonCatalogue.of(e.reason().name());
         ReasonCatalogue.Facts facts = ReasonCatalogue.Facts.of(verb.verbName())
             .accepting(e.accepts());
         facts = e.name().map(facts::naming).orElse(facts);
         facts = e.path().map(facts::at).orElse(facts);
-        Payloads.Refusal refusal = envelope(verb, reason, reason.text(facts), seen);
-        e.path().ifPresent(path ->
-            refusal.data().put(MemoryException.OFFENDERS, List.of(path.value())));
-        if (e.reason() == CallException.Reason.ARGUMENT_UNKNOWN) {
-            refusal.data().put(MemoryException.ACCEPTS,
-                e.accepts().stream().map(ArgumentName::value).toList());
+        RefusalDataPayload data = detail(verb, reason, seen);
+        if (e.path().isPresent()) {
+            data = data.offending(List.of(e.path().get().value()));
         }
-        return refusal;
+        if (e.reason() == CallException.Reason.ARGUMENT_UNKNOWN) {
+            data = data.accepting(e.accepts().stream().map(ArgumentName::value).toList());
+        }
+        return new Payloads.RefusalPayload(reason.code(), reason.text(facts), data);
     }
 
     /**
@@ -104,25 +97,24 @@ public final class AssistantRefusals {
      * @param reason the catalogue entry for its code, already known to be one
      *               this surface can return
      */
-    public static Payloads.Refusal of(AssistantVerb verb, MemoryException e,
+    public static Payloads.RefusalPayload of(AssistantVerb verb, MemoryException e,
                                       ReasonCatalogue.Reason reason, Optional<EntryView> seen) {
         if (ReasonCatalogue.NOT_FOUND.equals(reason.code())) {
-            return new Payloads.Refusal(reason.code(), notFound(),
-                Map.of(ATTEMPTED, verb.call()));
+            return new Payloads.RefusalPayload(reason.code(), notFound(),
+                RefusalDataPayload.attempting(verb.call()));
         }
-        Payloads.Refusal refusal = envelope(verb, reason, messageFor(verb, e, reason), seen);
-        if (e.data().get("fields") instanceof EntryView current) {
-            refusal.data().put(MemoryException.ADDRESS, current.address().canonical());
-            refusal.data().put(Names.CONFLICT_TOKEN, current.conflictToken());
-            refusal.data().put(AssistantVerb.FIELDS, Payloads.EntryFields.of(current));
+        RefusalDataPayload data = detail(verb, reason, seen);
+        if (e.data().get(AssistantVerb.FIELDS) instanceof EntryView current) {
+            data = data.current(current.address().canonical(), current.conflictToken(),
+                Payloads.EntryFieldsPayload.of(current));
         }
         if (e.data().get(MemoryException.OFFENDERS) instanceof List<?> offenders) {
-            refusal.data().put(MemoryException.OFFENDERS, List.copyOf(offenders));
+            data = data.offending(offenders.stream().map(String::valueOf).toList());
         }
         if (e.data().get(MemoryException.ACCEPTS) instanceof List<?> accepts) {
-            refusal.data().put(MemoryException.ACCEPTS, List.copyOf(accepts));
+            data = data.accepting(accepts.stream().map(String::valueOf).toList());
         }
-        return refusal;
+        return new Payloads.RefusalPayload(reason.code(), messageFor(verb, e, reason), data);
     }
 
     /**
@@ -172,10 +164,9 @@ public final class AssistantRefusals {
      * is no argument for {@code offenders} to name, and the value sent is the
      * caller's input and is repeated nowhere (DEC-0042).
      */
-    public static Payloads.Refusal headerRefused() {
-        return new Payloads.Refusal(MemoryException.Reason.ARGUMENT_INVALID.name(),
-            Texts.refusals().surfaceHeader() + " " + Texts.remedies().surfaceHeader(),
-            new LinkedHashMap<>());
+    public static Payloads.RefusalPayload headerRefused() {
+        return new Payloads.RefusalPayload(MemoryException.Reason.ARGUMENT_INVALID.name(),
+            Texts.refusals().surfaceHeader() + " " + Texts.remedies().surfaceHeader(), null);
     }
 
     /**
@@ -183,29 +174,29 @@ public final class AssistantRefusals {
      * reference travels under {@code data.report}, and the message points at
      * it: a reference is no placeholder a text may take.
      */
-    public static Payloads.Refusal unexpected(AssistantVerb verb, String reportId) {
+    public static Payloads.RefusalPayload unexpected(AssistantVerb verb, String reportId) {
         ReasonCatalogue.Reason reason =
             ReasonCatalogue.of(CallException.Reason.UNEXPECTED_FAILURE.name());
-        Payloads.Refusal refusal = new Payloads.Refusal(reason.code(),
-            reason.text(ReasonCatalogue.Facts.of(verb.verbName())), new LinkedHashMap<>());
-        refusal.data().put(ATTEMPTED, verb.call());
-        refusal.data().put(REPORT, reportId);
-        return refusal;
+        return new Payloads.RefusalPayload(reason.code(),
+            reason.text(ReasonCatalogue.Facts.of(verb.verbName())),
+            RefusalDataPayload.attempting(verb.call()).reporting(reportId));
     }
 
     // ======================================================================
     // The envelope
     // ======================================================================
 
-    private static Payloads.Refusal envelope(AssistantVerb verb, ReasonCatalogue.Reason reason,
-                                             String message, Optional<EntryView> seen) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put(ATTEMPTED, verb.call());
-        seen.ifPresent(entry -> {
-            data.put(STATE, entry.state());
-            data.put(NEXT, Payloads.NextPayload.of(remedyOn(verb, reason, entry)));
-        });
-        return new Payloads.Refusal(reason.code(), message, data);
+    /**
+     * The detail every refusal of a call starts from: the call, and where the
+     * refusal concerns an entry this caller may see, its state and the calls
+     * the remedy names that are open on it.
+     */
+    private static RefusalDataPayload detail(AssistantVerb verb, ReasonCatalogue.Reason reason,
+                                             Optional<EntryView> seen) {
+        RefusalDataPayload data = RefusalDataPayload.attempting(verb.call());
+        return seen.map(entry -> data.seeing(entry.state(),
+                Payloads.NextPayload.of(remedyOn(verb, reason, entry))))
+            .orElse(data);
     }
 
     /** The calls the remedy names that this caller can make on this entry. */

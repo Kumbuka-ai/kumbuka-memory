@@ -7,14 +7,18 @@
  */
 package ai.kumbuka.memory.adapter.mcp;
 
+import ai.kumbuka.memory.adapter.payload.SchemaPayload;
+import ai.kumbuka.memory.adapter.payload.ToolPayload;
 import ai.kumbuka.memory.surface.Argument;
 import ai.kumbuka.memory.surface.AssistantVerb;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The tool list, as {@code tools/list} answers it, derived from the declaration.
@@ -30,24 +34,31 @@ import java.util.Map;
  * {@code fields} object included. One closed level is as much use as none:
  * the argument a caller misspells is as likely to sit inside {@code fields}
  * as beside it, and a schema that admits it tells the caller it was read.
+ *
+ * <h2>The keywords an argument publishes, read by name</h2>
+ *
+ * An argument carries its further schema keywords as the declaration states
+ * them. Each is read here by name into its member of the schema; a keyword
+ * this class does not know fails loud, rather than vanishing from the tool
+ * list while the declaration still publishes it.
  */
 public final class McpTools {
+
+    /** The schema keywords an argument may publish beside its type and description. */
+    static final Set<String> KEYWORDS = Set.of("enum", "default", "minimum", "maximum",
+        "items", "minItems");
 
     private McpTools() {
     }
 
-    /** One tool as the protocol lists it. */
-    public record Tool(String name, String description, Map<String, Object> inputSchema) {
-    }
-
-    public static List<Tool> declared() {
+    public static List<ToolPayload> declared() {
         return Arrays.stream(AssistantVerb.values())
-            .map(verb -> new Tool(verb.call(), verb.description(), schemaOf(verb)))
+            .map(verb -> new ToolPayload(verb.call(), verb.description(), schemaOf(verb)))
             .toList();
     }
 
-    static Map<String, Object> schemaOf(AssistantVerb verb) {
-        Map<String, Object> properties = new LinkedHashMap<>();
+    static SchemaPayload schemaOf(AssistantVerb verb) {
+        Map<String, SchemaPayload> properties = new LinkedHashMap<>();
         List<String> required = new ArrayList<>();
         for (Argument argument : verb.topArguments()) {
             properties.put(argument.name(), property(argument));
@@ -56,7 +67,7 @@ public final class McpTools {
             }
         }
         if (verb.writesFields()) {
-            Map<String, Object> fields = new LinkedHashMap<>();
+            Map<String, SchemaPayload> fields = new LinkedHashMap<>();
             List<String> requiredFields = new ArrayList<>();
             for (Argument argument : verb.fieldArguments()) {
                 fields.put(argument.name(), property(argument));
@@ -64,29 +75,47 @@ public final class McpTools {
                     requiredFields.add(argument.name());
                 }
             }
-            Map<String, Object> schema = closedObject(fields, requiredFields);
-            schema.put("description", AssistantVerb.fieldsDescription());
-            properties.put(AssistantVerb.FIELDS, schema);
+            properties.put(AssistantVerb.FIELDS,
+                closedObject(AssistantVerb.fieldsDescription(), fields, requiredFields));
             required.add(AssistantVerb.FIELDS);
         }
-        return closedObject(properties, required);
+        return closedObject(null, properties, required);
     }
 
-    private static Map<String, Object> property(Argument argument) {
-        Map<String, Object> property = new LinkedHashMap<>();
-        property.put("type", argument.type());
-        property.put("description", argument.description());
-        property.putAll(argument.keywords());
-        return property;
+    private static SchemaPayload property(Argument argument) {
+        Map<String, Object> keywords = argument.keywords();
+        keywords.keySet().stream().filter(keyword -> !KEYWORDS.contains(keyword)).findFirst()
+            .ifPresent(keyword -> {
+                throw new IllegalStateException(argument.name() + " publishes the schema "
+                    + "keyword " + keyword + ", which the tool schema does not carry");
+            });
+        return new SchemaPayload(argument.type(), argument.description(), null, null, null,
+            items(keywords.get("items")), integer(keywords.get("minItems")),
+            strings(keywords.get("enum")), keywords.get("default"),
+            integer(keywords.get("minimum")), integer(keywords.get("maximum")));
     }
 
-    private static Map<String, Object> closedObject(Map<String, Object> properties,
-                                                    List<String> required) {
-        Map<String, Object> schema = new LinkedHashMap<>();
-        schema.put("type", "object");
-        schema.put("properties", properties);
-        schema.put("required", List.copyOf(required));
-        schema.put("additionalProperties", false);
-        return schema;
+    /** The rule every element of a list obeys: its type, and the set its values come from. */
+    private static @Nullable SchemaPayload items(@Nullable Object items) {
+        if (!(items instanceof Map<?, ?> rule)) {
+            return null;
+        }
+        return new SchemaPayload(String.valueOf(rule.get("type")), null, null, null, null,
+            null, null, strings(rule.get("enum")), null, null, null);
+    }
+
+    private static @Nullable List<String> strings(@Nullable Object values) {
+        return values instanceof List<?> list ? list.stream().map(String::valueOf).toList() : null;
+    }
+
+    private static @Nullable Integer integer(@Nullable Object value) {
+        return value instanceof Number number ? number.intValue() : null;
+    }
+
+    private static SchemaPayload closedObject(@Nullable String description,
+                                              Map<String, SchemaPayload> properties,
+                                              List<String> required) {
+        return new SchemaPayload("object", description, properties, List.copyOf(required),
+            false, null, null, null, null, null, null);
     }
 }

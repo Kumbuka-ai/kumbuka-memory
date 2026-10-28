@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -39,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * hop does. That is a second expectation, and it cannot be taken from the
  * artefact it checks: the literal in {@link #PLATFORM_NOT_FOUND_MESSAGE} is
  * transcribed from the platform's source by hand, never read from
- * {@code Payloads.Refusal.NOT_FOUND_MESSAGE}.
+ * {@code Payloads.RefusalPayload.NOT_FOUND_MESSAGE}.
  *
  * <h2>Why the technical address is probed separately every time</h2>
  *
@@ -67,7 +74,7 @@ class IsolationIT {
      * line 35, constant {@code NOT_FOUND_MESSAGE}, read 2026-09-21.
      *
      * <p>Typed out rather than imported from
-     * {@code Payloads.Refusal.NOT_FOUND_MESSAGE}: an expectation read from the
+     * {@code Payloads.RefusalPayload.NOT_FOUND_MESSAGE}: an expectation read from the
      * artefact it checks expects whatever that artefact happens to say, and
      * this one exists precisely to catch the artefact drifting from the
      * platform. Its remedy is the same for all three collapsed cases, which is
