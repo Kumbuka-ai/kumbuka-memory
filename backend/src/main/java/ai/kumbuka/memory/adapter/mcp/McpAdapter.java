@@ -162,7 +162,12 @@ public class McpAdapter {
         };
     }
 
-    /** The declaration every tool, schema, description and reason is derived from. */
+    /**
+     * The declaration every tool, schema, description and reason is derived
+     * from: the transitional exception of C5.1, beside {@code GET /api}, which
+     * goes in memory's breaking step. The declaration's own path is
+     * {@code /api/declaration}.
+     */
     @GET
     @Path("/declaration")
     public Map<String, Object> declaration() {

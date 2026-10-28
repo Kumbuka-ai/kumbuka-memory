@@ -144,22 +144,39 @@ public class EntryResource {
     // ======================================================================
 
     /**
-     * GET at the scheme's own address: the service's declaration (ADR-0039).
+     * GET at the declaration's own path: the service's declaration (C5.1,
+     * ADR-0039), with its version as the {@code ETag}, so that a reader can
+     * ask whether it changed without reading it.
      *
      * <p>Every verb with its identity, effect class, arguments, answer,
      * refusals and texts, and the version they carry together -- the statement
-     * the router builds its surface from. A statement about the scheme, so it
-     * stands at the scheme's address, {@code memory://}, which is {@code /api};
-     * a segment under it would read as a scope, and {@code declaration} is a
-     * well-formed scope name. It is the declaration {@code /mcp/declaration}
-     * serves: one declaration, two readers.
+     * the router builds its surface from. A literal path beside the scope
+     * template: of the routes under {@code /api/declaration} it takes the GET
+     * at that path alone, and a scope of that name keeps every deeper one.
      *
-     * <p>Authenticated as every other route of this surface. Whether the router
-     * may read it with an identity of its own rather than a caller's is a
-     * decision about a security gate and is not taken here.
+     * <p>Authenticated as every other route of this surface, and with no role:
+     * the declaration is a statement about the scheme, the same for every
+     * caller who may reach the service (C5.2).
      */
     @GET
-    public Map<String, Object> declaration() {
+    @Path("declaration")
+    public Response declaration() {
+        Map<String, Object> declaration = SurfaceDeclaration.asMap();
+        return Response.ok(declaration)
+            .tag(new EntityTag(String.valueOf(declaration.get("version"))))
+            .build();
+    }
+
+    /**
+     * GET at the scheme's own address: the same declaration, where the router
+     * reads it today.
+     *
+     * <p>The transitional exception of C5.1, beside {@code /mcp/declaration}:
+     * it stands until the router binds the declaration from
+     * {@code /api/declaration}, and goes in memory's breaking step.
+     */
+    @GET
+    public Map<String, Object> schemeDeclaration() {
         return SurfaceDeclaration.asMap();
     }
 

@@ -57,6 +57,19 @@ public enum EntryType {
         return wire;
     }
 
+    /**
+     * The selector entries of this type stand under: the type's word in hyphen
+     * form, never with an underscore, so {@code open-question} for
+     * {@code open_question}.
+     *
+     * <p>Declared as the fixed values of an argument that carries a selector.
+     * The address grammar admits other selectors as well and does not yet tie
+     * a selector to a type.
+     */
+    public String selector() {
+        return wire.replace('_', '-');
+    }
+
     /** The six, in the digest's order. */
     public static List<EntryType> inDigestOrder() {
         return List.of(values());
