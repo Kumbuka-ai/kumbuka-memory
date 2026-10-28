@@ -24,7 +24,6 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -50,7 +49,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>The red run, observed on 2026-10-28 against the tree before this change:
  * every entry answer without a reference carried {@code "reference": null},
- * on both surfaces and inside the stale-token refusal.
+ * on both surfaces, in a listing and inside the stale-token refusal — seven
+ * members in the walk — and the service's mapper wrote an instant with all
+ * nine digits of its nanoseconds.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
@@ -167,9 +168,7 @@ class SerialisationIT {
             return;
         }
         if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> members = node.fields();
-            while (members.hasNext()) {
-                Map.Entry<String, JsonNode> member = members.next();
+            for (Map.Entry<String, JsonNode> member : node.properties()) {
                 String at = path + "." + member.getKey();
                 if (INSTANT_MEMBERS.contains(member.getKey()) && member.getValue().isTextual()
                         && !INSTANT.matcher(member.getValue().asText()).matches()) {

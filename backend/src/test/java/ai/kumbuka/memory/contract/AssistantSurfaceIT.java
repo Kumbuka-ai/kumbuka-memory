@@ -47,8 +47,13 @@ class AssistantSurfaceIT {
     private static final String KEY = "convention.branch-names";
     private static final String ADDRESS = "memory://" + SCOPE + "/convention/branch-names";
 
+    /**
+     * The fields of an entry written without a reference, as every entry these
+     * probes write is. A member with no value is absent rather than null
+     * (C7.2), so {@code reference} is not among them.
+     */
     private static final List<String> ENTRY_FIELDS = List.of("scope", "key", "type", "content",
-        "reference", "state", "private", "created_at", "updated_at");
+        "state", "private", "created_at", "updated_at");
 
     @BeforeAll
     static void grantDirectoryAccess() {
