@@ -17,7 +17,6 @@ import ai.kumbuka.memory.surface.AssistantVerb.Names;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
-import ai.kumbuka.memory.surface.Texts;
 
 import java.util.ArrayList;
 import java.util.List;

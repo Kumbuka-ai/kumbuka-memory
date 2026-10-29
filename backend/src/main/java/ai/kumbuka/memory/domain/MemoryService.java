@@ -299,7 +299,7 @@ public class MemoryService {
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
         // The type is the service's vocabulary, so it is checked once the
         // scope is known to be visible: an invisible scope answers NOT_FOUND
-        // whatever type was asked for (C1.3).
+        // whatever type was asked for, as C1.3 orders the checks.
         QueryFilter filter = new QueryFilter(
             type == null || type.isBlank() ? null : knownType(type),
             text == null || text.isBlank() ? null : text);

@@ -66,6 +66,9 @@ public class ScopeDirectory {
      *  directory could not bind (C13.3). */
     private static final Logger LOG = Logger.getLogger(ScopeDirectory.class);
 
+    /** The one DEBUG line of a refusal: its code and nothing else. */
+    private static final String REFUSED = "refusal: %s";
+
     /** The kind whose entries are private to their author, as the platform spells it. */
     public static final String KIND_PRIVATE = "private";
 
@@ -91,7 +94,7 @@ public class ScopeDirectory {
         if (row.isEmpty()) {
             // Reached only with both settings bound, so this genuinely means
             // "no such scope for this subject" and not "nothing was bound".
-            LOG.debugf("refusal: %s", MemoryException.Reason.SCOPE_UNRESOLVED);
+            LOG.debugf(REFUSED, MemoryException.Reason.SCOPE_UNRESOLVED);
             throw new MemoryException(MemoryException.Reason.SCOPE_UNRESOLVED);
         }
 
@@ -163,12 +166,12 @@ public class ScopeDirectory {
         }
 
         if (scope.locked()) {
-            LOG.debugf("refusal: %s", MemoryException.Reason.SCOPE_LOCKED);
+            LOG.debugf(REFUSED, MemoryException.Reason.SCOPE_LOCKED);
             throw new MemoryException(MemoryException.Reason.SCOPE_LOCKED);
         }
 
         if (!scope.canWrite()) {
-            LOG.debugf("refusal: %s", MemoryException.Reason.SCOPE_READ_ONLY);
+            LOG.debugf(REFUSED, MemoryException.Reason.SCOPE_READ_ONLY);
             throw new MemoryException(MemoryException.Reason.SCOPE_READ_ONLY);
         }
     }

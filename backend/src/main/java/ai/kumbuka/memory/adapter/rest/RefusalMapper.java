@@ -91,11 +91,14 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
      */
     private static final Logger LOG = Logger.getLogger(RefusalMapper.class);
 
+    /** The one DEBUG line of a refusal: its code and nothing else. */
+    private static final String REFUSED = "refusal: %s";
+
     @Inject RestCall call;
 
     @Override
     public Response toResponse(SurfaceException e) {
-        LOG.debugf("refusal: %s", e.reason().name());
+        LOG.debugf(REFUSED, e.reason().name());
         // The surface header is refused before the route is matched, and so
         // names no call; every other transport refusal names the call where
         // the route had resolved one.
@@ -180,7 +183,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
         @Override
         public Response toResponse(CallException e) {
-            LOG.debugf("refusal: %s", e.reason());
+            LOG.debugf(REFUSED, e.reason());
             AssistantVerb verb = verbOf(call);
             return answer(400, call.assistant()
                 ? AssistantRefusals.of(verb, e, seen(call, verbs, caller, Optional.empty()))
@@ -198,7 +201,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
         @Override
         public Response toResponse(MemoryException e) {
-            LOG.debugf("refusal: %s", e.reason().name());
+            LOG.debugf(REFUSED, e.reason().name());
             AssistantVerb verb = verbOf(call);
             int status = statusOf(e.reason());
             ReasonCatalogue.Reason reason =
