@@ -86,8 +86,8 @@ import java.util.Optional;
  *
  * The refusal of a tool call is a tool result marked as an error, carrying
  * {@code { reason, message, data }}. A failure nobody foresaw on a tool call
- * is {@code UNEXPECTED_FAILURE} with a report reference that stands in the
- * log beside it — never a sentence of its own and never a bare 500.
+ * is {@code UNEXPECTED_FAILURE} with a reference under {@code data.reference}
+ * that stands in the log beside it — never a sentence of its own and never a bare 500.
  *
  * <p>A request that is not a call of a tool is not refused in the envelope
  * but answered as an error of the protocol: a body that is not JSON, a
@@ -272,7 +272,7 @@ public class McpAdapter {
                 in.top(Names.CONFLICT_TOKEN).orElse(null)));
             case QUERY -> AssistantPayloads.AssistantPagePayload.of(verbs.query(actor,
                 in.top(Names.SCOPE).orElseThrow(), in.top(Names.SELECTOR).orElse(null),
-                narrowing(in)));
+                Payloads.query(narrowing(in))));
             case DIGEST -> Payloads.DigestPayload.of(verbs.digest(actor,
                 in.top(Names.SCOPE).orElseThrow(), in.list(Names.TYPES).orElse(null)));
         };
@@ -308,13 +308,9 @@ public class McpAdapter {
     private Optional<EntryView> seen(AssistantVerb verb, Map<String, Object> args,
                                      Optional<MemoryException> refusal) {
         if (refusal.isPresent()) {
-            MemoryException e = refusal.get();
-            if (e.data().get(AssistantVerb.FIELDS) instanceof EntryView current) {
-                return Optional.of(current);
-            }
-            if (ReasonCatalogue.NOT_FOUND.equals(ReasonCatalogue.wireCode(e.reason().name()))
-                || e.reason() == MemoryException.Reason.ACTOR_UNKNOWN) {
-                return Optional.empty();
+            Optional<EntryView> carried = AssistantRefusals.carried(refusal.get());
+            if (carried.isPresent() || AssistantRefusals.concernsNoEntry(refusal.get())) {
+                return carried;
             }
         }
         @Nullable Object address = null;

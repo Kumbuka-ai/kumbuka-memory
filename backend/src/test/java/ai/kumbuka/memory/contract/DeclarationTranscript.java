@@ -75,7 +75,7 @@ final class DeclarationTranscript {
     /** Every call can be refused with these, whatever it does. */
     private static final List<String> EVERY_CALL = List.of("NOT_FOUND", "ACTOR_UNKNOWN",
         "ARGUMENT_UNKNOWN", "ARGUMENT_MISSING", "ARGUMENT_INVALID", "UNEXPECTED_FAILURE",
-        "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED");
+        "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED", "HEADER_INVALID");
 
     static List<Verb> verbs() {
         Arg scope = new Arg("scope", "string", true, null, List.of());

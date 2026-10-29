@@ -43,8 +43,18 @@ public class DeclarationGuard {
 
     void onStart(@Observes StartupEvent event) {
         Map<String, ReasonCatalogue.Reason> catalogue = catalogue();
-        ReasonCatalogue.requireComplete(catalogue);
-        requireServable(SurfaceDeclaration.asMap(), catalogue.keySet());
+        try {
+            ReasonCatalogue.requireComplete(catalogue);
+            requireServable(SurfaceDeclaration.asMap(), catalogue.keySet());
+        } catch (IllegalStateException refusal) {
+            // The reason on a line of its own (C13.3, WARN): the log format
+            // prints no exception (C13.1), and a start refused without a word
+            // why sends an operator looking for a database that was there.
+            // The text is this service's own, naming calls and codes.
+            String why = String.valueOf(refusal.getMessage());
+            LOG.warnf("start refused: %s", why);
+            throw refusal;
+        }
         LOG.infof("assistant surface declared: %d calls, %d reasons",
             SurfaceDeclaration.calls().size(), catalogue.size());
     }

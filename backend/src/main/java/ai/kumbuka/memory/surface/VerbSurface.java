@@ -12,17 +12,13 @@ import ai.kumbuka.memory.domain.DigestService;
 import ai.kumbuka.memory.domain.DigestView;
 import ai.kumbuka.memory.domain.Draft;
 import ai.kumbuka.memory.domain.EntryAddress;
-import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
 import ai.kumbuka.memory.domain.Page;
-import ai.kumbuka.memory.domain.PageCursor;
 import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.domain.Patch;
-import ai.kumbuka.memory.domain.QueryFilter;
-import ai.kumbuka.memory.domain.SortKey;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -32,7 +28,6 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -60,22 +55,6 @@ import java.util.UUID;
 @TenantBound
 public class VerbSurface {
 
-    /**
-     * The arguments {@code query} takes beside its address, and the whole of
-     * them.
-     *
-     * <p>An unknown one is refused by name rather than dropped. A dropped
-     * filter answers with the full set and looks exactly like a correct narrow
-     * one, which is the failure a caller cannot see and cannot ask about. It is
-     * {@code ARGUMENT_UNKNOWN} and not {@code PREDICATE_UNKNOWN}: this service
-     * declares no filter fields per scope, so a name it does not know is an
-     * argument the call does not have, decidable without a scope (DEC-0042).
-     */
-    private static final String DIRECTION = "direction";
-
-    private static final List<String> ARGUMENTS = List.of("type", "text", PageCursor.AFTER,
-        "sort", DIRECTION, PageRequest.PAGE_SIZE);
-
     @Inject MemoryService memory;
     @Inject DigestService digests;
 
@@ -99,7 +78,8 @@ public class VerbSurface {
         AddressParser.requireWritableSelector(address);
 
         return answerFor(memory.create(actor,
-            address, new Draft(values.type(), values.content(), values.reference())));
+            address, new Draft(values.type(), values.content(), values.reference(),
+                values.fixed())));
     }
 
     /** The entry at a canonical address. */
@@ -142,20 +122,19 @@ public class VerbSurface {
      * One page of a scope, optionally narrowed to a selector.
      *
      * @param selector the selector; absent for every selector of the scope
-     * @param asked    the query parameters exactly as they arrived, so that an
-     *                 unknown one can be refused instead of ignored
+     * @param asked    the narrowing and the page, their form already checked
+     *                 by the adapter (C1.2); the type is checked against the
+     *                 entry types once the scope is resolved (C1.3)
      */
     @Transactional
-    public Page query(Actor actor, String scope, @Nullable String selector,
-                      Map<String, String> asked) {
+    public Page query(Actor actor, String scope, @Nullable String selector, Query asked) {
         if (selector != null) {
             // Checked even though nothing is addressed by it: a caller that
             // mistyped a selector would otherwise get an empty page, which
             // reads as "there is nothing of that kind here".
             AddressParser.parse(scope, selector, "x");
         }
-        refuseUnknown(asked);
-        return memory.query(actor, scope, selector, filterOf(asked), pageOf(asked));
+        return memory.query(actor, scope, selector, asked.type(), asked.text(), asked.page());
     }
 
     /** Everything in force in a scope, whole. */
@@ -194,88 +173,6 @@ public class VerbSurface {
             next.add(new NextStep("withdraw " + address, texts.genericWithdraw()));
         }
         return List.copyOf(next);
-    }
-
-    // ======================================================================
-    // The predicates
-    // ======================================================================
-
-    /**
-     * Refuses a name the query does not declare, answering with the names it
-     * does declare and never with the one that arrived (DEC-0043 R19).
-     */
-    private static void refuseUnknown(Map<String, String> asked) {
-        if (!ARGUMENTS.containsAll(asked.keySet())) {
-            throw MemoryException.undeclared(ARGUMENTS);
-        }
-    }
-
-    private static QueryFilter filterOf(Map<String, String> asked) {
-        return new QueryFilter(typeOf(asked.get("type")).orElse(null),
-            nonBlank(asked.get("text")).orElse(null));
-    }
-
-    private static PageRequest pageOf(Map<String, String> asked) {
-        return new PageRequest(
-            nonBlank(asked.get(PageCursor.AFTER)).orElse(null),
-            sortOf(asked.get("sort")),
-            directionOf(asked.get(DIRECTION)),
-            pageSizeOf(asked.get(PageRequest.PAGE_SIZE)));
-    }
-
-    /**
-     * An order, refused by name when this verb does not declare it.
-     *
-     * <p>Two orders, and no field beyond them, on either surface. An order
-     * over an undeclared field is refused rather than replaced by the
-     * default: a listing silently read in another order is one a caller
-     * continues believing it knows where it stands.
-     */
-    private static SortKey sortOf(@Nullable String asked) {
-        if (asked == null || asked.isBlank()) {
-            return PageRequest.DEFAULT_SORT;
-        }
-        return SortKey.of(asked).orElseThrow(() -> MemoryException.offending(
-            MemoryException.Reason.SORT_UNDECLARED, List.of("sort"), SortKey.wireNames()));
-    }
-
-    /**
-     * A direction, refused when it is neither of the two.
-     *
-     * <p>{@code ARGUMENT_INVALID} rather than {@code SORT_UNDECLARED}: the
-     * two directions are a fixed value set of the argument, not an order a
-     * scope declares (ADR-0049).
-     */
-    private static SortKey.Direction directionOf(@Nullable String asked) {
-        if (asked == null || asked.isBlank()) {
-            return PageRequest.DEFAULT_DIRECTION;
-        }
-        return SortKey.Direction.of(asked).orElseThrow(() -> MemoryException.offending(
-            MemoryException.Reason.ARGUMENT_INVALID, List.of(DIRECTION),
-            SortKey.Direction.wireNames()));
-    }
-
-    private static Optional<EntryType> typeOf(@Nullable String asked) {
-        if (asked == null || asked.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.of(EntryType.of(asked).orElseThrow(() -> MemoryException.offending(
-            MemoryException.Reason.TYPE_UNKNOWN, List.of("type"), EntryType.wireNames())));
-    }
-
-    private static int pageSizeOf(@Nullable String asked) {
-        if (asked == null || asked.isBlank()) {
-            return PageRequest.DEFAULT_PAGE_SIZE;
-        }
-        try {
-            return Integer.parseInt(asked.trim());
-        } catch (NumberFormatException notANumber) {
-            throw PageRequest.pageSizeRejected();
-        }
-    }
-
-    private static Optional<String> nonBlank(@Nullable String value) {
-        return Optional.ofNullable(value).filter(present -> !present.isBlank());
     }
 
     /**
@@ -320,6 +217,28 @@ public class VerbSurface {
      * entry without one.
      */
     public record NewEntry(@Nullable String key, @Nullable String type,
-                           @Nullable String content, @Nullable String reference) {
+                           @Nullable String content, @Nullable String reference,
+                           List<String> fixed) {
+
+        public NewEntry {
+            fixed = List.copyOf(fixed);
+        }
+
+        /** The values of a create that names no fixed field. */
+        public NewEntry(@Nullable String key, @Nullable String type, @Nullable String content,
+                        @Nullable String reference) {
+            this(key, type, content, reference, List.of());
+        }
+    }
+
+    /**
+     * What {@code query} takes beside its address: the narrowing and the page.
+     *
+     * @param type the entry type to narrow to, as the caller wrote it; absent
+     *             for every type
+     * @param text the text to narrow to; absent for any text
+     * @param page the page asked for
+     */
+    public record Query(@Nullable String type, @Nullable String text, PageRequest page) {
     }
 }

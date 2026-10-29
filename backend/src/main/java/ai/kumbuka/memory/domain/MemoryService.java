@@ -15,6 +15,7 @@ import ai.kumbuka.memory.tenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Clock;
@@ -78,6 +79,9 @@ public class MemoryService {
     /** The argument a type travels in, and the one its refusal names. */
     private static final String TYPE = "type";
 
+    /** One INFO line per completed write, naming the verb and the entry (C13.3). */
+    private static final Logger LOG = Logger.getLogger(MemoryService.class);
+
     @Inject ScopeDirectory scopes;
     @Inject MemoryRepository entries;
     @Inject TenantContext tenants;
@@ -101,6 +105,7 @@ public class MemoryService {
     public EntryView create(Actor actor, EntryAddress address, Draft draft) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
+        refuseFixed(draft.fixed());
 
         String type = requireKnownType(draft.type());
         String content = requireContent(draft.content());
@@ -131,6 +136,7 @@ public class MemoryService {
         // index at the insert instead; the repository reports that as an
         // absent insert, and it is the same occupied address.
         Memory laidDown = entries.insert(entry).orElseThrow(MemoryService::occupied);
+        LOG.infof("create %s", technical(laidDown));
         return EntryView.of(laidDown, scope.slug(), true);
     }
 
@@ -192,6 +198,7 @@ public class MemoryService {
                             Patch patch) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
+        refuseFixed(patch.fixed());
         Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
             .orElseThrow(MemoryService::absent);
 
@@ -219,7 +226,9 @@ public class MemoryService {
         entry.updatedSource = SOURCE_SERVICE;
         entry.changedAt(clock.instant());
 
-        return EntryView.of(entries.update(entry), scope.slug(), true);
+        Memory updated = entries.update(entry);
+        LOG.infof("update %s", technical(updated));
+        return EntryView.of(updated, scope.slug(), true);
     }
 
     // ======================================================================
@@ -248,7 +257,9 @@ public class MemoryService {
 
         requireCurrentToken(conflictToken, entry, scope);
 
+        String withdrawn = technical(entry);
         Withdrawal.Outcome outcome = withdrawal.withdraw(entry);
+        LOG.infof("withdraw %s", withdrawn);
 
         // Measured after the act, not inferred from it. What the answer says
         // is open next has to come from what is actually true — a listed call
@@ -282,10 +293,16 @@ public class MemoryService {
      * single not-found before anything is said about a cursor.
      */
     @Transactional
-    public Page query(Actor actor, String scopeSlug, @Nullable String selector, QueryFilter filter,
-                      PageRequest request) {
+    public Page query(Actor actor, String scopeSlug, @Nullable String selector,
+                      @Nullable String type, @Nullable String text, PageRequest request) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
+        // The type is the service's vocabulary, so it is checked once the
+        // scope is known to be visible: an invisible scope answers NOT_FOUND
+        // whatever type was asked for (C1.3).
+        QueryFilter filter = new QueryFilter(
+            type == null || type.isBlank() ? null : knownType(type),
+            text == null || text.isBlank() ? null : text);
 
         PageCursor.Binding binding = new PageCursor.Binding(PageCursor.mark(scope.scopeId()), selector,
             PageCursor.fingerprint(filter.type(), filter.text()), request.sort(),
@@ -316,11 +333,36 @@ public class MemoryService {
     // The checks, each in one place
     // ======================================================================
 
+    /**
+     * Refuses a write that names a field fixed for the life of an entry,
+     * naming the fields and never their values. Decided once the scope is
+     * resolved, so that an invisible scope answers NOT_FOUND whatever else the
+     * call names (C1.3).
+     */
+    private static void refuseFixed(List<String> fixed) {
+        if (!fixed.isEmpty()) {
+            throw MemoryException.offending(MemoryException.Reason.FIELD_IMMUTABLE, fixed);
+        }
+    }
+
+    /**
+     * The technical address of an entry, the one an INFO line names (C13.3).
+     * Minted by this service and no value its caller wrote: the canonical
+     * address carries the caller's key, and whether that may stand in a log
+     * line is not decided.
+     */
+    private static String technical(Memory entry) {
+        return "memory://" + entry.logicalId;
+    }
+
     private static String requireKnownType(@Nullable String type) {
+        return knownType(type).wire();
+    }
+
+    private static EntryType knownType(@Nullable String type) {
         return EntryType.of(type)
             .orElseThrow(() -> MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
-                List.of(TYPE), EntryType.wireNames()))
-            .wire();
+                List.of(TYPE), EntryType.wireNames()));
     }
 
     private static String requireContent(@Nullable String content) {

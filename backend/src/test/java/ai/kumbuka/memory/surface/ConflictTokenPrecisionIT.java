@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -158,7 +165,7 @@ class ConflictTokenPrecisionIT {
         Response stale = call().header("If-Match", "1999-01-01T00:00:00Z")
             .body(fields("content", "postgres 17"))
             .patch(ITEM);
-        assertThat(stale.statusCode()).isEqualTo(409);
+        assertThat(stale.statusCode()).as("a precondition that failed (C8.7)").isEqualTo(412);
         assertThat(stale.jsonPath().getString("reason")).isEqualTo("CONFLICT_TOKEN_STALE");
 
         Response retried = call()

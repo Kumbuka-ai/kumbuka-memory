@@ -13,7 +13,10 @@ import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
 import ai.kumbuka.memory.domain.Page;
+import ai.kumbuka.memory.domain.PageCursor;
+import ai.kumbuka.memory.domain.PageRequest;
 import ai.kumbuka.memory.domain.Patch;
+import ai.kumbuka.memory.domain.SortKey;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
@@ -362,6 +365,9 @@ public final class Payloads {
         /** The one code the not-found class carries. */
         public static final String NOT_FOUND = "NOT_FOUND";
 
+        /** The code of a failure nobody foresaw. */
+        private static final String UNEXPECTED_FAILURE = "UNEXPECTED_FAILURE";
+
         /*
          * The one message lives in the bundles as the NOT_FOUND message and
          * remedy, and is the platform's own text rather than one of this
@@ -406,21 +412,62 @@ public final class Payloads {
          * The wire form of a transport refusal, worded from its declared
          * pattern. The exception's own message is a note for a developer and
          * never reaches a caller.
+         *
+         * @param attempted the call as the caller's surface names it; absent
+         *                  where the refusal falls before a call is known
+         * @param accepts   the verbs carried at the address, as the caller's
+         *                  surface names them; empty for a refusal that is
+         *                  no 405
          */
-        public static RefusalPayload of(SurfaceException e) {
+        public static RefusalPayload of(SurfaceException e, Optional<String> attempted,
+                                        List<String> accepts) {
+            RefusalDataPayload data = attempted.map(RefusalDataPayload::attempting)
+                .orElse(RefusalDataPayload.NONE);
+            if (!accepts.isEmpty()) {
+                data = data.accepting(accepts);
+            }
             return new RefusalPayload(e.reason().name(), AssistantRefusals.messageFor(
-                ReasonCatalogue.of(e.reason().name())), null);
+                ReasonCatalogue.of(e.reason().name())), data);
+        }
+
+        /**
+         * The one answer of the not-found class, on every surface and for
+         * every cause: no {@code data}, so that the causes cannot be told
+         * apart (C8.4).
+         */
+        public static RefusalPayload notFound() {
+            return new RefusalPayload(NOT_FOUND, AssistantRefusals.notFound(), null);
+        }
+
+        /**
+         * A failure nobody foresaw, already logged under {@code reference}
+         * (C8.3). The reference travels under {@code data.reference}.
+         *
+         * @param verb      the call, where the request had become one
+         * @param attempted the call as the caller's surface names it, where
+         *                  the request had become one
+         */
+        public static RefusalPayload unexpected(Optional<AssistantVerb> verb,
+                                                Optional<String> attempted, String reference) {
+            ReasonCatalogue.Reason reason = ReasonCatalogue.of(UNEXPECTED_FAILURE);
+            ReasonCatalogue.Facts facts = verb.map(v -> ReasonCatalogue.Facts.of(v.verbName()))
+                .orElseGet(ReasonCatalogue.Facts::none);
+            return new RefusalPayload(reason.code(), reason.text(facts),
+                attempted.map(RefusalDataPayload::attempting).orElse(RefusalDataPayload.NONE)
+                    .referencing(reference));
         }
 
         /**
          * The wire form of a refusal of a call's arguments on the generic
-         * surface, worded as the assistant surface words it.
+         * surface, worded as the assistant surface words it, naming the call
+         * as this surface names it.
          */
-        public static RefusalPayload of(AssistantVerb verb, CallException e) {
+        public static RefusalPayload of(AssistantVerb verb, CallException e, String attempted) {
             RefusalPayload assistant = AssistantRefusals.of(verb, e, Optional.empty());
-            RefusalDataPayload data = assistant.data();
-            return new RefusalPayload(assistant.reason(), assistant.message(),
-                data == null ? null : data.unattempted());
+            RefusalDataPayload data = assistant.data() == null
+                ? RefusalDataPayload.attempting(attempted)
+                : assistant.data().attemptedAs(attempted);
+            return new RefusalPayload(assistant.reason(), assistant.message(), data);
         }
 
         /**
@@ -430,15 +477,15 @@ public final class Payloads {
          * properties of the envelope. Building the envelope twice is how two
          * paths come to differ on one of them.
          */
-        public static RefusalPayload of(AssistantVerb verb, MemoryException e) {
+        public static RefusalPayload of(AssistantVerb verb, MemoryException e, String attempted) {
             if (NOT_FOUND_REASONS.contains(e.reason())) {
-                return new RefusalPayload(NOT_FOUND, AssistantRefusals.notFound(), null);
+                return notFound();
             }
             // Worded from the reason's declared pattern, as the assistant
             // surface words it: the domain's sentence was written beside the
             // check and is no text addressed to a caller (DEC-0043 R18).
             return new RefusalPayload(e.reason().name(), AssistantRefusals.messageFor(verb, e,
-                ReasonCatalogue.of(e.reason().name())), wireData(e));
+                ReasonCatalogue.of(e.reason().name())), wireData(e, attempted));
         }
 
         /**
@@ -455,8 +502,8 @@ public final class Payloads {
          * name. A member this method does not know is a defect between the two
          * layers and fails loud, rather than leaving the wire without it.
          */
-        private static RefusalDataPayload wireData(MemoryException e) {
-            RefusalDataPayload data = RefusalDataPayload.NONE;
+        private static RefusalDataPayload wireData(MemoryException e, String attempted) {
+            RefusalDataPayload data = RefusalDataPayload.attempting(attempted);
             for (Map.Entry<String, Object> member : e.data().entrySet()) {
                 data = switch (member.getKey()) {
                     case MemoryException.OFFENDERS -> data.offending(strings(member.getValue()));
@@ -495,14 +542,13 @@ public final class Payloads {
      */
     public static VerbSurface.NewEntry newEntry(@Nullable CreateRequestPayload request) {
         EntryFieldsPayload fields = requireFields(request == null ? null : request.fields());
-        refuseImmutable(fields, true);
         Map<String, @Nullable String> given = new LinkedHashMap<>();
         given.put(AssistantVerb.Names.KEY, fields.key());
         given.put(AssistantVerb.Names.TYPE, fields.type());
         given.put(AssistantVerb.Names.CONTENT, fields.content());
         requireDeclaredFields(AssistantVerb.CREATE, given);
         return new VerbSurface.NewEntry(fields.key(), fields.type(), fields.content(),
-            fields.reference());
+            fields.reference(), fixedIn(fields, true));
     }
 
     /**
@@ -533,13 +579,106 @@ public final class Payloads {
      */
     public static Patch patch(@Nullable UpdateRequestPayload request) {
         EntryFieldsPayload fields = requireFields(request == null ? null : request.fields());
-        refuseImmutable(fields, false);
 
         return new Patch(
             Optional.ofNullable(fields.type()),
             Optional.ofNullable(fields.content()),
             Optional.ofNullable(fields.reference())
-                .map(reference -> reference.isEmpty() ? null : reference));
+                .map(reference -> reference.isEmpty() ? null : reference),
+            fixedIn(fields, false));
+    }
+
+    // ======================================================================
+    // The arguments of a query
+    // ======================================================================
+
+    /**
+     * The arguments {@code query} takes beside its address, and the whole of
+     * them.
+     *
+     * <p>An unknown one is refused by name rather than dropped. A dropped
+     * filter answers with the full set and looks exactly like a correct narrow
+     * one, which is the failure a caller cannot see and cannot ask about. It is
+     * {@code ARGUMENT_UNKNOWN} and not {@code PREDICATE_UNKNOWN}: this service
+     * declares no filter fields per scope, so a name it does not know is an
+     * argument the call does not have, decidable without a scope (DEC-0042).
+     */
+    private static final List<String> QUERY_ARGUMENTS = List.of(AssistantVerb.Names.TYPE,
+        AssistantVerb.Names.TEXT, PageCursor.AFTER, AssistantVerb.Names.SORT,
+        AssistantVerb.Names.DIRECTION, PageRequest.PAGE_SIZE);
+
+    /**
+     * The narrowing and the page of a {@code query}, by name as they arrived,
+     * with their form checked here and nowhere else (C1.2): an argument the
+     * call does not declare, a page size that is no whole number from 1 to the
+     * maximum, an order or a direction the call does not declare. Each is
+     * decidable without a scope and is refused before one is resolved. The
+     * type is passed on as written: it is the service's vocabulary, checked
+     * once the scope is visible (C1.3).
+     *
+     * <p>Both adapters bind a query here, the REST surface from its query
+     * parameters and the MCP adapter from its tool arguments.
+     */
+    public static VerbSurface.Query query(Map<String, String> asked) {
+        if (!QUERY_ARGUMENTS.containsAll(asked.keySet())) {
+            throw MemoryException.undeclared(QUERY_ARGUMENTS);
+        }
+        return new VerbSurface.Query(
+            nonBlank(asked.get(AssistantVerb.Names.TYPE)).orElse(null),
+            nonBlank(asked.get(AssistantVerb.Names.TEXT)).orElse(null),
+            new PageRequest(
+                nonBlank(asked.get(PageCursor.AFTER)).orElse(null),
+                sortOf(asked.get(AssistantVerb.Names.SORT)),
+                directionOf(asked.get(AssistantVerb.Names.DIRECTION)),
+                pageSizeOf(asked.get(PageRequest.PAGE_SIZE))));
+    }
+
+    /**
+     * An order, refused by name when the call does not declare it.
+     *
+     * <p>Two orders, and no field beyond them, on either surface. An order
+     * over an undeclared field is refused rather than replaced by the
+     * default: a listing silently read in another order is one a caller
+     * continues believing it knows where it stands.
+     */
+    private static SortKey sortOf(@Nullable String asked) {
+        if (asked == null || asked.isBlank()) {
+            return PageRequest.DEFAULT_SORT;
+        }
+        return SortKey.of(asked).orElseThrow(() -> MemoryException.offending(
+            MemoryException.Reason.SORT_UNDECLARED, List.of(AssistantVerb.Names.SORT),
+            SortKey.wireNames()));
+    }
+
+    /**
+     * A direction, refused when it is neither of the two.
+     *
+     * <p>{@code ARGUMENT_INVALID} rather than {@code SORT_UNDECLARED}: the
+     * two directions are a fixed value set of the argument, not an order a
+     * scope declares (ADR-0049).
+     */
+    private static SortKey.Direction directionOf(@Nullable String asked) {
+        if (asked == null || asked.isBlank()) {
+            return PageRequest.DEFAULT_DIRECTION;
+        }
+        return SortKey.Direction.of(asked).orElseThrow(() -> MemoryException.offending(
+            MemoryException.Reason.ARGUMENT_INVALID, List.of(AssistantVerb.Names.DIRECTION),
+            SortKey.Direction.wireNames()));
+    }
+
+    private static int pageSizeOf(@Nullable String asked) {
+        if (asked == null || asked.isBlank()) {
+            return PageRequest.DEFAULT_PAGE_SIZE;
+        }
+        try {
+            return Integer.parseInt(asked.trim());
+        } catch (NumberFormatException notANumber) {
+            throw PageRequest.pageSizeRejected();
+        }
+    }
+
+    private static Optional<String> nonBlank(@Nullable String value) {
+        return Optional.ofNullable(value).filter(present -> !present.isBlank());
     }
 
     /** The types a digest was asked to carry, or empty for the estate's selection. */
@@ -561,12 +700,15 @@ public final class Payloads {
     }
 
     /**
-     * Refuses a body that sets a field the verb does not write.
+     * The fields of a body the verb does not write, by name: fixed for the
+     * life of an entry. The domain refuses them as {@code FIELD_IMMUTABLE}
+     * once the scope is resolved, so that an invisible scope answers
+     * {@code NOT_FOUND} whatever else the body names (C1.3).
      *
      * @param creating whether the key is admissible, which it is on a create
      *                 and never afterwards
      */
-    private static void refuseImmutable(EntryFieldsPayload fields, boolean creating) {
+    private static List<String> fixedIn(EntryFieldsPayload fields, boolean creating) {
         List<String> offenders = new java.util.ArrayList<>();
         if (fields.scope() != null) {
             offenders.add("scope");
@@ -586,9 +728,6 @@ public final class Payloads {
         if (fields.updatedAt() != null) {
             offenders.add("updated_at");
         }
-        if (offenders.isEmpty()) {
-            return;
-        }
-        throw MemoryException.offending(MemoryException.Reason.FIELD_IMMUTABLE, offenders);
+        return offenders;
     }
 }

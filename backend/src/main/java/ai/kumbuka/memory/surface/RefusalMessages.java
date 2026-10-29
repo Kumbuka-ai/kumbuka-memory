@@ -72,6 +72,9 @@ public interface RefusalMessages {
 
     @Message String unexpectedFailure(VerbName call);
 
+    /** A failure nobody foresaw, on a request that had become no call yet. */
+    @Message String unexpectedFailureOfRequest();
+
     @Message String conflictTokenMissing(VerbName call);
 
     @Message String fieldImmutable();
@@ -84,6 +87,6 @@ public interface RefusalMessages {
 
     @Message String sessionNotBound(VerbName call);
 
-    /** The header that names the surface, sent with a value it cannot take. */
-    @Message String surfaceHeader();
+    /** The header that names the surface, sent with a value it cannot take (C14.5). */
+    @Message String headerInvalid();
 }

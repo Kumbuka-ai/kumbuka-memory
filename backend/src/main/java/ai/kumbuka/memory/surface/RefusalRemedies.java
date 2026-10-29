@@ -83,6 +83,6 @@ public interface RefusalRemedies {
 
     @Message String sessionNotBound();
 
-    /** The header that names the surface, sent with a value it cannot take. */
-    @Message String surfaceHeader();
+    /** The header that names the surface, sent with a value it cannot take (C14.5). */
+    @Message String headerInvalid();
 }

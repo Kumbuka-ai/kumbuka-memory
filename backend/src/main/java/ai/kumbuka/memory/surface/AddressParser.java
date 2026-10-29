@@ -11,6 +11,7 @@ import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.MemoryException;
 import org.jspecify.annotations.Nullable;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -95,6 +96,12 @@ public final class AddressParser {
      */
     private static final String RESERVED_SELECTOR = "system";
 
+    /** The declared name of the argument a whole address arrives in. */
+    private static final String ADDRESS = "address";
+
+    /** The declared name of the argument, or the path part, a scope arrives in. */
+    private static final String SCOPE_PART = "scope";
+
     private AddressParser() {
     }
 
@@ -125,6 +132,7 @@ public final class AddressParser {
      * needed here only to keep a verb apart from an id that could contain one.
      */
     public static EntryAddress parse(Parts parts) {
+        requireScope(parts.scope(), parts.whole() ? ADDRESS : SCOPE_PART);
         return parse(parts.scope(), parts.selector(), parts.id());
     }
 
@@ -169,9 +177,9 @@ public final class AddressParser {
             : address.substring(scheme.length()).split("/", -1);
         if (segments.length != 3 || segments[0].isEmpty() || segments[1].isEmpty()
             || segments[2].isEmpty()) {
-            throw new MemoryException(MemoryException.Reason.ADDRESS_MALFORMED);
+            throw malformed(ADDRESS);
         }
-        return new Parts(segments[0], segments[1], segments[2]);
+        return new Parts(segments[0], segments[1], segments[2], true);
     }
 
     /**
@@ -227,9 +235,23 @@ public final class AddressParser {
     }
 
     private static void requireScope(@Nullable String scope) {
+        requireScope(scope, SCOPE_PART);
+    }
+
+    /**
+     * Refuses a scope out of the grammar, naming the part that fails it as
+     * the call declares it: {@code scope} where the scope arrives on its own,
+     * {@code address} where it is a part of a complete address (C8.7).
+     */
+    private static void requireScope(@Nullable String scope, String named) {
         if (scope == null || !SCOPE.matcher(scope).matches()) {
-            throw new MemoryException(MemoryException.Reason.ADDRESS_MALFORMED);
+            throw malformed(named);
         }
+    }
+
+    private static MemoryException malformed(String named) {
+        return MemoryException.offending(MemoryException.Reason.ADDRESS_MALFORMED,
+            List.of(named));
     }
 
     private static void requireSelector(@Nullable String selector) {
@@ -257,7 +279,15 @@ public final class AddressParser {
      * @param selector the second
      * @param id       the third; a key holds no slash, so it is never more
      *                 than one segment
+     * @param whole    whether the three arrived as one complete address, so
+     *                 that a refusal of their form names the argument
+     *                 {@code address} rather than {@code scope}
      */
-    public record Parts(String scope, String selector, String id) {
+    public record Parts(String scope, String selector, String id, boolean whole) {
+
+        /** The parts of an address that arrived as separate path segments. */
+        public Parts(String scope, String selector, String id) {
+            this(scope, selector, id, false);
+        }
     }
 }

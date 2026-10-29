@@ -41,15 +41,24 @@ import static ai.kumbuka.memory.contract.Mcp.args;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * A failure nobody foresaw, forced on the assistant surface, answered as
- * {@code UNEXPECTED_FAILURE} with a reference that stands in the log beside it.
+ * A failure nobody foresaw, forced on both surfaces, answered as
+ * {@code UNEXPECTED_FAILURE} 500 with {@code data.reference}, a fresh UUID
+ * that stands in the log beside it (C8.3).
  *
- * <p>The log line carries the reference, the call, and the types and stack
- * frames of the failure and its causes — never a message of any of them. A
- * message is text nobody in the service wrote; a database names the row it
- * rejected, and the row holds the content. So each forced failure carries a
- * marker in its message, and where it has a cause, a second one there, and
- * neither may be found in what the log received.
+ * <p>The log line carries the reference, the call, and the class names of the
+ * failure and its causes — never a message of any of them, never a stack
+ * frame, and never the exception object (DEC-0051, C13.2). A message is text
+ * nobody in the service wrote; a database names the row it rejected, and the
+ * row holds the content. So each forced failure carries a marker in its
+ * message, and where it has a cause, a second one there, and neither may be
+ * found in what the log received.
+ *
+ * <p>RED STATE, observed 2026-10-29 against the tree before the REST
+ * catch-all: the withdrawal that fails below the generic surface answered the
+ * framework's bare 500 without the envelope, and
+ * {@link #over_rest_an_unexpected_failure_answers_500_with_a_reference} turned
+ * red on its status body; the MCP cases turned red on {@code data.reference},
+ * which was {@code data.report}, and on the stack frames in the log line.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
@@ -224,6 +233,59 @@ class UnexpectedFailureIT {
             .isEqualTo(token);
     }
 
+    /**
+     * Over REST the same failure answers 500 in the envelope, naming the call
+     * as the REST surface names it, with the reference that stands in the
+     * log once (C8.3).
+     */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void over_rest_an_unexpected_failure_answers_500_with_a_reference() {
+        String token = SurfaceFixture.call().get(SurfaceFixture.API + "/" + SCOPE
+            + "/convention/branch-names").header("ETag");
+
+        io.restassured.response.Response answer = SurfaceFixture.call()
+            .header("If-Match", token)
+            .post(SurfaceFixture.API + "/" + SCOPE + "/convention/branch-names:withdraw");
+
+        assertThat(answer.statusCode()).as(answer.asString()).isEqualTo(500);
+        assertThat(answer.jsonPath().getString("reason")).isEqualTo("UNEXPECTED_FAILURE");
+        assertThat(answer.jsonPath().getString("data.attempted")).isEqualTo("withdraw");
+        String reference = answer.jsonPath().getString("data.reference");
+        assertThat(reference).matches(UUID_FORM);
+        assertThat(answer.asString())
+            .doesNotContain(FailingWithdrawal.MESSAGE_MARKER)
+            .doesNotContain(FailingWithdrawal.CAUSE_MARKER);
+        assertThat(logged.stream().filter(line -> rendered(line).contains(reference)))
+            .as("one line carries the reference").hasSize(1)
+            .allSatisfy(line -> assertShape(line, "memory_withdraw", List.of(
+                IllegalStateException.class, IllegalArgumentException.class),
+                FailingWithdrawal.MESSAGE_MARKER, FailingWithdrawal.CAUSE_MARKER));
+
+        io.restassured.response.Response assistant = SurfaceFixture.call()
+            .header("Kumbuka-Surface", "assistant").header("If-Match", token)
+            .post(SurfaceFixture.API + "/" + SCOPE + "/convention/branch-names:withdraw");
+        assertThat(assistant.statusCode()).isEqualTo(500);
+        assertThat(assistant.jsonPath().getString("data.attempted"))
+            .as("with the header the call is named as the assistant surface names it")
+            .isEqualTo("memory_withdraw");
+    }
+
+    /** A route the framework does not serve is the framework's answer, in the envelope. */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void a_route_nobody_serves_is_not_found_and_not_a_failure() {
+        io.restassured.response.Response answer = SurfaceFixture.call()
+            .get(SurfaceFixture.API + "/" + SCOPE + "/convention/branch-names/more");
+
+        assertThat(answer.statusCode()).isEqualTo(404);
+        assertThat(answer.jsonPath().getString("reason")).isEqualTo("NOT_FOUND");
+        assertThat(logged).as("nothing is logged as a failure").isEmpty();
+    }
+
+    private static final String UUID_FORM =
+        "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
     private static String assertUnexpected(Mcp.Result refusal, String tool, String pattern,
                                            Map<String, String> values) {
         assertThat(refusal.isError()).as("%s", refusal).isTrue();
@@ -233,10 +295,10 @@ class UnexpectedFailureIT {
             .as("the message is the contract's pattern: %s", refusal.message())
             .isTrue();
         assertThat(refusal.string("data.attempted")).isEqualTo(tool);
-        // The reference travels under data.report, which the message points at:
-        // a reference is no placeholder a text may take.
-        String reference = refusal.string("data.report");
-        assertThat(reference).as("the reference to report").isNotBlank();
+        // The reference travels under data.reference, which the message points
+        // at: a reference is no placeholder a text may take (C8.3).
+        String reference = refusal.string("data.reference");
+        assertThat(reference).as("the reference to report").matches(UUID_FORM);
         return reference;
     }
 
@@ -259,12 +321,12 @@ class UnexpectedFailureIT {
             .as("the failure is not handed to the logger, which would print its messages")
             .isNull();
         String text = rendered(line);
-        assertThat(text).contains(call).contains("\tat ");
-        for (int i = 0; i < chain.size(); i++) {
-            assertThat(text)
-                .as("the type of the failure and of each cause")
-                .contains((i == 0 ? "\n" : "\ncaused by ") + chain.get(i).getName());
-        }
+        assertThat(text).contains(call)
+            .as("the class names say what failed; no stack frame stands in the line")
+            .doesNotContain("\tat ");
+        assertThat(text)
+            .as("the class names of the failure and of each cause, outermost first")
+            .contains(String.join(" <- ", chain.stream().map(Class::getName).toList()));
         for (String marker : markers) {
             assertThat(text)
                 .as("no message of the failure or of a cause reaches the log")

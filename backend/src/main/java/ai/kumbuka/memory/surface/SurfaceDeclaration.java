@@ -300,14 +300,24 @@ public final class SurfaceDeclaration {
             declared.put("reason", reason.code());
             declared.put("message_pattern",
                 reason.messageTemplate() + " " + reason.remedyTemplate());
-            Map<String, Object> message = new LinkedHashMap<>();
-            message.put("key", reason.key());
-            message.put("template", reason.messageTemplate());
-            declared.put("messages", List.of(message));
+            List<Map<String, Object>> messages = new ArrayList<>();
+            for (String key : concat(reason.key(), reason.further())) {
+                Map<String, Object> message = new LinkedHashMap<>();
+                message.put("key", key);
+                message.put("template", Texts.template(ReasonCatalogue.MESSAGE_BUNDLE, key));
+                messages.add(message);
+            }
+            declared.put("messages", messages);
             declared.put("remedy", reason.remedyTemplate());
             reasons.add(declared);
         }
         return reasons;
+    }
+
+    private static List<String> concat(String first, List<String> rest) {
+        List<String> all = new ArrayList<>(List.of(first));
+        all.addAll(rest);
+        return all;
     }
 
     // ======================================================================
@@ -317,7 +327,7 @@ public final class SurfaceDeclaration {
     /** The reasons every call can be refused with, whatever it does. */
     private static final List<String> EVERY_CALL = List.of("NOT_FOUND", "ACTOR_UNKNOWN",
         "ARGUMENT_UNKNOWN", "ARGUMENT_MISSING", "ARGUMENT_INVALID", "UNEXPECTED_FAILURE",
-        "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED");
+        "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED", "HEADER_INVALID");
 
     /**
      * What the router needs of a verb beside its arguments: its effect class,

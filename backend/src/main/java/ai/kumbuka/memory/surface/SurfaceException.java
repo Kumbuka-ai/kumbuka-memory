@@ -9,6 +9,7 @@ package ai.kumbuka.memory.surface;
 
 import org.jspecify.annotations.Nullable;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -41,7 +42,13 @@ public class SurfaceException extends RuntimeException {
         VERB_NOT_CARRIED(405),
 
         /** The call names a writing verb at an address that is truncated. */
-        ADDRESS_TRUNCATED(405);
+        ADDRESS_TRUNCATED(405),
+
+        /**
+         * The header {@code Kumbuka-Surface} carries another value than the one
+         * it takes, or arrives more than once (C14.5).
+         */
+        HEADER_INVALID(400);
 
         private final int status;
 
@@ -56,6 +63,7 @@ public class SurfaceException extends RuntimeException {
 
     private final transient Reason reason;
     private final transient @Nullable String allow;
+    private final transient List<AssistantVerb> carried;
 
     /**
      * A refusal of the transport and nothing more: it carries no sentence of
@@ -63,7 +71,7 @@ public class SurfaceException extends RuntimeException {
      * worded from the reason catalogue's bundles (DEC-0043 R18).
      */
     public SurfaceException(Reason reason) {
-        this(reason, null);
+        this(reason, null, List.of());
     }
 
     /**
@@ -71,11 +79,15 @@ public class SurfaceException extends RuntimeException {
      *              405 is required to carry. A 405 without it refuses without
      *              saying what would have worked. Absent for a refusal that
      *              is no 405.
+     * @param carried the verbs carried at the address, for the
+     *              {@code data.accepts} of a 405 (C3.3); empty for a refusal
+     *              that is no 405
      */
-    public SurfaceException(Reason reason, @Nullable String allow) {
+    public SurfaceException(Reason reason, @Nullable String allow, List<AssistantVerb> carried) {
         super(reason.name());
         this.reason = reason;
         this.allow = allow;
+        this.carried = List.copyOf(carried);
     }
 
     public Reason reason() {
@@ -84,5 +96,10 @@ public class SurfaceException extends RuntimeException {
 
     public Optional<String> allow() {
         return Optional.ofNullable(allow);
+    }
+
+    /** The verbs carried at the address a 405 refused; empty for any other refusal. */
+    public List<AssistantVerb> carried() {
+        return carried;
     }
 }

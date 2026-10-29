@@ -178,8 +178,11 @@ class RefusalValueConformanceIT {
             new Case("ARGUMENT_UNKNOWN", () -> Mcp.call(CREATE, args("scope", SCOPE,
                 "selector", "decision", "fields", Map.of("key", "decision.tabs",
                     "type", "decision", "content", "x", MARK + "_field", MARK))), MARK),
-            new Case("ARGUMENT_MISSING", () -> Mcp.call(UPDATE, args("address", ADDRESS,
+            new Case("CONFLICT_TOKEN_MISSING", () -> Mcp.call(UPDATE, args("address", ADDRESS,
                 "fields", Map.of("content", MARK))), MARK, ADDRESS),
+            new Case("ARGUMENT_MISSING", () -> Mcp.call(CREATE, args("scope", SCOPE,
+                "selector", "decision", "fields", Map.of("key", "decision." + MARK,
+                    "type", "decision"))), MARK),
             new Case("ARGUMENT_INVALID", () -> Mcp.call(QUERY, args("scope", SCOPE,
                 "direction", MARK)), MARK),
             new Case("ARGUMENT_INVALID", () -> Mcp.call(UPDATE, args("address", ADDRESS,
@@ -362,8 +365,10 @@ class RefusalValueConformanceIT {
             new RestCase("TYPE_UNKNOWN", () -> SurfaceFixture.call()
                 .body("{\"types\":[\"decision\",\"" + MARK + "\"]}")
                 .post(scope + ":digest")),
-            new RestCase("ARGUMENT_INVALID", () -> SurfaceFixture.call()
+            new RestCase("HEADER_INVALID", () -> SurfaceFixture.call()
                 .header("Kumbuka-Surface", MARK).get(scope)),
+            new RestCase("ADDRESS_TRUNCATED", () -> SurfaceFixture.call()
+                .post(SurfaceFixture.API + "/" + SCOPE + "/convention/" + MARK)),
             new RestCase("VERB_NOT_CARRIED", () -> SurfaceFixture.call()
                 .post(item + ":" + MARK), ADDRESS, KEY),
             new RestCase("PAYLOAD_MALFORMED", () -> SurfaceFixture.call()

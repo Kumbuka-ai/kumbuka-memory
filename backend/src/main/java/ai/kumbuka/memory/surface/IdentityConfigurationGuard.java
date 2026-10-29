@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import io.quarkus.runtime.StartupEvent;
@@ -7,6 +14,7 @@ import jakarta.enterprise.event.Observes;
 import jakarta.interceptor.Interceptor;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.jboss.logging.Logger;
 
 import java.util.Optional;
 
@@ -49,6 +57,8 @@ import java.util.Optional;
 @ApplicationScoped
 public class IdentityConfigurationGuard {
 
+    private static final Logger LOG = Logger.getLogger(IdentityConfigurationGuard.class);
+
     /** The claim the acting identity must come from. */
     public static final String EXPECTED_PRINCIPAL_CLAIM = "sub";
 
@@ -82,24 +92,36 @@ public class IdentityConfigurationGuard {
         String claim = config.getOptionalValue(PRINCIPAL_CLAIM_KEY, String.class)
             .orElse("");
         if (!EXPECTED_PRINCIPAL_CLAIM.equals(claim)) {
-            throw new IllegalStateException(
+            throw refused(new IllegalStateException(
                 "'" + PRINCIPAL_CLAIM_KEY + "' is '" + claim + "' and must be '"
                     + EXPECTED_PRINCIPAL_CLAIM + "'. The principal is this service's "
                     + "authorship record and the owner of every private entry; resolved "
                     + "from any other claim it becomes an identifier that can change, and "
                     + "an author that changes stops matching the entries it wrote — "
                     + "silently, because the write still succeeds and the read simply "
-                    + "returns nothing.");
+                    + "returns nothing."));
         }
 
         Optional<String> audience = config.getOptionalValue(AUDIENCE_KEY, String.class);
         if (audience.isEmpty() || audience.get().isBlank()) {
-            throw new IllegalStateException(
+            throw refused(new IllegalStateException(
                 "'" + AUDIENCE_KEY + "' is not set, so no audience would be validated and "
                     + "a token minted for any other resource would be accepted here. "
                     + "ADR-0034 gives the platform one audience and has every recipient "
                     + "validate it against the identifier its own installation "
-                    + "configures. Set MEMORY_OIDC_AUDIENCE.");
+                    + "configures. Set MEMORY_OIDC_AUDIENCE."));
         }
+    }
+
+    /**
+     * The refusal of the start, written on a line of its own before it is
+     * thrown (C13.3, WARN: the deployment's configuration). The log format
+     * prints no exception (C13.1), so a reason carried only by the exception
+     * would leave an operator with a start that failed and no word why.
+     */
+    private static IllegalStateException refused(IllegalStateException refusal) {
+        String why = String.valueOf(refusal.getMessage());
+        LOG.warnf("start refused: %s", why);
+        return refusal;
     }
 }

@@ -60,8 +60,10 @@ import java.util.UUID;
 public class ScopeDirectory {
 
     /** Bound by the same convention as every logger here: no title, no body, no
-     *  metadata text, no token, and no actor. A slug is a scope name and an
-     *  address; the subject that asked for it is the audit log's business. */
+     *  metadata text, no token, no actor, and no value the caller sent (C13.2).
+     *  The slug is the caller's input; the scope is named by its id. A refusal
+     *  is a DEBUG line by its code; WARN is for the deployment, a session the
+     *  directory could not bind (C13.3). */
     private static final Logger LOG = Logger.getLogger(ScopeDirectory.class);
 
     /** The kind whose entries are private to their author, as the platform spells it. */
@@ -89,14 +91,13 @@ public class ScopeDirectory {
         if (row.isEmpty()) {
             // Reached only with both settings bound, so this genuinely means
             // "no such scope for this subject" and not "nothing was bound".
-            LOG.warnf("scope '%s' unresolved: %s", slug,
-                MemoryException.Reason.SCOPE_UNRESOLVED);
+            LOG.debugf("refusal: %s", MemoryException.Reason.SCOPE_UNRESOLVED);
             throw new MemoryException(MemoryException.Reason.SCOPE_UNRESOLVED);
         }
 
         ScopeAccess resolved = accessOf(row.get());
         requireWritable(resolved, access);
-        LOG.debugf("resolved scope '%s'", slug);
+        LOG.debugf("resolved scope %s", resolved.scopeId());
         return resolved;
     }
 
@@ -162,14 +163,12 @@ public class ScopeDirectory {
         }
 
         if (scope.locked()) {
-            LOG.warnf("write into a locked scope refused: %s",
-                MemoryException.Reason.SCOPE_LOCKED);
+            LOG.debugf("refusal: %s", MemoryException.Reason.SCOPE_LOCKED);
             throw new MemoryException(MemoryException.Reason.SCOPE_LOCKED);
         }
 
         if (!scope.canWrite()) {
-            LOG.warnf("write without the write right refused: %s",
-                MemoryException.Reason.SCOPE_READ_ONLY);
+            LOG.debugf("refusal: %s", MemoryException.Reason.SCOPE_READ_ONLY);
             throw new MemoryException(MemoryException.Reason.SCOPE_READ_ONLY);
         }
     }

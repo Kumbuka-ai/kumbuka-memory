@@ -1,76 +1,84 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import org.jboss.logging.Logger;
+import org.jspecify.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.IdentityHashMap;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
- * Where the report reference of an unforeseen failure is minted, and the only
- * place.
+ * Where the reference of an unforeseen failure is minted, and the only place
+ * (C8.3).
  *
- * <p>The caller is told to report the reference, so the reference is worth
- * exactly as much as the log line it finds. Minting it here, in the same call
- * that writes it to the log beside the failure, is what makes it impossible
- * to hand out a reference the log does not carry.
+ * <p>The caller is told to report the reference under {@code data.reference},
+ * so the reference is worth exactly as much as the log line it finds. Minting
+ * it here, in the same call that writes it to the log beside the failure, is
+ * what makes it impossible to hand out a reference the log does not carry.
  *
- * <h2>The failure's shape, never its message</h2>
+ * <h2>The failure's class names, never its message</h2>
  *
- * The line carries the type and the stack frames of the failure and of every
- * cause, and no message of any of them. A message is text nobody in this
+ * The line carries the class names of the failure and of every cause, and
+ * nothing else of them (DEC-0051, C13.2). A message is text nobody in this
  * service wrote: a database that refuses a row names the row, and the row
- * holds an entry's content. Handed to the logger, the failure would be printed
- * whole — message and causes included — by whatever format the deployment
- * configures. So the failure is never handed to the logger; the line is
- * assembled here from the parts that cannot carry content.
+ * holds an entry's content. A stack trace says where, and the class names
+ * already say what failed; the reference finds the line. So the failure is
+ * never handed to the logger; the line is assembled here from the parts that
+ * cannot carry content.
  */
 public final class UnexpectedFailures {
 
     /**
      * ERROR, because a failure nobody foresaw is ours and no retry of the
-     * caller's fixes it.
+     * caller's fixes it, and the only refusal this service logs at ERROR
+     * (C13.3).
      *
-     * <p>The line carries the tool name, the reference and the frames. Not the
-     * address and not the key: whether those may stand in a log line is not
-     * decided, and a line written before it is decided cannot be taken back.
+     * <p>The line carries the call, the reference and the class names. Not
+     * the address and not the key: whether those may stand in a log line is
+     * not decided, and a line written before it is decided cannot be taken
+     * back.
      */
     private static final Logger LOG = Logger.getLogger(UnexpectedFailures.class);
+
+    /** How deep the chain of causes is followed: a cycle must not hang the log line. */
+    private static final int CHAIN_LIMIT = 8;
 
     private UnexpectedFailures() {
     }
 
     /**
-     * Logs an unforeseen failure and returns the reference it was logged under.
+     * Logs an unforeseen failure once and returns the reference it was logged
+     * under.
      *
-     * @param call    the tool the caller called
+     * @param call    the call the caller made; absent for a request that had
+     *                become no call yet
      * @param failure what went wrong
      */
-    public static String logged(String call, Throwable failure) {
-        String reportId = UUID.randomUUID().toString();
-        String frames = framesOf(failure);
-        LOG.errorf("unexpected failure on %s, report %s%s", call, reportId, frames);
-        return reportId;
+    public static String logged(@Nullable String call, Throwable failure) {
+        // Both put in locals first: the line names no exception and no member
+        // of an entry, only the identifier minted here and the class names.
+        String minted = UUID.randomUUID().toString();
+        String chain = classNames(failure);
+        LOG.errorf("unexpected failure on %s, reference %s, cause %s",
+            call == null ? "this request" : call, minted, chain);
+        return minted;
     }
 
-    /**
-     * The type and the stack frames of a failure and of each of its causes,
-     * one line per frame.
-     *
-     * <p>A frame names a class, a method, a file and a line, all of them
-     * written in this or a library's source. A cause chain that loops back on
-     * itself is followed once round.
-     */
-    static String framesOf(Throwable failure) {
-        StringBuilder out = new StringBuilder();
-        Set<Throwable> walked = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Throwable at = failure; at != null && walked.add(at); at = at.getCause()) {
-            out.append(at == failure ? "\n" : "\ncaused by ").append(at.getClass().getName());
-            for (StackTraceElement frame : at.getStackTrace()) {
-                out.append("\n\tat ").append(frame);
-            }
+    /** The class names of a failure and its causes, outermost first. */
+    static String classNames(Throwable failure) {
+        List<String> names = new ArrayList<>();
+        Throwable at = failure;
+        while (at != null && names.size() < CHAIN_LIMIT) {
+            names.add(at.getClass().getName());
+            at = at.getCause() == at ? null : at.getCause();
         }
-        return out.toString();
+        return String.join(" <- ", names);
     }
 }
