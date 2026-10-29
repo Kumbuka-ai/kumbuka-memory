@@ -35,11 +35,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the one value C5.5 names for every service, so the expectation stands here
  * and not in the code that writes the declaration.
  *
- * <p>Two rules are beyond what the schema subset says and are checked here:
+ * <p>Three rules are beyond what the schema subset says and are checked here:
  * an argument's {@code default} is a value of the argument's own JSON type,
- * never its text; and the fixed values of an argument that carries a
- * selector are written with hyphens, never with an underscore, as every
- * vocabulary value is.
+ * never its text; the fixed values of an argument that carries a selector
+ * are written with hyphens, never with an underscore, as every vocabulary
+ * value is; and no member on any level carries {@code null} -- a member
+ * without a value is left out, so a {@code null} in the declaration is a
+ * member its version was taken over and the wire never carries. The last is
+ * taken from kumbuka-worklist.
  *
  * <h2>Where the served declaration is read</h2>
  *
@@ -73,6 +76,7 @@ public class DeclarationShapeTest {
     /** The violations of one declaration, by JSON path; empty where it conforms. */
     public static List<String> violations(Map<String, Object> declaration) {
         List<String> found = new ArrayList<>();
+        nulls(declaration, "$", found);
         check(schema(), declaration, "$", found);
         arguments(declaration, found);
         return found;
@@ -144,6 +148,43 @@ public class DeclarationShapeTest {
             .containsExactly("$: missing 'address_form'",
                 "$: 'answered_as' is not a member of this level");
 
+        Map<String, Object> nullAtTheTop = conforming();
+        nullAtTheTop.put("technical_address_form", null);
+        assertThat(violations(nullAtTheTop))
+            .as("RED STATE, observed: a null member on the top level")
+            .containsExactly("$.technical_address_form: null; a member without a value is "
+                + "left out");
+
+        Map<String, Object> nullInACall = conforming();
+        call(nullInACall).put("at_scope_depth", null);
+        assertThat(violations(nullInACall))
+            .as("RED STATE, observed: a null member of a call")
+            .containsExactly("$.calls[0].at_scope_depth: null; a member without a value is "
+                + "left out");
+
+        Map<String, Object> nullDefault = conforming();
+        argument(nullDefault).put("default", null);
+        assertThat(violations(nullDefault))
+            .as("RED STATE, observed: an argument without a fallback that declares one as null")
+            .containsExactly("$.calls[0].arguments[0].default: null; a member without a "
+                + "value is left out");
+
+        Map<String, Object> nullInADescribedValue = conforming();
+        Map<String, Object> described = new LinkedHashMap<>();
+        described.put("value", "decision");
+        described.put("description", null);
+        selector(nullInADescribedValue).put("value_descriptions", List.of(described));
+        assertThat(violations(nullInADescribedValue))
+            .as("RED STATE, observed: a null member in an element of a list, two levels down")
+            .containsExactly("$.calls[0].arguments[1].value_descriptions[0].description: "
+                + "null; a member without a value is left out");
+
+        Map<String, Object> nullInAReason = conforming();
+        reason(nullInAReason).put("remedy", null);
+        assertThat(violations(nullInAReason))
+            .as("RED STATE, observed: a null member of a reason")
+            .containsExactly("$.reasons[0].remedy: null; a member without a value is left out");
+
         Map<String, Object> otherShape = conforming();
         otherShape.put("shape_version", "2");
         assertThat(violations(otherShape))
@@ -163,6 +204,9 @@ public class DeclarationShapeTest {
                 throw new IllegalStateException("the schema uses '" + keyword + "', which "
                     + "this check does not read");
             }
+        }
+        if (value == null) {
+            return;
         }
         Object type = schema.get("type");
         if (type != null && !typeOf(value).equals(type)) {
@@ -206,6 +250,23 @@ public class DeclarationShapeTest {
                 for (int i = 0; i < list.size(); i++) {
                     check((Map<String, Object>) items, list.get(i), path + "[" + i + "]", found);
                 }
+            }
+        }
+    }
+
+    /** No member on any level carries null: one without a value is left out. */
+    private static void nulls(Object value, String path, List<String> found) {
+        if (value instanceof Map<?, ?> object) {
+            object.forEach((name, member) -> {
+                if (member == null) {
+                    found.add(path + "." + name + ": null; a member without a value is left out");
+                } else {
+                    nulls(member, path + "." + name, found);
+                }
+            });
+        } else if (value instanceof List<?> list) {
+            for (int i = 0; i < list.size(); i++) {
+                nulls(list.get(i), path + "[" + i + "]", found);
             }
         }
     }

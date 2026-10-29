@@ -13,12 +13,8 @@ import ai.kumbuka.memory.domain.MemoryException.Reason;
 import ai.kumbuka.memory.domain.NextStep;
 import org.jspecify.annotations.Nullable;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -59,10 +55,11 @@ import java.util.TreeSet;
  * <h2>Versioned by its content</h2>
  *
  * {@code version} is a SHA-256 over everything else the declaration carries,
- * {@code shape_version} and {@code scheme} included, so that any change -- a
- * text, an argument, a reason -- yields a new version and an unchanged
- * declaration keeps its own, which is what a reader that records which
- * version it served can rely on.
+ * {@code shape_version} and {@code scheme} included, written in the one
+ * canonical form every service uses ({@link CanonicalJson}), so that any
+ * change -- a text, an argument, a reason -- yields a new version and an
+ * unchanged declaration keeps its own, which is what a reader that records
+ * which version it served can rely on.
  */
 public final class SurfaceDeclaration {
 
@@ -157,7 +154,7 @@ public final class SurfaceDeclaration {
         declaration.put("calls", callsAsMaps());
         declaration.put("reasons", reasonsAsMaps());
         Map<String, Object> versioned = new LinkedHashMap<>();
-        versioned.put("version", versionOf(declaration));
+        versioned.put("version", CanonicalJson.version(declaration));
         versioned.putAll(declaration);
         return versioned;
     }
@@ -379,52 +376,5 @@ public final class SurfaceDeclaration {
             group.forEach(reason -> all.add(reason.name()));
         }
         return List.copyOf(all);
-    }
-
-    // ======================================================================
-    // The version
-    // ======================================================================
-
-    /**
-     * A SHA-256 over the declaration written in one canonical form: keys of
-     * an object sorted, lists in their order, every scalar as its text.
-     */
-    static String versionOf(Map<String, Object> declaration) {
-        StringBuilder canonical = new StringBuilder();
-        canonical(declaration, canonical);
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
-            return "sha256:" + HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException absent) {
-            throw new IllegalStateException("the runtime carries no SHA-256", absent);
-        }
-    }
-
-    private static void canonical(@Nullable Object value, StringBuilder out) {
-        if (value instanceof Map<?, ?> map) {
-            out.append('{');
-            map.keySet().stream().map(String::valueOf).sorted().forEach(key -> {
-                out.append(quoted(key)).append(':');
-                canonical(map.get(key), out);
-                out.append(',');
-            });
-            out.append('}');
-        } else if (value instanceof List<?> list) {
-            out.append('[');
-            list.forEach(element -> {
-                canonical(element, out);
-                out.append(',');
-            });
-            out.append(']');
-        } else if (value instanceof String text) {
-            out.append(quoted(text));
-        } else {
-            out.append(value);
-        }
-    }
-
-    private static String quoted(String text) {
-        return '"' + text.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
     }
 }
