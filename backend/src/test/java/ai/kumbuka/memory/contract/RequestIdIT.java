@@ -46,9 +46,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * one. The log side is read from the records the call itself writes, by the
  * MDC each record carries, not from the formatted line.
  *
- * <p>RED STATE, observed 2026-10-29 against the tree without the filter: no
- * response carried the header, and the record of the creation carried no
- * {@code request_id}.
+ * <p>RED STATE, observed 2026-10-29 with the filter unregistered: no response
+ * carried the header, so all four cases turned red.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)

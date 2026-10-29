@@ -53,12 +53,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * message, and where it has a cause, a second one there, and neither may be
  * found in what the log received.
  *
- * <p>RED STATE, observed 2026-10-29 against the tree before the REST
- * catch-all: the withdrawal that fails below the generic surface answered the
- * framework's bare 500 without the envelope, and
- * {@link #over_rest_an_unexpected_failure_answers_500_with_a_reference} turned
- * red on its status body; the MCP cases turned red on {@code data.reference},
- * which was {@code data.report}, and on the stack frames in the log line.
+ * <p>RED STATE, observed 2026-10-29 with the REST catch-all unregistered: the
+ * withdrawal that fails below the generic surface answered without the
+ * envelope, so {@link #over_rest_an_unexpected_failure_answers_500_with_a_reference}
+ * found no {@code reason}, and the route nobody serves answered a body that is
+ * no JSON.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)

@@ -46,14 +46,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * else: before the route, the address, the scope, the body and the entry
  * (C14.4, C14.5). The MCP adapter does not read the header at all.
  *
- * <p>RED STATE, observed 2026-10-29 against the tree before this run, with
- * this class copied in: the header was read on {@code query} alone, so
+ * <p>RED STATE, observed 2026-10-29, one planted violation per run: with the
+ * header validated and its value never taken,
  * {@link #with_the_header_rest_answers_what_the_assistant_surface_answers}
- * turned red at its first comparison, on {@code next[0].call} of the read;
- * and an unknown value was refused as {@code ARGUMENT_INVALID} on the listing
- * only, after the route was found, so
- * {@link #an_unknown_value_is_header_invalid_and_writes_nothing} and
- * {@link #the_header_is_decided_before_anything_else} turned red.
+ * turned red at its first comparison, the read, and
+ * {@link #the_header_decides_nothing_but_the_names} on {@code create} where
+ * {@code memory_create} was due; with an unknown value let through like a
+ * missing one, {@link #an_unknown_value_is_header_invalid_and_writes_nothing}
+ * turned red on a create that answered 201, and
+ * {@link #the_header_is_decided_before_anything_else} on the 405 of a verb not
+ * carried.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)

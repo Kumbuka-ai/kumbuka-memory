@@ -48,12 +48,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * a muted member with {@code SCOPE_LOCKED}, never {@code SCOPE_READ_ONLY}, so
  * that the order never leaves the code unreachable (C8.7).
  *
- * <p>RED STATE, observed 2026-10-29 against the tree before this run, with
- * this class copied in: a query with a type outside the entry types on an
- * invisible scope was refused {@code TYPE_UNKNOWN} 422, a create naming a
- * fixed field {@code FIELD_IMMUTABLE} 422, an update without its token on MCP
- * {@code ARGUMENT_MISSING}, and the framework's 404 and 405 came without the
- * envelope.
+ * <p>RED STATE, observed 2026-10-29, one planted violation per run: with the
+ * type checked before the scope was resolved, the query on an invisible scope
+ * answered {@code TYPE_UNKNOWN}; with the fixed fields refused before it, the
+ * create answered {@code FIELD_IMMUTABLE} 422; with the conflict token required
+ * by the MCP argument check, the update answered {@code ARGUMENT_MISSING};
+ * with the write right checked before the lock, the muted member answered
+ * {@code SCOPE_READ_ONLY} 403; and with the REST catch-all unregistered, the
+ * framework's 404 came without the envelope.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
