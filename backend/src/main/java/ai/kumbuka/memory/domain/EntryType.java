@@ -9,6 +9,7 @@ package ai.kumbuka.memory.domain;
 
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -81,13 +82,32 @@ public enum EntryType {
     }
 
     /**
-     * The type a wire name denotes, or empty.
+     * Every name a caller may write a type as: the six wire names, and beside
+     * each one written with an underscore its hyphen form, the vocabulary form
+     * of C7.6. {@code open_question} stays accepted until the
+     * breaking step; an answer still writes the wire name.
+     */
+    public static List<String> acceptedNames() {
+        List<String> accepted = new ArrayList<>();
+        for (EntryType type : values()) {
+            accepted.add(type.wire);
+            if (!type.selector().equals(type.wire)) {
+                accepted.add(type.selector());
+            }
+        }
+        return List.copyOf(accepted);
+    }
+
+    /**
+     * The type a name denotes, in either of its accepted spellings, or empty.
      *
      * <p>Empty rather than a refusal: whether an unknown type is a malformed
      * call or a malformed row is not this class's to decide, and the two get
      * different refusals from the callers that do decide it.
      */
-    public static Optional<EntryType> of(@Nullable String wire) {
-        return Arrays.stream(values()).filter(t -> t.wire.equals(wire)).findFirst();
+    public static Optional<EntryType> of(@Nullable String name) {
+        return Arrays.stream(values())
+            .filter(t -> t.wire.equals(name) || t.selector().equals(name))
+            .findFirst();
     }
 }

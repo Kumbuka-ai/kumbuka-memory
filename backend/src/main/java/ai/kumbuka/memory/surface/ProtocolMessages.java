@@ -10,19 +10,18 @@ package ai.kumbuka.memory.surface;
 import io.quarkus.qute.i18n.Message;
 import io.quarkus.qute.i18n.MessageBundle;
 
-import java.util.List;
-
 /**
- * The errors of the protocol the assistant surface speaks, worded by this
- * service. The texts are in {@code messages/notice.properties}.
+ * The errors of the protocol the assistant surface speaks, JSON-RPC under
+ * MCP, worded by this service (C12.2). The texts are in
+ * {@code messages/protocol.properties}.
  *
  * <p>A request that is no call of a tool is answered as an error of the
  * protocol rather than refused in the envelope. What arrived -- a method, a
  * tool name -- is the caller's input and is never repeated; an error names
  * what this server has instead (DEC-0043 R19, R20).
  */
-@MessageBundle("notice")
-public interface Notices {
+@MessageBundle("protocol")
+public interface ProtocolMessages {
 
     @Message String bodyNotJson();
 
@@ -34,7 +33,7 @@ public interface Notices {
 
     @Message String paramsObject();
 
-    @Message String tools(List<VerbName> tools);
+    @Message String toolUnknown();
 
     @Message String argumentsObject();
 }

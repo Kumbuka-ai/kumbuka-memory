@@ -18,7 +18,6 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * The tool list, as {@code tools/list} answers it, derived from the declaration.
@@ -38,17 +37,19 @@ import java.util.Set;
  * <h2>The keywords an argument publishes, read by name</h2>
  *
  * An argument carries its further schema keywords as the declaration states
- * them. Each is read here by name into its member of the schema; a keyword
- * this class does not know fails loud, rather than vanishing from the tool
- * list while the declaration still publishes it.
+ * them. Each is read here by name into its member of the schema. A keyword
+ * outside {@link Argument#SCHEMA_KEYWORDS} refuses the start of the service,
+ * before any {@code tools/list}, rather than vanishing from the tool list
+ * while the declaration still publishes it.
  */
 public final class McpTools {
 
-    /** The schema keywords an argument may publish beside its type and description. */
-    static final Set<String> KEYWORDS = Set.of("enum", "default", "minimum", "maximum",
-        "items", "minItems");
-
     private McpTools() {
+    }
+
+    /** The tool names, in the order of the declaration, as {@code tools/list} lists them. */
+    public static List<String> names() {
+        return Arrays.stream(AssistantVerb.values()).map(AssistantVerb::call).toList();
     }
 
     public static List<ToolPayload> declared() {
@@ -84,7 +85,11 @@ public final class McpTools {
 
     private static SchemaPayload property(Argument argument) {
         Map<String, Object> keywords = argument.keywords();
-        keywords.keySet().stream().filter(keyword -> !KEYWORDS.contains(keyword)).findFirst()
+        // Refused at the start already (DeclarationGuard); kept here so that
+        // no keyword ever vanishes from the tool list while the declaration
+        // still publishes it.
+        keywords.keySet().stream().filter(keyword -> !Argument.SCHEMA_KEYWORDS.contains(keyword))
+            .findFirst()
             .ifPresent(keyword -> {
                 throw new IllegalStateException(argument.name() + " publishes the schema "
                     + "keyword " + keyword + ", which the tool schema does not carry");

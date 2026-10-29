@@ -15,6 +15,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +46,7 @@ public class DeclarationGuard {
         Map<String, ReasonCatalogue.Reason> catalogue = catalogue();
         try {
             ReasonCatalogue.requireComplete(catalogue);
+            requireKnownKeywords(argumentsByCall());
             requireServable(SurfaceDeclaration.asMap(), catalogue.keySet());
         } catch (IllegalStateException refusal) {
             // The reason on a line of its own (C13.3, WARN): the log format
@@ -68,6 +70,45 @@ public class DeclarationGuard {
      */
     protected Map<String, ReasonCatalogue.Reason> catalogue() {
         return ReasonCatalogue.byCode();
+    }
+
+    /**
+     * The arguments of every call, by tool name, as the tool schema is built
+     * from them.
+     *
+     * <p>An instance method only so that a start can be observed refusing an
+     * argument with a keyword the tool schema does not carry
+     * ({@code KeywordStartIT}); the service checks the arguments it declares.
+     */
+    protected Map<String, List<Argument>> argumentsByCall() {
+        Map<String, List<Argument>> arguments = new LinkedHashMap<>();
+        for (AssistantVerb verb : AssistantVerb.values()) {
+            arguments.put(verb.call(), verb.arguments());
+        }
+        return arguments;
+    }
+
+    /**
+     * Refuses an argument that publishes a schema keyword the tool schema does
+     * not carry: the first stage of the start check, over the verb records the
+     * tool schema is built from, before the document the declaration route
+     * serves is checked (C5.6). Found at the start rather than at the first
+     * {@code tools/list}, which would fail a caller instead of the deployment.
+     *
+     * @throws IllegalStateException naming the call, the argument and the keyword
+     */
+    public static void requireKnownKeywords(Map<String, List<Argument>> argumentsByCall) {
+        argumentsByCall.forEach((call, arguments) -> {
+            for (Argument argument : arguments) {
+                for (String keyword : argument.keywords().keySet()) {
+                    if (!Argument.SCHEMA_KEYWORDS.contains(keyword)) {
+                        throw new IllegalStateException(call + " declares " + argument.name()
+                            + " with the schema keyword " + keyword
+                            + ", which the tool schema does not carry");
+                    }
+                }
+            }
+        });
     }
 
     /**

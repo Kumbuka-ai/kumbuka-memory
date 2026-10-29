@@ -13,6 +13,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -86,6 +87,14 @@ public final class AddressParser {
      */
     private static final Pattern SCOPE =
         Pattern.compile("^[a-z0-9]++(?:-[a-z0-9]++)*+$");
+
+    /**
+     * The two names the REST surface's literal paths carry, {@code
+     * /api/declaration} and {@code /api/whoami}, and so never the name of a
+     * scope (C3.2): a scope of either name would meet a literal path at
+     * {@code /api/<scope>}.
+     */
+    public static final Set<String> RESERVED_SCOPES = Set.of("declaration", "whoami");
 
     /**
      * The one selector this service keeps for itself.
@@ -234,6 +243,18 @@ public final class AddressParser {
         }
     }
 
+    /**
+     * Refuses a scope of a reserved name where a call names the scope alone,
+     * as {@code query} and {@code digest} do (C3.2). Only the reserved names:
+     * any other scope these calls name is the platform's to resolve, as it
+     * has been, so a scope out of the grammar stays the single not-found.
+     */
+    public static void refuseReservedScope(String scope) {
+        if (RESERVED_SCOPES.contains(scope)) {
+            throw malformed(SCOPE_PART);
+        }
+    }
+
     private static void requireScope(@Nullable String scope) {
         requireScope(scope, SCOPE_PART);
     }
@@ -244,7 +265,8 @@ public final class AddressParser {
      * {@code address} where it is a part of a complete address (C8.7).
      */
     private static void requireScope(@Nullable String scope, String named) {
-        if (scope == null || !SCOPE.matcher(scope).matches()) {
+        if (scope == null || !SCOPE.matcher(scope).matches()
+                || RESERVED_SCOPES.contains(scope)) {
             throw malformed(named);
         }
     }

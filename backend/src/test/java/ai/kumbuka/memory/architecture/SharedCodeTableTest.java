@@ -90,7 +90,6 @@ class SharedCodeTableTest {
             + "declares one, so none is withdrawn"),
         Map.entry("ADDRESS_OCCUPIED", "an occupied address is answered as ALREADY_EXISTS "
             + "until run E renames it"),
-        Map.entry("IDEMPOTENCY_KEY_REUSED", "no call takes an idempotency key yet"),
         Map.entry("CLAIM_HELD", "no call claims an entry"),
         Map.entry("CLAIM_ABSENT", "no call needs a hold"),
         Map.entry("RECEIPT_WRONG", "no call takes a receipt"),

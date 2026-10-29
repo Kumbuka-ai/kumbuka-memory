@@ -10,10 +10,12 @@ package ai.kumbuka.memory.adapter.rest;
 import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.domain.EntryAddress;
+import ai.kumbuka.memory.domain.IdempotencyKey;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.Page;
 import ai.kumbuka.memory.surface.AddressParser;
+import ai.kumbuka.memory.surface.ArgumentName;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallerActor;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
@@ -21,7 +23,9 @@ import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.VerbSurface;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import io.quarkus.security.Authenticated;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -114,6 +118,9 @@ import java.util.UUID;
 @Transactional
 @Produces(MediaType.APPLICATION_JSON)
 public class EntryResource {
+
+    /** The header that carries the idempotency key of {@code create} on this surface (C10.4). */
+    static final String IDEMPOTENCY_KEY = "Idempotency-Key";
 
     @Inject VerbSurface verbs;
     @Inject CallerActor caller;
@@ -262,6 +269,7 @@ public class EntryResource {
     @Path("{scope}/{selector}")
     public Response collectionPost(@PathParam("scope") String scope,
                                    @PathParam("selector") String segment,
+                                   @HeaderParam(IDEMPOTENCY_KEY) @Nullable String idempotencyKey,
                                    String body) {
         CustomMethod.split(segment, CustomMethod.Depth.COLLECTION).ifPresent(at -> {
             throw new SurfaceException(SurfaceException.Reason.VERB_NOT_CARRIED,
@@ -275,7 +283,8 @@ public class EntryResource {
         if (key != null && EntryAddress.isAddressable(key)) {
             call.aimsAt(EntryAddress.ofKey(scope, key).canonical());
         }
-        VerbSurface.Answer answer = verbs.create(caller.current(), scope, segment, values);
+        VerbSurface.Answer answer = verbs.create(caller.current(), scope, segment, values,
+            IdempotencyKey.of(idempotencyKey));
 
         return tagged(Response
             .created(UriBuilder.fromResource(EntryResource.class)
@@ -324,7 +333,7 @@ public class EntryResource {
         VerbSurface.Answer answer = verbs.update(caller.current(),
             new AddressParser.Parts(scope, selector, id),
             unquoted(ifMatch).orElse(null),
-            Payloads.patch(read(body, Payloads.UpdateRequestPayload.class).orElse(null)));
+            Payloads.patch(readClosed(body, AssistantVerb.UPDATE).orElse(null)));
         return answer(answer);
     }
 
@@ -480,6 +489,36 @@ public class EntryResource {
             return Optional.of(trimmed.substring(1, trimmed.length() - 1));
         }
         return Optional.of(trimmed);
+    }
+
+    /**
+     * The body of an {@code update}, read closed: a name the call does not
+     * declare, beside {@code fields} or inside it, is refused by name as
+     * {@code ARGUMENT_UNKNOWN} with what that level accepts, never read and
+     * dropped (DEC-0042). Decidable from the call alone, so it falls
+     * before the scope is resolved (C1.3). The names fixed for the life of an
+     * entry stay readable here, and are refused as such once the scope is
+     * resolved.
+     */
+    private Optional<Payloads.UpdateRequestPayload> readClosed(@Nullable String body,
+                                                               AssistantVerb verb) {
+        if (body == null || body.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable(json.readerFor(Payloads.UpdateRequestPayload.class)
+                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .readValue(body));
+        } catch (UnrecognizedPropertyException unknown) {
+            // The name that arrived is the caller's input and is repeated
+            // nowhere; the refusal lists what the level declares instead.
+            boolean inFields = unknown.getPath().size() > 1;
+            throw MemoryException.undeclared(inFields
+                ? verb.fieldNames().stream().map(ArgumentName::value).toList()
+                : List.of(AssistantVerb.FIELDS));
+        } catch (JsonProcessingException e) {
+            throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED);
+        }
     }
 
     /**

@@ -67,14 +67,6 @@ final class CallArguments {
         for (Argument argument : verb.fieldArguments()) {
             check(argument, fields.get(argument.name()));
         }
-        if (verb == AssistantVerb.UPDATE && "".equals(fields.get(AssistantVerb.Names.REFERENCE))) {
-            // An empty text would be read by the verb as "not mentioned" and
-            // dropped, so the caller would believe it had removed the
-            // reference while the entry kept it. Refused, because this
-            // surface accepts nothing it then discards.
-            throw CallException.invalid(ArgumentPath.of(
-                verb.declaredName(AssistantVerb.Names.REFERENCE).orElseThrow()));
-        }
     }
 
     // ======================================================================

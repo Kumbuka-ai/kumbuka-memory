@@ -9,7 +9,9 @@ package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.platform.Access;
 import ai.kumbuka.memory.platform.ScopeDirectory;
+import ai.kumbuka.memory.repository.IdempotencyRepository;
 import ai.kumbuka.memory.repository.MemoryRepository;
+import ai.kumbuka.memory.repository.StoredInstant;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import ai.kumbuka.memory.tenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -19,9 +21,11 @@ import org.jboss.logging.Logger;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -76,6 +80,9 @@ public class MemoryService {
     /** The channel every write over this surface was made through. */
     private static final String SOURCE_SERVICE = "mcp";
 
+    /** The call an idempotency key is spent on; the only one that takes a key. */
+    private static final String CREATE = "create";
+
     /** The argument a type travels in, and the one its refusal names. */
     private static final String TYPE = "type";
 
@@ -84,6 +91,7 @@ public class MemoryService {
 
     @Inject ScopeDirectory scopes;
     @Inject MemoryRepository entries;
+    @Inject IdempotencyRepository ledger;
     @Inject TenantContext tenants;
     @Inject Withdrawal withdrawal;
     @Inject Clock clock;
@@ -100,9 +108,25 @@ public class MemoryService {
      * that meant to change it has the address to send the change to. The
      * behaviour the core has today — silently rewriting whatever was there —
      * is what this replaces.
+     *
+     * <p>Under an idempotency key (C10.4) a repeat by the same caller in the
+     * same scope with the same values lays down nothing and answers the entry
+     * the first call laid down, as it stands now. Where that entry is gone —
+     * withdrawn, and in this edition destroyed — or the key comes with other
+     * values, the repeat is refused with {@code IDEMPOTENCY_KEY_REUSED}: a
+     * withdrawn entry is never laid down again by a retry, because the
+     * withdrawal was meant to leave nothing of it (the platform's decision on the idempotency rule).
+     * The values are compared after their checks, so the two spellings of a
+     * type are one value.
      */
     @Transactional
     public EntryView create(Actor actor, EntryAddress address, Draft draft) {
+        return create(actor, address, draft, IdempotencyKey.NONE);
+    }
+
+    /** {@link #create(Actor, EntryAddress, Draft)}, under the key the call carried. */
+    @Transactional
+    public EntryView create(Actor actor, EntryAddress address, Draft draft, IdempotencyKey key) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
         refuseFixed(draft.fixed());
@@ -110,6 +134,16 @@ public class MemoryService {
         String type = requireKnownType(draft.type());
         String content = requireContent(draft.content());
         requireCleanReference(draft.reference());
+
+        String digest = IdempotencyService.digestOf(
+            Arrays.asList(address.key(), type, content, draft.reference()));
+        Optional<UUID> first = firstAnswerFor(scope.scopeId(), actor, key, digest);
+        if (first.isPresent()) {
+            Memory standing = entries.findByLogicalId(first.get(), actor.subject())
+                .filter(entry -> entry.scopeId.equals(scope.scopeId()))
+                .orElseThrow(MemoryService::keyReused);
+            return EntryView.of(standing, scope.slug(), true);
+        }
 
         entries.findOccupant(scope.scopeId(), address.key(), scope.isPrivate(),
                 actor.subject())
@@ -136,6 +170,7 @@ public class MemoryService {
         // index at the insert instead; the repository reports that as an
         // absent insert, and it is the same occupied address.
         Memory laidDown = entries.insert(entry).orElseThrow(MemoryService::occupied);
+        remember(scope.scopeId(), actor, key, digest, laidDown);
         LOG.infof("create %s", technical(laidDown));
         return EntryView.of(laidDown, scope.slug(), true);
     }
@@ -207,7 +242,8 @@ public class MemoryService {
 
         String type = patch.type().map(MemoryService::requireKnownType).orElse(entry.type);
         String content = patch.content().orElse(entry.content);
-        @Nullable String reference = patch.reference().orElse(entry.reference);
+        @Nullable String reference = patch.referenceRemoved()
+            ? null : patch.reference().orElse(entry.reference);
         requireContent(content);
         requireCleanReference(reference);
 
@@ -330,6 +366,63 @@ public class MemoryService {
     }
 
     // ======================================================================
+    // Idempotency of create, on the ledger of V10
+    // ======================================================================
+
+    /**
+     * The entry a repeat of a create answers with, if the call is one;
+     * refuses the key spent on other values.
+     *
+     * <p>Takes the key's lock first ({@link IdempotencyRepository#lockKeyUse}),
+     * so a second create under the same key that overlaps the first waits
+     * here until the first has committed, and then reads the first's row as a
+     * repeat. Without a key nothing is locked and nothing is read.
+     */
+    private Optional<UUID> firstAnswerFor(UUID scopeId, Actor caller, IdempotencyKey key,
+                                          String digest) {
+        if (!(key instanceof IdempotencyKey.Given given)) {
+            return Optional.empty();
+        }
+        ledger.lockKeyUse(scopeId, caller.subject(), given.value());
+        Optional<SpentKey> held = ledger.lockKey(scopeId, caller.subject(), given.value());
+        if (held.isEmpty() || !held.get().stillStandsAt(clock.instant())) {
+            return Optional.empty();
+        }
+        if (!held.get().records(CREATE, digest)) {
+            throw keyReused();
+        }
+        return Optional.of(held.get().entryLogicalId);
+    }
+
+    /**
+     * Writes the key down beside the entry its call laid down: a new row, or
+     * the expired row of the same key, overwritten in place.
+     */
+    private void remember(UUID scopeId, Actor caller, IdempotencyKey key, String digest,
+                          Memory produced) {
+        if (!(key instanceof IdempotencyKey.Given given)) {
+            return;
+        }
+        Optional<SpentKey> held = ledger.lockKey(scopeId, caller.subject(), given.value());
+        SpentKey row = held.orElseGet(SpentKey::new);
+        row.tenantId = tenants.current().toString();
+        row.scopeId = scopeId;
+        row.callerSubject = caller.subject();
+        row.key = given.value();
+        row.callName = CREATE;
+        row.argumentDigest = digest;
+        row.entryLogicalId = produced.logicalId;
+        row.firstSeenAt = StoredInstant.asStored(clock.instant());
+        if (held.isEmpty()) {
+            ledger.insert(row);
+        }
+    }
+
+    private static MemoryException keyReused() {
+        return new MemoryException(MemoryException.Reason.IDEMPOTENCY_KEY_REUSED);
+    }
+
+    // ======================================================================
     // The checks, each in one place
     // ======================================================================
 
@@ -362,7 +455,7 @@ public class MemoryService {
     private static EntryType knownType(@Nullable String type) {
         return EntryType.of(type)
             .orElseThrow(() -> MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN,
-                List.of(TYPE), EntryType.wireNames()));
+                List.of(TYPE), EntryType.acceptedNames()));
     }
 
     private static String requireContent(@Nullable String content) {

@@ -52,6 +52,7 @@ class RefusalCoverageTest {
 
     /** The codes raised in another test, and that test. */
     static final Map<String, String> ELSEWHERE = Map.of(
+        "IDEMPOTENCY_KEY_REUSED", "contract/IdempotencyIT.java",
         "UNEXPECTED_FAILURE", "contract/UnexpectedFailureIT.java",
         "ACTOR_UNKNOWN", "surface/CallerActorTest.java",
         "SESSION_NOT_BOUND", "platform/ScopeDirectoryIT.java");
@@ -76,6 +77,7 @@ class RefusalCoverageTest {
         declared.add("PLANTED_NEVER_THROWN");
         Set<String> raised = raisedIn(SourceTree.code(test.resolve(MARKED)));
         Map<String, String> register = Map.of(
+            "IDEMPOTENCY_KEY_REUSED", "contract/IdempotencyIT.java",
             "UNEXPECTED_FAILURE", "contract/UnexpectedFailureIT.java",
             "ACTOR_UNKNOWN", "surface/CallerActorTest.java",
             "SESSION_NOT_BOUND", "platform/ScopeDirectoryIT.java",

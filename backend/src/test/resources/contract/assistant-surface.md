@@ -42,7 +42,8 @@ lowercase letter followed by at most fifteen lowercase letters, digits, undersco
 `system` is reserved for entries the service lays down itself.
 
 An entry has a **type**, one of `constraint`, `decision`, `convention`, `glossary`, `status` and
-`open_question`, and optionally a **reference**: a provenance URL that is stored and never fetched,
+`open_question`, the last written also `open-question` (C7.6) and answered under its stored name
+until the breaking step, and optionally a **reference**: a provenance URL that is stored and never fetched,
 and that carries no credential.
 
 An entry has no intermediate state. It is in force from the call that creates it until the call
@@ -173,12 +174,13 @@ is the cause (DEC-0042).
 | `NOT_FOUND` | 4.3 | Check the address, and that you are a member of the scope it names. |
 | `SCOPE_LOCKED` | `<call> is refused: the scope is locked, and a locked scope takes writes from nobody. Read the scope with <read>, <query> or <digest>, and write to it once it is unlocked.` | Read the scope with `<read>`, `<query>` or `<digest>`, and write to it once it is unlocked. |
 | `SCOPE_READ_ONLY` | `<call> is refused: your right in this scope is to read it. Read the scope with <read>, <query> or <digest>, and ask the scope's owner for the write right to change it.` | Read the scope with `<read>`, `<query>` or `<digest>`, and ask the scope's owner for the write right to change it. |
-| `ADDRESS_MALFORMED` | `<call> was given an address or a scope in a form this service does not carry. Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens.` | Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens. |
+| `ADDRESS_MALFORMED` | `<call> was given an address or a scope in a form this service does not carry. Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens, by a name other than declaration and whoami.` | Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens, by a name other than declaration and whoami. |
 | `KEY_MALFORMED` | `<call> was given a key or a selector in a form this service does not store. Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters.` | Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters. |
 | `SELECTOR_ABSENT` | `<call> was given a key that names no selector. The part of a key before its first dot is the selector the entry stands under. Write the key as <selector>.<id>.` | Write the key as <selector>.<id>. |
 | `SELECTOR_RESERVED` | `The selector of this key is reserved for entries the service lays down itself. Choose another selector for the key, such as decision, convention or constraint.` | Choose another selector for the key, such as decision, convention or constraint. |
 | `SELECTOR_MISMATCHED` | `The key begins with another selector than the one <call> names. Make the selector argument and the part of the key before its first dot the same.` | Make the selector argument and the part of the key before its first dot the same. |
 | `ALREADY_EXISTS` | `<call> is refused: an entry already stands at this address. Read the entry with <read> and change it with <update>, or create the new entry under another key.` | Read the entry with `<read>` and change it with `<update>`, or create the new entry under another key. |
+| `IDEMPOTENCY_KEY_REUSED` | `<call> is refused: its idempotency key was spent within the last 24 hours on other values, or on an entry that has since been withdrawn. Send the call again with an idempotency key of its own.` | Send the call again with an idempotency key of its own. |
 | `CONFLICT_TOKEN_MISSING` | `<call> needs the conflict token of the latest read, and none arrived. Read the entry with <read> and send its conflict token with the call.` | Read the entry with `<read>` and send its conflict token with the call. |
 | `CONFLICT_TOKEN_STALE` | `<call> is refused: the entry was changed since you read it. Read the entry again with <read> and repeat the call with the new conflict token.` | Read the entry again with `<read>` and repeat the call with the new conflict token. |
 | `UPDATE_EMPTY` | `<call> names nothing to change. Send at least one of content, type and reference in fields.` | Send at least one of content, type and reference in fields. |
@@ -222,8 +224,10 @@ everything the call writes is under `fields`.
 > with the selector. Refused if an entry already stands there: change it with memory_update.
 > Callable by anyone who may write to the scope.
 
-Top-level: `scope`, `selector`. Under `fields`: `key`, `type`, `content`, optional `reference`.
-Result: the entry is in force.
+Top-level: `scope`, `selector`, optional `idempotency_key`. Under `fields`: `key`, `type`,
+`content`, optional `reference`. Result: the entry is in force. Under an idempotency key, a repeat
+with the same values within 24 hours answers the entry the first call laid down while it stands
+(C10.4).
 
 **`memory_read`**
 > Reads one entry by its complete address and hands out a fresh conflict token. Reads only. An
@@ -326,9 +330,9 @@ that answer would drift from it, and a listed call that is then refused is what 
 - **The code for a write to an occupied address is not decided platform-wide** (DEC-0042, "What
   this does not settle"). This contract declares the code the service answers today,
   `ALREADY_EXISTS`.
-- **A reference can be changed and cannot be removed.** The service has no way to express the
-  removal. On this surface an empty `reference` on `memory_update` is refused as
-  `ARGUMENT_INVALID` rather than accepted without effect.
+- **A reference is removed by sending it as the empty text** on `memory_update`, on this surface
+  and on the generic one alike. `null` is absence and leaves the reference as it is
+  (C7.4); the empty text is the removal's own form.
 - **The selector may carry an underscore and the key may not**, so a selector with an underscore
   never yields a key the service stores.
 - **No edition of the open core keeps the address on withdrawal.** The last row of the table in

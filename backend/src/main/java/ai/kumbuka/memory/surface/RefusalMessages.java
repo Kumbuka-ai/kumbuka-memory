@@ -28,6 +28,10 @@ public interface RefusalMessages {
 
     @Message String scopeLocked(VerbName call);
 
+    @Message String idempotencyKeyReused(VerbName call);
+
+    @Message String scopeReserved();
+
     @Message String scopeReadOnly(VerbName call);
 
     @Message String addressMalformed(VerbName call);

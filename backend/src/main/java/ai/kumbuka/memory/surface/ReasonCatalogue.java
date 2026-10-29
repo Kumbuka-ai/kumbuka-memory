@@ -231,8 +231,12 @@ public final class ReasonCatalogue {
         put(declared, "SCOPE_READ_ONLY", f -> m().scopeReadOnly(f.call()),
             f -> r().scopeReadOnly(read, query, digest),
             AssistantVerb.READ, AssistantVerb.QUERY, AssistantVerb.DIGEST);
-        repeat(declared, "ADDRESS_MALFORMED", f -> m().addressMalformed(f.call()),
-            f -> r().addressMalformed());
+        // A path below a reserved name is refused before the route is matched
+        // (C3.2), and so has no call to name.
+        declared.put("ADDRESS_MALFORMED", new Reason("ADDRESS_MALFORMED", List.of(), true,
+            Reach.BOTH, f -> f.callIfKnown().map(m()::addressMalformed)
+                .orElseGet(m()::scopeReserved),
+            f -> r().addressMalformed(), List.of("scopeReserved")));
         repeat(declared, "KEY_MALFORMED", f -> m().keyMalformed(f.call()),
             f -> r().keyMalformed());
         repeat(declared, "SELECTOR_ABSENT", f -> m().selectorAbsent(f.call()),
@@ -244,6 +248,8 @@ public final class ReasonCatalogue {
         put(declared, "ALREADY_EXISTS", f -> m().alreadyExists(f.call()),
             f -> r().alreadyExists(read, update),
             AssistantVerb.READ, AssistantVerb.UPDATE);
+        repeat(declared, "IDEMPOTENCY_KEY_REUSED", f -> m().idempotencyKeyReused(f.call()),
+            f -> r().idempotencyKeyReused());
         put(declared, "CONFLICT_TOKEN_MISSING", f -> m().conflictTokenMissing(f.call()),
             f -> r().conflictTokenMissing(read), AssistantVerb.READ);
         put(declared, "CONFLICT_TOKEN_STALE", f -> m().conflictTokenStale(f.call()),

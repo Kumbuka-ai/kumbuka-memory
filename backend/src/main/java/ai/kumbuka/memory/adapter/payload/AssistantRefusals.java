@@ -179,8 +179,12 @@ public final class AssistantRefusals {
      * see: the not-found class, and a caller with no subject to read as.
      */
     public static boolean concernsNoEntry(MemoryException e) {
+        // A spent idempotency key carries nothing beyond the call (C8.7):
+        // the entry its first call laid down is the key's business, not this
+        // call's, and naming it would tell the caller of a reused key about it.
         return ReasonCatalogue.NOT_FOUND.equals(ReasonCatalogue.wireCode(e.reason().name()))
-            || e.reason() == MemoryException.Reason.ACTOR_UNKNOWN;
+            || e.reason() == MemoryException.Reason.ACTOR_UNKNOWN
+            || e.reason() == MemoryException.Reason.IDEMPOTENCY_KEY_REUSED;
     }
 
     // ======================================================================

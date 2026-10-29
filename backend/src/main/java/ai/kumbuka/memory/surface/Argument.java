@@ -8,6 +8,7 @@
 package ai.kumbuka.memory.surface;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -36,6 +37,14 @@ public record Argument(ArgumentName argumentName, String type, boolean required,
     public static final String STRING = "string";
     public static final String INTEGER = "integer";
     public static final String ARRAY = "array";
+
+    /**
+     * The schema keywords an argument may publish beside its type and
+     * description, each of which the tool schema carries into a member of its
+     * own. A keyword outside this set refuses the start ({@link DeclarationGuard}).
+     */
+    public static final Set<String> SCHEMA_KEYWORDS = Set.of("enum", "default", "minimum",
+        "maximum", "items", "minItems");
 
     /** Where an argument sits (DEC-0040). */
     public enum Placement {

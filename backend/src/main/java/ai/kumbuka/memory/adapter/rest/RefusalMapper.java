@@ -258,8 +258,9 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
                 // ALREADY_EXISTS is the occupied address. SCOPE_LOCKED is here
                 // and not with the 403s: a lock is the scope's own state, it
                 // is lifted where it was set, and the same caller with the
-                // same token gets through once it is.
-                case ALREADY_EXISTS, SCOPE_LOCKED -> 409;
+                // same token gets through once it is. A spent idempotency key
+                // is the ledger's state: the key speaks for another call.
+                case ALREADY_EXISTS, SCOPE_LOCKED, IDEMPOTENCY_KEY_REUSED -> 409;
 
                 // The conflict token, as HTTP puts a precondition: a stale one
                 // failed it, and a missing one was required (C8.7).

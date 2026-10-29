@@ -134,6 +134,11 @@ public final class SurfaceDeclaration {
         };
     }
 
+    /** The name a call carries on REST: its verb, without the service prefix (C3.4). */
+    public static String restName(AssistantVerb verb) {
+        return verb.name().toLowerCase(Locale.ROOT);
+    }
+
     public static NextStep step(AssistantVerb verb) {
         return new NextStep(verb.call(), verb.does());
     }
@@ -166,7 +171,7 @@ public final class SurfaceDeclaration {
             Map<String, Object> call = new LinkedHashMap<>();
             call.put("identity", verb.call());
             call.put("call", verb.call());
-            call.put("rest_name", verb.name().toLowerCase(Locale.ROOT));
+            call.put("rest_name", restName(verb));
             call.put("effect_class", form.effect().name());
             EffectClass atScopeDepth = form.scopeDepth();
             if (atScopeDepth != null) {
@@ -224,12 +229,25 @@ public final class SurfaceDeclaration {
                 })
                 .toList());
         }
-        for (String bound : List.of("minimum", "maximum", "minItems")) {
-            if (argument.keywords().containsKey(bound)) {
-                declared.put(bound, argument.keywords().get(bound));
+        // The bounds in the declaration's own spelling; the tool schema keeps
+        // the spelling of JSON Schema (C5.4).
+        for (Map.Entry<String, String> bound : BOUNDS.entrySet()) {
+            if (argument.keywords().containsKey(bound.getKey())) {
+                declared.put(bound.getValue(), argument.keywords().get(bound.getKey()));
             }
         }
         return declared;
+    }
+
+    /** The bounds an argument's keywords carry, by the name the declaration writes them under. */
+    private static final Map<String, String> BOUNDS = orderedBounds();
+
+    private static Map<String, String> orderedBounds() {
+        Map<String, String> bounds = new LinkedHashMap<>();
+        bounds.put("minimum", "minimum");
+        bounds.put("maximum", "maximum");
+        bounds.put("minItems", "min_items");
+        return java.util.Collections.unmodifiableMap(bounds);
     }
 
     /** One value of a fixed set, with what it means. */
@@ -289,17 +307,16 @@ public final class SurfaceDeclaration {
      * The reasons, in the form of the reference: the message under its key
      * and as its bundle writes it, and the remedy.
      *
-     * <p>{@code message_pattern} is the message as this service sends it,
-     * which ends with the remedy: the pattern a reader matches a refusal
-     * against.
+     * <p>{@code message_pattern} is the template of the first message alone,
+     * never with the remedy appended (C5.3); the remedy stands beside it
+     * under {@code remedy}.
      */
     private static List<Map<String, Object>> reasonsAsMaps() {
         List<Map<String, Object>> reasons = new ArrayList<>();
         for (ReasonCatalogue.Reason reason : ReasonCatalogue.declared()) {
             Map<String, Object> declared = new LinkedHashMap<>();
             declared.put("reason", reason.code());
-            declared.put("message_pattern",
-                reason.messageTemplate() + " " + reason.remedyTemplate());
+            declared.put("message_pattern", reason.messageTemplate());
             List<Map<String, Object>> messages = new ArrayList<>();
             for (String key : concat(reason.key(), reason.further())) {
                 Map<String, Object> message = new LinkedHashMap<>();
@@ -347,7 +364,8 @@ public final class SurfaceDeclaration {
         return switch (verb) {
             case CREATE -> new Form(EffectClass.CREATE, null, false,
                 AnswerShape.ENTRY_CREATED, refusals(WRITE, ADDRESSED, List.of(
-                    Reason.SELECTOR_ABSENT, Reason.SELECTOR_MISMATCHED, Reason.ALREADY_EXISTS),
+                    Reason.SELECTOR_ABSENT, Reason.SELECTOR_MISMATCHED, Reason.ALREADY_EXISTS,
+                    Reason.IDEMPOTENCY_KEY_REUSED),
                     VALUES, BODY));
             case READ -> new Form(EffectClass.ITEM_READ, null, true,
                 AnswerShape.ENTRY, refusals(ADDRESSED));

@@ -1,5 +1,5 @@
 {
-  "$comment": "The shape of a service declaration, rules C5.3 to C5.5 of the platform service contract (platform-specs code-conventions/service-contract.md, round 4 part 1, commit 88c6554), with the form of a reason and of a fixed set taken from the reference kumbuka-dispatch as the dispatch of this change fixes it. Held in the test tree so the expectation does not come from the declaration it checks. Read by DeclarationShapeTest. Admitted per argument beyond C5.4: 'description' and 'value_descriptions', which the bundles ArgumentDescriptions and ValueDescriptions of C12.2 publish through the declaration, and the bounds 'minimum', 'maximum' and 'minItems', which memory's input schemas carry and its declaration has published since before C5.4.",
+  "$comment": "The shape of a service declaration, rules C5.3 to C5.5 of the platform service contract (platform-specs code-conventions/service-contract.md, round 4 part 2, commit 966c9b8), with the form of a reason and of a fixed set taken from the reference kumbuka-dispatch as the dispatch of this change fixes it. Held in the test tree so the expectation does not come from the declaration it checks. Read by DeclarationShapeTest. Admitted per argument beyond C5.4: 'description' and 'value_descriptions', which the bundles ArgumentDescriptions and ValueDescriptions of C12.2 publish through the declaration, the bounds 'minimum', 'maximum' and 'min_items' are C5.4's own since round 4 part 2, in this spelling while the tool schema keeps 'minItems'. Beyond the subset the validator reads, DeclarationShapeTest holds that a reason's message_pattern is the template of its first message, without the remedy (C5.3).",
   "type": "object",
   "required": ["version", "shape_version", "service", "scheme", "address_form", "effect_classes", "calls", "reasons"],
   "additionalProperties": false,
@@ -58,7 +58,7 @@
                 },
                 "minimum": {"type": "integer"},
                 "maximum": {"type": "integer"},
-                "minItems": {"type": "integer"}
+                "min_items": {"type": "integer"}
               }
             }
           },

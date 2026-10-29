@@ -27,6 +27,8 @@ public interface RefusalRemedies {
 
     @Message String scopeLocked(VerbName read, VerbName query, VerbName digest);
 
+    @Message String idempotencyKeyReused();
+
     @Message String scopeReadOnly(VerbName read, VerbName query, VerbName digest);
 
     @Message String addressMalformed();

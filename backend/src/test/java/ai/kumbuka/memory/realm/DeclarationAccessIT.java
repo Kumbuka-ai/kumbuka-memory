@@ -110,17 +110,17 @@ class DeclarationAccessIT {
     }
 
     @Test
-    void a_scope_named_declaration_keeps_its_deeper_routes() {
+    void below_the_declaration_s_path_declaration_is_no_scope() {
         Response collection = given()
             .header("Authorization", "Bearer " + memberToken())
             .accept(ContentType.JSON)
             .when().get("/api/declaration/decision");
         assertThat(collection.statusCode())
-            .as("the declaration's literal path takes the GET at that path alone: under it, "
-                + "declaration is read as a scope, and one this caller cannot see is not "
-                + "found. It said: %s", collection.asString())
-            .isEqualTo(404);
-        assertThat(collection.jsonPath().getString("reason")).isEqualTo("NOT_FOUND");
+            .as("declaration is the name of a literal path and never a scope (C3.2): a path "
+                + "below it is refused before the route is matched. It said: %s",
+                collection.asString())
+            .isEqualTo(400);
+        assertThat(collection.jsonPath().getString("reason")).isEqualTo("ADDRESS_MALFORMED");
     }
 
     @Test

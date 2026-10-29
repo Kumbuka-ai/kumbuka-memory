@@ -580,11 +580,10 @@ public final class Payloads {
     public static Patch patch(@Nullable UpdateRequestPayload request) {
         EntryFieldsPayload fields = requireFields(request == null ? null : request.fields());
 
-        return new Patch(
+        return Patch.of(
             Optional.ofNullable(fields.type()),
             Optional.ofNullable(fields.content()),
-            Optional.ofNullable(fields.reference())
-                .map(reference -> reference.isEmpty() ? null : reference),
+            Optional.ofNullable(fields.reference()),
             fixedIn(fields, false));
     }
 

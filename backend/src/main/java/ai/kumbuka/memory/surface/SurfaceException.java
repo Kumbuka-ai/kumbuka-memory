@@ -48,7 +48,15 @@ public class SurfaceException extends RuntimeException {
          * The header {@code Kumbuka-Surface} carries another value than the one
          * it takes, or arrives more than once (C14.5).
          */
-        HEADER_INVALID(400);
+        HEADER_INVALID(400),
+
+        /**
+         * The path goes on below one of the two names the literal paths
+         * reserve, which are never a scope (C3.2). Refused before the route
+         * is matched, so it names no call; the same code the address grammar
+         * raises once a call is known.
+         */
+        ADDRESS_MALFORMED(400);
 
         private final int status;
 

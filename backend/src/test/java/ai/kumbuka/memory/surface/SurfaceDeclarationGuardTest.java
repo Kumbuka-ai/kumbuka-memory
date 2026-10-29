@@ -112,6 +112,22 @@ class SurfaceDeclarationGuardTest {
     }
 
     @Test
+    void an_argument_with_a_keyword_the_tool_schema_does_not_carry_refuses_the_start() {
+        Map<String, List<Argument>> arguments = Map.of(AssistantVerb.READ.call(), List.of(
+            Argument.top("address", Argument.STRING, true, ArgumentDescriptions::address,
+                Map.of("pattern", "^memory://"))));
+        assertThatThrownBy(() -> DeclarationGuard.requireKnownKeywords(arguments))
+            .as("RED STATE, observed: a keyword outside the tool schema refuses the start, "
+                + "naming call, argument and keyword")
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("memory_read declares address with the schema keyword "
+                + "pattern");
+        assertThatCode(() -> DeclarationGuard.requireKnownKeywords(Map.of(
+                AssistantVerb.QUERY.call(), AssistantVerb.QUERY.arguments())))
+            .as("the keywords the service declares pass").doesNotThrowAnyException();
+    }
+
+    @Test
     void a_declaration_without_its_calls_refuses_the_start() {
         Map<String, Object> declaration = declaration();
         declaration.remove("calls");

@@ -13,6 +13,7 @@ import ai.kumbuka.memory.domain.DigestView;
 import ai.kumbuka.memory.domain.Draft;
 import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.EntryView;
+import ai.kumbuka.memory.domain.IdempotencyKey;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
@@ -73,13 +74,20 @@ public class VerbSurface {
      */
     @Transactional
     public Answer create(Actor actor, String scope, String selector, NewEntry values) {
+        return create(actor, scope, selector, values, IdempotencyKey.NONE);
+    }
+
+    /** {@code create}, under the idempotency key the call carried (C10.4). */
+    @Transactional
+    public Answer create(Actor actor, String scope, String selector, NewEntry values,
+                         IdempotencyKey key) {
         EntryAddress address = AddressParser.ofKey(scope, values.key());
         AddressParser.requireAgreement(selectorOf(selector), address);
         AddressParser.requireWritableSelector(address);
 
         return answerFor(memory.create(actor,
             address, new Draft(values.type(), values.content(), values.reference(),
-                values.fixed())));
+                values.fixed()), key));
     }
 
     /** The entry at a canonical address. */
@@ -128,6 +136,7 @@ public class VerbSurface {
      */
     @Transactional
     public Page query(Actor actor, String scope, @Nullable String selector, Query asked) {
+        AddressParser.refuseReservedScope(scope);
         if (selector != null) {
             // Checked even though nothing is addressed by it: a caller that
             // mistyped a selector would otherwise get an empty page, which
@@ -140,6 +149,7 @@ public class VerbSurface {
     /** Everything in force in a scope, whole. */
     @Transactional
     public DigestView digest(Actor actor, String scope, @Nullable List<String> types) {
+        AddressParser.refuseReservedScope(scope);
         return digests.digest(actor, scope, types);
     }
 

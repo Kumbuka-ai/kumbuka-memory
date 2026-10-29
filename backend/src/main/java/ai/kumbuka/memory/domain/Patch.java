@@ -13,11 +13,13 @@ import java.util.Optional;
 /**
  * What an {@code update} changes.
  *
- * <p>Three optionals, and the optional is doing real work: {@code reference}
- * is nullable in the table, so "leave it alone" and "clear it" are different
- * instructions and a plain null could only express one of them. An empty
- * optional is the field not mentioned; a present optional holding null is the
- * field cleared.
+ * <p>Three optionals and one flag. An empty optional is the field not
+ * mentioned, and the entry keeps its value; a present one is the new value.
+ * {@code reference} is nullable in the table, so removing it is an
+ * instruction of its own, {@code referenceRemoved}: an optional cannot hold a
+ * null, and input {@code null} means "absent" on every path (C7.4), so
+ * neither could say "remove". On both surfaces a caller removes the
+ * reference by sending it as the empty text.
  *
  * <p>Scope and key are absent as values. They are fixed for the life of an
  * entry, and a field that cannot be changed has no place among the values
@@ -27,19 +29,30 @@ import java.util.Optional;
  * every path that cannot name one.
  */
 public record Patch(Optional<String> type, Optional<String> content,
-                    Optional<String> reference, List<String> fixed) {
+                    Optional<String> reference, boolean referenceRemoved, List<String> fixed) {
 
     public Patch {
         fixed = List.copyOf(fixed);
     }
 
-    /** A patch that names no fixed field. */
+    /** A patch that removes nothing and names no fixed field. */
     public Patch(Optional<String> type, Optional<String> content, Optional<String> reference) {
-        this(type, content, reference, List.of());
+        this(type, content, reference, false, List.of());
+    }
+
+    /**
+     * The patch a caller's values ask for: a reference sent as the empty text
+     * removes it, any other text sets it, and an absent one leaves it alone.
+     */
+    public static Patch of(Optional<String> type, Optional<String> content,
+                           Optional<String> reference, List<String> fixed) {
+        boolean removed = reference.filter(String::isEmpty).isPresent();
+        return new Patch(type, content, reference.filter(text -> !text.isEmpty()), removed,
+            fixed);
     }
 
     /** Whether this patch asks for nothing at all. */
     public boolean isEmpty() {
-        return type.isEmpty() && content.isEmpty() && reference.isEmpty();
+        return type.isEmpty() && content.isEmpty() && reference.isEmpty() && !referenceRemoved;
     }
 }
