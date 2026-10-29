@@ -68,7 +68,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the status they answer today and the row they are to become: a named,
  * temporary list, not a verdict. A code in it is no offence; a code that
  * leaves the service, or changes its status, without leaving the list is.
- * The list empties in run E, and this class says so the day it is empty.
+ * The list empties in run E, and this class says so the day it is empty:
+ * {@link #the_list_for_run_e_says_so_the_day_it_is_empty} fails on an empty
+ * list and asks for the list and its exception to go.
  *
  * <p>The constants, {@link #carried()} and {@link #members()} are the service
  * binding; the rule reads none of the service's words. {@link #carried()}
@@ -180,6 +182,15 @@ class SharedCodeTableTest {
                 .filter(SERVICE_CODES::containsKey).toList())
             .as("a code is either the service's own or named for run E, not both")
             .isEmpty();
+    }
+
+    @Test
+    void the_list_for_run_e_says_so_the_day_it_is_empty() {
+        assertThat(RENAMED_IN_RUN_E)
+            .as("RED STATE, observed with the list emptied: run E has renamed every code "
+                + "named for it, so the temporary exception is spent. Remove RENAMED_IN_RUN_E, "
+                + "its exception in offences() and this test")
+            .isNotEmpty();
     }
 
     @Test

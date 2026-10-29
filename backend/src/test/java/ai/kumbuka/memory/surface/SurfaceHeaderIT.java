@@ -55,7 +55,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * missing one, {@link #an_unknown_value_is_header_invalid_and_writes_nothing}
  * turned red on a create that answered 201, and
  * {@link #the_header_is_decided_before_anything_else} on the 405 of a verb not
- * carried.
+ * carried; with the filter reading the prefix {@code api/} instead of the
+ * first segment, {@link #the_root_of_the_rest_surface_reads_the_header_too}
+ * turned red on a 200 that carried the declaration.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
@@ -170,6 +172,13 @@ class SurfaceHeaderIT {
             "before the body: no JSON object");
         headerInvalid(wrong().get(COLLECTION + "?bogus=x"),
             "before the arguments: one the call does not declare");
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void the_root_of_the_rest_surface_reads_the_header_too() {
+        headerInvalid(call().header(HEADER, "bogus").get(API),
+            "the root itself: the declaration at GET /api");
     }
 
     @Test

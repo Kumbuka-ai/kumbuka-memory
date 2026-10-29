@@ -48,8 +48,11 @@ public class SurfaceHeaderFilter implements ContainerRequestFilter {
     /** The one value {@link #SURFACE} takes: the assistant surface. */
     static final String ASSISTANT = "assistant";
 
-    /** The path the REST surface is served under, as a request's path begins. */
-    private static final String REST_ROOT = "api/";
+    /**
+     * The first segment of every path the REST surface is served under, its
+     * root {@code /api} included.
+     */
+    private static final String REST_ROOT = "api";
 
     @Inject SecurityIdentity identity;
     @Inject RestCall call;
@@ -58,7 +61,9 @@ public class SurfaceHeaderFilter implements ContainerRequestFilter {
     public void filter(ContainerRequestContext request) {
         String path = request.getUriInfo().getPath();
         String relative = path.startsWith("/") ? path.substring(1) : path;
-        if (!relative.startsWith(REST_ROOT) || identity.isAnonymous()) {
+        int slash = relative.indexOf('/');
+        String first = slash < 0 ? relative : relative.substring(0, slash);
+        if (!REST_ROOT.equals(first) || identity.isAnonymous()) {
             return;
         }
         List<String> named = request.getHeaders().get(SURFACE);
