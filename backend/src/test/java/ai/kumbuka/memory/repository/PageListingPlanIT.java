@@ -147,7 +147,7 @@ class PageListingPlanIT {
     void a_page_walks_an_index_in_order_and_reads_about_a_page(
             String selector, SortKey sort, SortKey.Direction direction, boolean continued)
             throws SQLException {
-        PageCursor after = continued ? middleOf(selector) : null;
+        PageCursor after = continued ? middleOf(selector, sort) : null;
         List<String> sql = statementsOf(selector, sort, direction, after);
 
         List<String> values = new ArrayList<>(List.of(TENANT, SCOPE, CALLER));
@@ -208,15 +208,26 @@ class PageListingPlanIT {
                 + "' among " + recorded));
     }
 
-    /** A position in the middle of the listing, as a cursor would carry it. */
-    private static PageCursor middleOf(String selector) throws SQLException {
-        String key = (selector == null ? "decision" : selector) + MARK + "a" + (ENTRIES / 2);
+    /**
+     * A position in the middle of the listing, in the order the page is read
+     * in, as a cursor would carry it.
+     *
+     * <p>The middle is taken by rank in that order, not by a fixed key: the
+     * instants are laid down at random, so a fixed key can stand near either
+     * end of the time order, and a page continued from it then holds fewer
+     * rows than a page. Measured 2026-10-29 in CI: continued backwards in time
+     * from the key {@code a1500}, the page held 39 rows where 51 were due.
+     */
+    private static PageCursor middleOf(String selector, SortKey sort) throws SQLException {
+        String prefix = (selector == null ? "decision" : selector) + MARK + "a";
+        String order = sort == SortKey.CREATED_AT ? "created_at, key" : "key";
         try (Connection c = asAdmin(); Statement s = c.createStatement();
-             ResultSet rs = s.executeQuery("SELECT created_at FROM memory.memory WHERE key = '"
-                 + key + "' AND tenant_id = '" + TENANT + "'")) {
-            assertThat(rs.next()).as(key).isTrue();
-            Instant at = rs.getTimestamp(1).toInstant();
-            return new PageCursor(null, key, at);
+             ResultSet rs = s.executeQuery("SELECT key, created_at FROM memory.memory"
+                 + " WHERE left(key, " + prefix.length() + ") = '" + prefix + "'"
+                 + " AND tenant_id = '" + TENANT + "'"
+                 + " ORDER BY " + order + " OFFSET " + (ENTRIES / 2) + " LIMIT 1")) {
+            assertThat(rs.next()).as(prefix).isTrue();
+            return new PageCursor(null, rs.getString(1), rs.getTimestamp(2).toInstant());
         }
     }
 
