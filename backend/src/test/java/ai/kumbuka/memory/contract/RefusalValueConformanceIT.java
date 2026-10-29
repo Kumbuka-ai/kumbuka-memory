@@ -44,12 +44,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * is held against the table of section 4.4 of the contract, so a code added
  * later without a case here turns this probe red rather than going unchecked.
  *
- * <h2>Two codes raised elsewhere</h2>
+ * <h2>Three codes raised elsewhere</h2>
  *
  * {@code ACTOR_UNKNOWN} is raised by a token without a subject; the caller
  * sends no value it could repeat. {@code UNEXPECTED_FAILURE} needs a failure
  * injected into the service, and {@code UnexpectedFailureIT} raises it and
- * holds its message free of the address and the scope the call sent.
+ * holds its message free of the address and the scope the call sent. {@code
+ * IDEMPOTENCY_KEY_REUSED} needs a key spent first, and {@code IdempotencyIT}
+ * raises it with a marked key that no answer gives back.
  *
  * <h2>One member of data that carries an address</h2>
  *
@@ -93,7 +95,7 @@ class RefusalValueConformanceIT {
 
     /** Raised elsewhere, for the reasons the class comment gives. */
     private static final Set<String> RAISED_ELSEWHERE =
-        Set.of("ACTOR_UNKNOWN", "UNEXPECTED_FAILURE");
+        Set.of("ACTOR_UNKNOWN", "UNEXPECTED_FAILURE", "IDEMPOTENCY_KEY_REUSED");
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -178,8 +180,11 @@ class RefusalValueConformanceIT {
             new Case("ARGUMENT_UNKNOWN", () -> Mcp.call(CREATE, args("scope", SCOPE,
                 "selector", "decision", "fields", Map.of("key", "decision.tabs",
                     "type", "decision", "content", "x", MARK + "_field", MARK))), MARK),
-            new Case("ARGUMENT_MISSING", () -> Mcp.call(UPDATE, args("address", ADDRESS,
+            new Case("CONFLICT_TOKEN_MISSING", () -> Mcp.call(UPDATE, args("address", ADDRESS,
                 "fields", Map.of("content", MARK))), MARK, ADDRESS),
+            new Case("ARGUMENT_MISSING", () -> Mcp.call(CREATE, args("scope", SCOPE,
+                "selector", "decision", "fields", Map.of("key", "decision." + MARK,
+                    "type", "decision"))), MARK),
             new Case("ARGUMENT_INVALID", () -> Mcp.call(QUERY, args("scope", SCOPE,
                 "direction", MARK)), MARK),
             new Case("ARGUMENT_INVALID", () -> Mcp.call(UPDATE, args("address", ADDRESS,
@@ -277,9 +282,9 @@ class RefusalValueConformanceIT {
                     + "nothing of the caller's beyond it")
                 .doesNotContain(MARK);
         }
-        assertThat(answers.get(1).jsonPath().getString("error.message"))
-            .as("the tools there are, by the contract's names")
-            .contains(Contract.tools());
+        assertThat(answers.get(1).jsonPath().getList("error.data.accepts", String.class))
+            .as("the tools there are, by the contract's names, under error.data.accepts (C4.3)")
+            .containsExactlyElementsOf(Contract.tools());
     }
 
     /**
@@ -362,8 +367,10 @@ class RefusalValueConformanceIT {
             new RestCase("TYPE_UNKNOWN", () -> SurfaceFixture.call()
                 .body("{\"types\":[\"decision\",\"" + MARK + "\"]}")
                 .post(scope + ":digest")),
-            new RestCase("ARGUMENT_INVALID", () -> SurfaceFixture.call()
+            new RestCase("HEADER_INVALID", () -> SurfaceFixture.call()
                 .header("Kumbuka-Surface", MARK).get(scope)),
+            new RestCase("ADDRESS_TRUNCATED", () -> SurfaceFixture.call()
+                .post(SurfaceFixture.API + "/" + SCOPE + "/convention/" + MARK)),
             new RestCase("VERB_NOT_CARRIED", () -> SurfaceFixture.call()
                 .post(item + ":" + MARK), ADDRESS, KEY),
             new RestCase("PAYLOAD_MALFORMED", () -> SurfaceFixture.call()

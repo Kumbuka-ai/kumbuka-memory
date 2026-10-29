@@ -13,44 +13,64 @@ import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
+import io.restassured.http.Header;
+import io.restassured.http.Headers;
 import io.restassured.response.Response;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
+import static ai.kumbuka.memory.contract.Mcp.args;
 import static ai.kumbuka.memory.surface.SurfaceFixture.API;
 import static ai.kumbuka.memory.surface.SurfaceFixture.call;
+import static ai.kumbuka.memory.surface.SurfaceFixture.fields;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The generic listing, asked for the assistant surface's projection by the
- * hop in front of the service.
+ * The REST surface with {@code Kumbuka-Surface: assistant}: it answers in the
+ * vocabulary of the assistant surface, and that is all the header changes.
  *
- * <h2>Why a header and not a second route</h2>
+ * <p>Each comparison is a JSON value against a JSON value — the body of the
+ * REST answer against {@code structuredContent} of the service's own MCP
+ * adapter, for the same call by the same identity at the same entry. Where a
+ * write happens once, the REST answer of the write is held against the MCP
+ * adapter's read of the entry it left, which answers in the same shape.
  *
- * A router that publishes this service's calls as assistant tools reaches it
- * over REST. Without saying so it is answered in the generic vocabulary, and
- * the assistant behind it is told to call {@code read memory://…}, which is no
- * tool it holds. With {@code Kumbuka-Surface: assistant} the same listing
- * names {@code memory_read}, and a refusal is worded and shaped as the
- * service's own MCP adapter words and shapes it — measured against that
- * adapter here, not against a copy of its text.
+ * <p>A value the header cannot take is {@code HEADER_INVALID} 400 with no
+ * {@code data}, decided after the caller is authenticated and before anything
+ * else: before the route, the address, the scope, the body and the entry
+ * (C14.4, C14.5). The MCP adapter does not read the header at all.
  *
- * <h2>The red run this probe was built against, observed on 2026-10-12</h2>
- *
- * On the state before the alignment the header was ignored: the listing with
- * it named {@code read memory://…} like the one without it, and its refusal
- * was the generic one, without {@code attempted}.
+ * <p>RED STATE, observed 2026-10-29, one planted violation per run: with the
+ * header validated and its value never taken,
+ * {@link #with_the_header_rest_answers_what_the_assistant_surface_answers}
+ * turned red at its first comparison, the read, and
+ * {@link #the_header_decides_nothing_but_the_names} on {@code create} where
+ * {@code memory_create} was due; with an unknown value let through like a
+ * missing one, {@link #an_unknown_value_is_header_invalid_and_writes_nothing}
+ * turned red on a create that answered 201, and
+ * {@link #the_header_is_decided_before_anything_else} on the 405 of a verb not
+ * carried; with the filter reading the prefix {@code api/} instead of the
+ * first segment, {@link #the_root_of_the_rest_surface_reads_the_header_too}
+ * turned red on a 200 that carried the declaration.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
-@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
 class SurfaceHeaderIT {
 
+    private static final String HEADER = "Kumbuka-Surface";
+    private static final String ASSISTANT = "assistant";
     private static final String SCOPE = SubstrateDatabaseResource.PROBE_SCOPE_SLUG;
-    private static final String SURFACE = "Kumbuka-Surface";
+    private static final String KEY = "decision.storage-engine";
+    private static final String ADDRESS = "memory://" + SCOPE + "/decision/storage-engine";
+    private static final String ITEM = API + "/" + SCOPE + "/decision/storage-engine";
+    private static final String COLLECTION = API + "/" + SCOPE + "/decision";
+    private static final String COUNT = "SELECT count(*) FROM memory.memory";
 
     @BeforeAll
     static void grantDirectoryAccess() {
@@ -58,93 +78,169 @@ class SurfaceHeaderIT {
     }
 
     @BeforeEach
-    void aFewEntries() {
+    void oneEntry() {
         SurfaceFixture.clearEntries();
-        SurfaceFixture.plantMany(SubstrateDatabaseResource.SCOPE_ID, "decision", "decision", 3);
+        SurfaceFixture.plant(SurfaceFixture.Planted.shared(SubstrateDatabaseResource.SCOPE_ID,
+            KEY, "decision", "postgres"));
     }
 
     @Test
-    void the_same_listing_names_the_calls_of_the_surface_the_header_names() {
-        Response generic = call().get(API + "/" + SCOPE + "/decision?page_size=2");
-        Response assistant = call().header(SURFACE, "assistant")
-            .get(API + "/" + SCOPE + "/decision?page_size=2");
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void with_the_header_rest_answers_what_the_assistant_surface_answers() {
+        Response read = assistant().get(ITEM);
+        assertThat(read.statusCode()).isEqualTo(200);
+        assertThat(body(read)).as("read")
+            .isEqualTo(Mcp.call("memory_read", args("address", ADDRESS)).structured());
 
-        assertThat(generic.statusCode()).isEqualTo(200);
-        assertThat(assistant.statusCode()).isEqualTo(200);
-        assertThat(generic.jsonPath().getList("objects[0].next.call", String.class))
-            .as("without the header: the generic surface's calls, unchanged")
-            .containsExactly("read memory://probe-scope/decision/item-1",
-                "update memory://probe-scope/decision/item-1",
-                "withdraw memory://probe-scope/decision/item-1");
-        assertThat(assistant.jsonPath().getList("objects[0].next.call", String.class))
-            .as("with it: the tools the assistant behind the hop holds")
-            .containsExactly("memory_read", "memory_update", "memory_withdraw");
+        Response listed = assistant().get(COLLECTION + "?page_size=2");
+        assertThat(listed.statusCode()).isEqualTo(200);
+        assertThat(body(listed)).as("query")
+            .isEqualTo(Mcp.call("memory_query", args("scope", SCOPE, "selector", "decision",
+                "page_size", 2)).structured());
 
-        Mcp.Result direct = Mcp.call("memory_query",
-            Mcp.args("scope", SCOPE, "selector", "decision", "page_size", 2));
-        assertThat(assistant.jsonPath().getMap("$"))
-            .as("and the whole page is the one the service's own MCP adapter answers")
-            .isEqualTo(direct.structured());
+        Response rejected = assistant().get(COLLECTION + "?page_size=abc");
+        assertThat(rejected.statusCode()).isEqualTo(400);
+        assertThat(body(rejected)).as("a refusal of an argument")
+            .isEqualTo(Mcp.call("memory_query", args("scope", SCOPE, "selector", "decision",
+                "page_size", "abc")).structured());
+
+        String token = read.header("ETag");
+        Response updated = assistant().header("If-Match", token)
+            .body(fields("content", "postgres 16")).patch(ITEM);
+        assertThat(updated.statusCode()).isEqualTo(200);
+        assertThat(body(updated)).as("update, as the entry it left reads")
+            .isEqualTo(Mcp.call("memory_read", args("address", ADDRESS)).structured());
+
+        Response stale = assistant().header("If-Match", token)
+            .body(fields("content", "postgres 17")).patch(ITEM);
+        assertThat(stale.statusCode()).isEqualTo(412);
+        assertThat(stale.jsonPath().getList("data.next.call", String.class))
+            .isNotEmpty().allMatch(call -> call.startsWith("memory_"));
+        assertThat(body(stale)).as("a refusal for the state of the entry")
+            .isEqualTo(Mcp.call("memory_update", args("address", ADDRESS,
+                "conflict_token", token, "fields", Map.of("content", "postgres 17")))
+                .structured());
+
+        Response missing = assistant().get(API + "/" + SCOPE + "/decision/nothing-here");
+        assertThat(missing.statusCode()).isEqualTo(404);
+        assertThat(body(missing)).as("NOT_FOUND")
+            .isEqualTo(Mcp.call("memory_read", args("address",
+                "memory://" + SCOPE + "/decision/nothing-here")).structured());
+
+        Response withdrawn = assistant()
+            .header("If-Match", updated.jsonPath().getString("conflict_token"))
+            .post(ITEM + ":withdraw");
+        assertThat(withdrawn.statusCode()).isEqualTo(200);
+        assertThat(withdrawn.jsonPath().getList("next.call", String.class))
+            .as("withdraw").allMatch(call -> call.startsWith("memory_"));
     }
 
     @Test
-    void a_refusal_under_the_header_is_the_assistant_surfaces_refusal() {
-        Response refused = call().header(SURFACE, "assistant")
-            .get(API + "/" + SCOPE + "?page_size=0");
-        Mcp.Result direct = Mcp.call("memory_query",
-            Mcp.args("scope", SCOPE, "page_size", 0));
-
-        assertThat(refused.statusCode())
-            .as("the status is the generic surface's: the header changes the vocabulary, "
-                + "not the transport")
-            .isEqualTo(400);
-        assertThat(refused.jsonPath().getMap("$"))
-            .as("reason, message and data as the service's MCP adapter answers them")
-            .isEqualTo(direct.structured());
-        assertThat(refused.jsonPath().getString("data.attempted")).isEqualTo("memory_query");
-        assertThat(refused.jsonPath().getList("data.offenders", String.class))
-            .containsExactly("page_size");
-
-        Response generic = call().get(API + "/" + SCOPE + "?page_size=0");
-        assertThat(generic.jsonPath().getMap("data"))
-            .as("without the header the refusal stays the generic one")
-            .doesNotContainKey("attempted");
-    }
-
-    /**
-     * The header is no argument of the call, and whether its value is one it
-     * takes is decidable without a scope. So the refusal carries no
-     * {@code data}, and it answers the same for a scope this caller cannot
-     * see as for one it can: before the scope is looked at, as the dispatch
-     * and the worklist service refuse it.
-     *
-     * <p>The red run, observed on 2026-10-13: every case answered with
-     * {@code data.offenders = ["Kumbuka-Surface"]}.
-     */
-    @Test
-    void a_value_the_header_cannot_take_is_refused_before_the_scope_is_looked_at() {
-        for (String scope : List.of(SCOPE, SubstrateDatabaseResource.OTHER_TENANT_SCOPE_SLUG,
-                "no-such-scope")) {
-            for (List<String> values : List.of(List.of("zq-marked-surface"), List.of(""),
-                    List.of("assistant", "assistant"))) {
-                var request = call();
-                for (String value : values) {
-                    request = request.header(SURFACE, value);
-                }
-                Response answer = request.get(API + "/" + scope);
-
-                assertThat(answer.statusCode()).as("%s %s: %s", scope, values,
-                    answer.asString()).isEqualTo(400);
-                assertThat(answer.jsonPath().getString("reason"))
-                    .isEqualTo("ARGUMENT_INVALID");
-                assertThat(answer.jsonPath().getMap("$"))
-                    .as("no data: the header is not an argument — %s", answer.asString())
-                    .containsOnlyKeys("reason", "message");
-                assertThat(answer.jsonPath().getString("message"))
-                    .as("names the header and the value it takes, and not the value sent")
-                    .contains(SURFACE).contains("assistant")
-                    .doesNotContain("zq-marked-surface");
-            }
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void an_unknown_value_is_header_invalid_and_writes_nothing() {
+        for (String value : List.of("mcp", "Assistant", "rest", "")) {
+            long before = SurfaceFixture.countRows(COUNT);
+            Response refused = call().header(HEADER, value)
+                .body(fields("key", "decision.another", "type", "decision", "content", "x"))
+                .post(COLLECTION);
+            headerInvalid(refused, "'" + value + "'");
+            assertThat(SurfaceFixture.countRows(COUNT)).as("'%s' wrote nothing", value)
+                .isEqualTo(before);
         }
+
+        long before = SurfaceFixture.countRows(COUNT);
+        Response twice = call().header(HEADER, ASSISTANT).header(HEADER, ASSISTANT)
+            .body(fields("key", "decision.another", "type", "decision", "content", "x"))
+            .post(COLLECTION);
+        headerInvalid(twice, "the header twice");
+        assertThat(SurfaceFixture.countRows(COUNT)).as("twice wrote nothing").isEqualTo(before);
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void the_header_is_decided_before_anything_else() {
+        headerInvalid(wrong().post(ITEM + ":invented"),
+            "before the route: a verb not carried");
+        headerInvalid(wrong().delete(COLLECTION), "before the route: a method not carried");
+        headerInvalid(wrong().get(API + "/" + SCOPE + "/decision/nothing-here"),
+            "before the address: an entry that is not there");
+        headerInvalid(wrong().get(API + "/Not A Scope/decision"),
+            "before the grammar: a scope out of it");
+        headerInvalid(wrong().get(API + "/" + SubstrateDatabaseResource.OTHER_TENANT_SCOPE_SLUG
+            + "/decision"), "before the scope: a scope the caller does not see");
+        headerInvalid(wrong().body("[not json").post(COLLECTION),
+            "before the body: no JSON object");
+        headerInvalid(wrong().get(COLLECTION + "?bogus=x"),
+            "before the arguments: one the call does not declare");
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void the_root_of_the_rest_surface_reads_the_header_too() {
+        headerInvalid(call().header(HEADER, "bogus").get(API),
+            "the root itself: the declaration at GET /api");
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    void the_mcp_adapter_does_not_read_the_header() {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("jsonrpc", "2.0");
+        envelope.put("id", 1);
+        envelope.put("method", "tools/call");
+        envelope.put("params", Map.of("name", "memory_read",
+            "arguments", Map.of("address", ADDRESS)));
+
+        for (Headers headers : List.of(new Headers(new Header(HEADER, "mcp")),
+                new Headers(new Header(HEADER, ASSISTANT), new Header(HEADER, ASSISTANT)))) {
+            Response read = call().headers(headers).body(envelope).post(Mcp.PATH);
+            assertThat(read.statusCode()).as("%s", headers).isEqualTo(200);
+            assertThat(read.jsonPath().getMap("result.structuredContent")).as("%s", headers)
+                .isEqualTo(Mcp.call("memory_read", args("address", ADDRESS)).structured());
+        }
+    }
+
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.MUTED_SUBJECT)
+    void the_header_decides_nothing_but_the_names() {
+        long before = SurfaceFixture.countRows(COUNT);
+        String body = fields("key", "decision.another", "type", "decision", "content", "x");
+
+        Response without = call().body(body).post(COLLECTION);
+        Response with = assistant().body(body).post(COLLECTION);
+
+        assertThat(without.jsonPath().getString("reason")).isEqualTo("SCOPE_READ_ONLY");
+        assertThat(with.statusCode()).isEqualTo(without.statusCode());
+        assertThat(with.jsonPath().getString("reason"))
+            .isEqualTo(without.jsonPath().getString("reason"));
+        assertThat(without.jsonPath().getString("data.attempted")).isEqualTo("create");
+        assertThat(with.jsonPath().getString("data.attempted")).isEqualTo("memory_create");
+        assertThat(with.asString().replace("\"memory_create\"", "\"create\""))
+            .as("and nothing but the names")
+            .isEqualTo(without.asString());
+        assertThat(SurfaceFixture.countRows(COUNT)).as("neither wrote").isEqualTo(before);
+    }
+
+    // -----------------------------------------------------------------------
+
+    private static RequestSpecification assistant() {
+        return call().header(HEADER, ASSISTANT);
+    }
+
+    private static RequestSpecification wrong() {
+        return call().header(HEADER, "mcp");
+    }
+
+    /** {@code HEADER_INVALID} 400: the header and its one value named, and no data. */
+    private static void headerInvalid(Response refused, String what) {
+        assertThat(refused.statusCode()).as("%s: %s", what, refused.asString()).isEqualTo(400);
+        assertThat(refused.jsonPath().getString("reason")).as(what).isEqualTo("HEADER_INVALID");
+        assertThat(refused.jsonPath().getString("message")).as(what)
+            .contains(HEADER).contains(ASSISTANT);
+        assertThat(body(refused)).as(what + ": no data").doesNotContainKey("data");
+    }
+
+    private static Map<String, Object> body(Response response) {
+        return response.jsonPath().getMap("$");
     }
 }

@@ -62,8 +62,8 @@ public final class Texts {
         return MessageBundles.get(ValueDescriptions.class);
     }
 
-    public static Notices notices() {
-        return MessageBundles.get(Notices.class);
+    public static ProtocolMessages protocol() {
+        return MessageBundles.get(ProtocolMessages.class);
     }
 
     /**

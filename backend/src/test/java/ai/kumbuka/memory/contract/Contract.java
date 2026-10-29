@@ -30,10 +30,16 @@ import java.util.regex.Pattern;
  * answer of the service, because a probe whose expectation is drawn from the
  * thing it checks can only ever agree with it.
  *
- * <p>The copy is character for character the contract document at the
- * commit the surface was built against. Each parser below refuses to return
- * nothing: a probe over an empty result passes for every reason, the wrong
- * ones included.
+ * <p>The copy is kept in the test tree, and no test compares it with the
+ * specification. Each copy under {@code contract/} stems from its own state:
+ * {@code assistant-surface.md} was taken from the concept of the assistant
+ * surface in platform-specs at {@code d90b419} and has been carried forward
+ * here with the surface since, so it is ahead of the concept there;
+ * {@code shared-code-table.md} carries the text of rule C8.7 of the service
+ * contract verbatim at {@code 966c9b8}, under headings of its own. The
+ * comparison with the specification comes with the export of the contract
+ * reports. Each parser below refuses to return nothing: a probe over an empty
+ * result passes for every reason, the wrong ones included.
  */
 @CounterProbe
 public final class Contract {

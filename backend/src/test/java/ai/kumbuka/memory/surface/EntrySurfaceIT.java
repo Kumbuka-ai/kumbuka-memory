@@ -227,13 +227,13 @@ class EntrySurfaceIT {
         String item = API + "/" + SCOPE + "/decision/storage-engine";
 
         Response missing = call().body(fields("content", "postgres 16")).patch(item);
-        assertThat(missing.statusCode()).isEqualTo(409);
+        assertThat(missing.statusCode()).as("a precondition required (C8.7)").isEqualTo(428);
         assertThat(missing.jsonPath().getString("reason"))
             .isEqualTo("CONFLICT_TOKEN_MISSING");
 
         Response stale = call().header("If-Match", "1999-01-01T00:00:00Z")
             .body(fields("content", "postgres 16")).patch(item);
-        assertThat(stale.statusCode()).isEqualTo(409);
+        assertThat(stale.statusCode()).as("a precondition that failed (C8.7)").isEqualTo(412);
         assertThat(stale.jsonPath().getString("reason")).isEqualTo("CONFLICT_TOKEN_STALE");
         assertThat(stale.jsonPath().getString("data.conflict_token"))
             .as("a stale token is refused WITH the current token and the entry as this "
@@ -297,7 +297,7 @@ class EntrySurfaceIT {
         assertThat(call().post(item + ":withdraw").statusCode())
             .as("a withdrawal is a write and carries the conflict token like every other "
                 + "one (DEC-0041)")
-            .isEqualTo(409);
+            .isEqualTo(428);
 
         Response withdrawn = call().header("If-Match", token).post(item + ":withdraw");
         assertThat(withdrawn.statusCode()).isEqualTo(200);

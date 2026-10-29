@@ -51,7 +51,9 @@ public enum AssistantVerb {
         List.of(
             Argument.top(Names.SCOPE, Argument.STRING, true, ArgumentDescriptions::scope),
             Argument.top(Names.SELECTOR, Argument.STRING, true,
-                ArgumentDescriptions::createSelector)),
+                ArgumentDescriptions::createSelector),
+            Argument.top(Names.IDEMPOTENCY_KEY, Argument.STRING, false,
+                ArgumentDescriptions::createIdempotencyKey)),
         List.of(
             Argument.field(Names.KEY, true, ArgumentDescriptions::createKey),
             Argument.field(Names.TYPE, true, ArgumentDescriptions::createType,
@@ -113,7 +115,7 @@ public enum AssistantVerb {
             Argument.top(Names.SCOPE, Argument.STRING, true, ArgumentDescriptions::scope),
             Argument.top(Names.TYPES, Argument.ARRAY, false, ArgumentDescriptions::digestTypes,
                 Map.of("items", Map.of("type", Argument.STRING,
-                        "enum", EntryType.wireNames()),
+                        "enum", EntryType.acceptedNames()),
                     "minItems", 1))),
         List.of());
 
@@ -260,6 +262,7 @@ public enum AssistantVerb {
         public static final String DIRECTION = "direction";
         public static final String PAGE_SIZE = "page_size";
         public static final String TYPES = "types";
+        public static final String IDEMPOTENCY_KEY = "idempotency_key";
 
         private Names() {
         }
@@ -270,7 +273,7 @@ public enum AssistantVerb {
 
         /** The JSON-schema keyword for the value an omitted argument takes. */
         static final String DEFAULT = "default";
-        static final Map<String, Object> TYPE_ENUM = Map.of("enum", EntryType.wireNames());
+        static final Map<String, Object> TYPE_ENUM = Map.of("enum", EntryType.acceptedNames());
         static final ArgumentName FIELDS_NAME = new ArgumentName(FIELDS);
 
         private Keywords() {

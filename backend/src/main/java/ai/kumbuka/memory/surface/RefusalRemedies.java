@@ -27,6 +27,8 @@ public interface RefusalRemedies {
 
     @Message String scopeLocked(VerbName read, VerbName query, VerbName digest);
 
+    @Message String idempotencyKeyReused();
+
     @Message String scopeReadOnly(VerbName read, VerbName query, VerbName digest);
 
     @Message String addressMalformed();
@@ -83,6 +85,6 @@ public interface RefusalRemedies {
 
     @Message String sessionNotBound();
 
-    /** The header that names the surface, sent with a value it cannot take. */
-    @Message String surfaceHeader();
+    /** The header that names the surface, sent with a value it cannot take (C14.5). */
+    @Message String headerInvalid();
 }

@@ -9,6 +9,8 @@ package ai.kumbuka.memory.domain;
 
 import org.jspecify.annotations.Nullable;
 
+import java.util.List;
+
 /**
  * The values a new entry is laid down with.
  *
@@ -22,7 +24,19 @@ import org.jspecify.annotations.Nullable;
  * @param content   the entry itself; absent where the caller sent none, which
  *                  the verb refuses
  * @param reference an optional provenance pointer; absent where there is none
+ * @param fixed     the fields fixed for the life of an entry the caller tried
+ *                  to set, by name; refused once the scope is resolved (C1.3).
+ *                  Empty on every path that cannot name one.
  */
 public record Draft(@Nullable String type, @Nullable String content,
-                    @Nullable String reference) {
+                    @Nullable String reference, List<String> fixed) {
+
+    public Draft {
+        fixed = List.copyOf(fixed);
+    }
+
+    /** A draft that names no fixed field. */
+    public Draft(@Nullable String type, @Nullable String content, @Nullable String reference) {
+        this(type, content, reference, List.of());
+    }
 }

@@ -67,14 +67,6 @@ final class CallArguments {
         for (Argument argument : verb.fieldArguments()) {
             check(argument, fields.get(argument.name()));
         }
-        if (verb == AssistantVerb.UPDATE && "".equals(fields.get(AssistantVerb.Names.REFERENCE))) {
-            // An empty text would be read by the verb as "not mentioned" and
-            // dropped, so the caller would believe it had removed the
-            // reference while the entry kept it. Refused, because this
-            // surface accepts nothing it then discards.
-            throw CallException.invalid(ArgumentPath.of(
-                verb.declaredName(AssistantVerb.Names.REFERENCE).orElseThrow()));
-        }
     }
 
     // ======================================================================
@@ -125,7 +117,12 @@ final class CallArguments {
 
     private static void check(Argument argument, @Nullable Object value) {
         if (value == null) {
-            if (argument.required()) {
+            // The conflict token is declared required, and its absence is
+            // refused by the domain as CONFLICT_TOKEN_MISSING once the scope
+            // has resolved: a call on a scope the caller may not see answers
+            // NOT_FOUND whatever else it lacks (C1.3).
+            if (argument.required()
+                    && !AssistantVerb.Names.CONFLICT_TOKEN.equals(argument.name())) {
                 throw CallException.missing(argument.argumentName());
             }
             return;

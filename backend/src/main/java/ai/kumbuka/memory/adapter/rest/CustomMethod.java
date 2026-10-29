@@ -7,6 +7,7 @@
  */
 package ai.kumbuka.memory.adapter.rest;
 
+import ai.kumbuka.memory.surface.AssistantVerb;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
@@ -55,14 +56,37 @@ public enum CustomMethod {
     /** Taking one entry out of force, at item depth. */
     WITHDRAW("withdraw", Depth.ITEM);
 
-    /** The address depth a verb acts at. */
+    /**
+     * The address depth a verb acts at, with the methods an address of it
+     * takes and the verbs carried there: the {@code Allow} and the
+     * {@code data.accepts} of a 405 at it (C3.3).
+     */
     public enum Depth {
         /** {@code /api/{scope}} — a whole scope. */
-        SCOPE,
+        SCOPE("GET, POST", AssistantVerb.QUERY, AssistantVerb.DIGEST),
         /** {@code /api/{scope}/{selector}} — one selector's entries. */
-        COLLECTION,
+        COLLECTION("GET, POST", AssistantVerb.QUERY, AssistantVerb.CREATE),
         /** {@code /api/{scope}/{selector}/{id}} — one entry. */
-        ITEM
+        ITEM("GET, PATCH, POST", AssistantVerb.READ, AssistantVerb.UPDATE,
+            AssistantVerb.WITHDRAW);
+
+        private final String allow;
+        private final List<AssistantVerb> carried;
+
+        Depth(String allow, AssistantVerb... carried) {
+            this.allow = allow;
+            this.carried = List.of(carried);
+        }
+
+        /** The methods an address of this depth takes. */
+        public String allow() {
+            return allow;
+        }
+
+        /** The verbs carried at an address of this depth. */
+        public List<AssistantVerb> carried() {
+            return carried;
+        }
     }
 
     /** The separator. It appears in no address part, which is the whole point. */

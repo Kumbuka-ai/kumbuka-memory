@@ -58,9 +58,13 @@ final class DeclarationTranscript {
                 List<String> members, List<String> refusals) {
     }
 
-    /** The values of the type an entry carries, as the service takes them today. */
+    /**
+     * The values of the type an entry carries, as the service takes them
+     * today: the six, and {@code open_question} in its hyphen form beside it
+     * (C7.6).
+     */
     static final List<String> TYPES = List.of("constraint", "decision", "convention",
-        "glossary", "status", "open_question");
+        "glossary", "status", "open_question", "open-question");
 
     /**
      * The selectors, fixed by the service: the word of each type, with hyphens
@@ -75,7 +79,7 @@ final class DeclarationTranscript {
     /** Every call can be refused with these, whatever it does. */
     private static final List<String> EVERY_CALL = List.of("NOT_FOUND", "ACTOR_UNKNOWN",
         "ARGUMENT_UNKNOWN", "ARGUMENT_MISSING", "ARGUMENT_INVALID", "UNEXPECTED_FAILURE",
-        "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED");
+        "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED", "HEADER_INVALID");
 
     static List<Verb> verbs() {
         Arg scope = new Arg("scope", "string", true, null, List.of());
@@ -85,6 +89,7 @@ final class DeclarationTranscript {
         return List.of(
             new Verb("memory_create", "create", "CREATE", null, false, List.of(fields,
                 scope, new Arg("selector", "string", true, null, SELECTORS),
+                new Arg("idempotency_key", "string", false, null, List.of()),
                 new Arg("key", "string", true, null, List.of()).field(),
                 new Arg("type", "string", true, null, TYPES).field(),
                 new Arg("content", "string", true, null, List.of()).field(),
@@ -92,7 +97,7 @@ final class DeclarationTranscript {
                 "ENTRY_CREATED", ENTRY, with("SCOPE_LOCKED", "SCOPE_READ_ONLY",
                     "ADDRESS_MALFORMED", "KEY_MALFORMED", "SELECTOR_ABSENT",
                     "SELECTOR_RESERVED", "SELECTOR_MISMATCHED", "ALREADY_EXISTS",
-                    "TYPE_UNKNOWN", "CONTENT_ABSENT", "CONTENT_OVERSIZE",
+                    "IDEMPOTENCY_KEY_REUSED", "TYPE_UNKNOWN", "CONTENT_ABSENT", "CONTENT_OVERSIZE",
                     "REFERENCE_CREDENTIAL_BEARING", "FIELD_IMMUTABLE", "PAYLOAD_MALFORMED")),
             new Verb("memory_read", "read", "ITEM_READ", null, true, List.of(address),
                 "ENTRY", ENTRY, with("ADDRESS_MALFORMED", "KEY_MALFORMED")),

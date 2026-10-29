@@ -79,6 +79,7 @@ public class DeclarationShapeTest {
         nulls(declaration, "$", found);
         check(schema(), declaration, "$", found);
         arguments(declaration, found);
+        reasons(declaration, found);
         return found;
     }
 
@@ -184,6 +185,22 @@ public class DeclarationShapeTest {
         assertThat(violations(nullInAReason))
             .as("RED STATE, observed: a null member of a reason")
             .containsExactly("$.reasons[0].remedy: null; a member without a value is left out");
+
+        Map<String, Object> remedyAppended = conforming();
+        reason(remedyAppended).put("message_pattern", "Nothing is there. Read another.");
+        assertThat(violations(remedyAppended))
+            .as("RED STATE, observed: a message pattern with the remedy appended, the form "
+                + "this service wrote before C5.3 said otherwise")
+            .containsExactly("$.reasons[0].message_pattern: not the template of the first "
+                + "message alone");
+
+        Map<String, Object> schemaSpelling = conforming();
+        argument(schemaSpelling).put("minItems", 1);
+        assertThat(violations(schemaSpelling))
+            .as("RED STATE, observed: a bound in the spelling of JSON Schema, which the tool "
+                + "schema keeps and the declaration writes as min_items (C5.4)")
+            .containsExactly("$.calls[0].arguments[0]: 'minItems' is not a member of this "
+                + "level");
 
         Map<String, Object> otherShape = conforming();
         otherShape.put("shape_version", "2");
@@ -309,6 +326,27 @@ public class DeclarationShapeTest {
         }
     }
 
+    /**
+     * A reason's {@code message_pattern} is the template of its first message,
+     * alone: the remedy stands beside it and is never appended (C5.3).
+     */
+    @SuppressWarnings("unchecked")
+    private static void reasons(Map<String, Object> declaration, List<String> found) {
+        if (!(declaration.get("reasons") instanceof List<?> reasons)) {
+            return;
+        }
+        for (int r = 0; r < reasons.size(); r++) {
+            Map<String, Object> reason = (Map<String, Object>) reasons.get(r);
+            if (reason.get("messages") instanceof List<?> messages && !messages.isEmpty()
+                    && messages.get(0) instanceof Map<?, ?> first
+                    && reason.get("message_pattern") != null
+                    && !reason.get("message_pattern").equals(first.get("template"))) {
+                found.add("$.reasons[" + r + "].message_pattern: not the template of the "
+                    + "first message alone");
+            }
+        }
+    }
+
     private static String typeOf(Object value) {
         return switch (value) {
             case null -> "null";
@@ -367,7 +405,7 @@ public class DeclarationShapeTest {
         call.put("refusals", List.of("NOT_FOUND"));
         Map<String, Object> reason = new LinkedHashMap<>();
         reason.put("reason", "NOT_FOUND");
-        reason.put("message_pattern", "Nothing is there. Read another.");
+        reason.put("message_pattern", "Nothing is there.");
         reason.put("messages", List.of(Map.of("key", "notFound", "template", "Nothing is there.")));
         reason.put("remedy", "Read another.");
         Map<String, Object> declaration = new LinkedHashMap<>();

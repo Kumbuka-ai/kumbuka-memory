@@ -201,7 +201,7 @@ public class DigestService {
     private static List<EntryType> chosen(List<String> asked) {
         if (asked.isEmpty()) {
             throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN, List.of(TYPES),
-                EntryType.wireNames());
+                EntryType.acceptedNames());
         }
         // Named by position, as the argument's path, and never by the value
         // sent (DEC-0043 R19): which of several values was wrong is what the
@@ -215,7 +215,7 @@ public class DigestService {
         }
         if (!unknown.isEmpty()) {
             throw MemoryException.offending(MemoryException.Reason.TYPE_UNKNOWN, unknown,
-                EntryType.wireNames());
+                EntryType.acceptedNames());
         }
         return asked.stream().map(t -> EntryType.of(t).orElseThrow()).toList();
     }

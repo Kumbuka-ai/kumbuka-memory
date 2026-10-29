@@ -42,7 +42,8 @@ lowercase letter followed by at most fifteen lowercase letters, digits, undersco
 `system` is reserved for entries the service lays down itself.
 
 An entry has a **type**, one of `constraint`, `decision`, `convention`, `glossary`, `status` and
-`open_question`, and optionally a **reference**: a provenance URL that is stored and never fetched,
+`open_question`, the last written also `open-question` (C7.6) and answered under its stored name
+until the breaking step, and optionally a **reference**: a provenance URL that is stored and never fetched,
 and that carries no credential.
 
 An entry has no intermediate state. It is in force from the call that creates it until the call
@@ -162,9 +163,9 @@ are answered alike: reason `NOT_FOUND`, the fixed message
 nothing is addressed here. Check the address, and that you are a member of the scope it names.
 ```
 
-which is the one the service answers on its generic surface, and `data` carrying `attempted` and
-nothing else. Reason, message, data and the way the refusal is transported are identical whichever
-of the three is the cause (DEC-0042).
+which is the one the service answers on its generic surface, and no `data` at all (C8.4). Reason,
+message and the way the refusal is transported are identical, byte for byte, whichever of the three
+is the cause (DEC-0042).
 
 ### 4.4 Refusals of this surface
 
@@ -173,12 +174,14 @@ of the three is the cause (DEC-0042).
 | `NOT_FOUND` | 4.3 | Check the address, and that you are a member of the scope it names. |
 | `SCOPE_LOCKED` | `<call> is refused: the scope is locked, and a locked scope takes writes from nobody. Read the scope with <read>, <query> or <digest>, and write to it once it is unlocked.` | Read the scope with `<read>`, `<query>` or `<digest>`, and write to it once it is unlocked. |
 | `SCOPE_READ_ONLY` | `<call> is refused: your right in this scope is to read it. Read the scope with <read>, <query> or <digest>, and ask the scope's owner for the write right to change it.` | Read the scope with `<read>`, `<query>` or `<digest>`, and ask the scope's owner for the write right to change it. |
-| `ADDRESS_MALFORMED` | `<call> was given an address or a scope in a form this service does not carry. Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens.` | Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens. |
+| `ADDRESS_MALFORMED` | `<call> was given an address or a scope in a form this service does not carry. Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens, by a name other than declaration and whoami.` | Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens, by a name other than declaration and whoami. |
 | `KEY_MALFORMED` | `<call> was given a key or a selector in a form this service does not store. Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters.` | Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters. |
 | `SELECTOR_ABSENT` | `<call> was given a key that names no selector. The part of a key before its first dot is the selector the entry stands under. Write the key as <selector>.<id>.` | Write the key as <selector>.<id>. |
 | `SELECTOR_RESERVED` | `The selector of this key is reserved for entries the service lays down itself. Choose another selector for the key, such as decision, convention or constraint.` | Choose another selector for the key, such as decision, convention or constraint. |
 | `SELECTOR_MISMATCHED` | `The key begins with another selector than the one <call> names. Make the selector argument and the part of the key before its first dot the same.` | Make the selector argument and the part of the key before its first dot the same. |
 | `ALREADY_EXISTS` | `<call> is refused: an entry already stands at this address. Read the entry with <read> and change it with <update>, or create the new entry under another key.` | Read the entry with `<read>` and change it with `<update>`, or create the new entry under another key. |
+| `IDEMPOTENCY_KEY_REUSED` | `<call> is refused: its idempotency key was spent within the last 24 hours on other values, or on an entry that has since been withdrawn. Send the call again with an idempotency key of its own.` | Send the call again with an idempotency key of its own. |
+| `CONFLICT_TOKEN_MISSING` | `<call> needs the conflict token of the latest read, and none arrived. Read the entry with <read> and send its conflict token with the call.` | Read the entry with `<read>` and send its conflict token with the call. |
 | `CONFLICT_TOKEN_STALE` | `<call> is refused: the entry was changed since you read it. Read the entry again with <read> and repeat the call with the new conflict token.` | Read the entry again with `<read>` and repeat the call with the new conflict token. |
 | `UPDATE_EMPTY` | `<call> names nothing to change. Send at least one of content, type and reference in fields.` | Send at least one of content, type and reference in fields. |
 | `TYPE_UNKNOWN` | `<call> was sent a type outside the entry types, which accepts lists. Send each type as one of the values accepts lists.` -- `data.accepts` lists the entry types | Send each type as one of the values accepts lists. |
@@ -193,18 +196,19 @@ of the three is the cause (DEC-0042).
 | `ARGUMENT_UNKNOWN` | `<call> was sent an argument outside the names it declares at that level, which are: <list>. Name each argument as one of these.` | Name each argument as one of these. |
 | `ARGUMENT_MISSING` | `<call> needs <n>. Send <n> with the call.` | Send the argument with the call. |
 | `ARGUMENT_INVALID` | `<path> is not of the form <call> takes for it. Send <path> in the form the input schema of the call gives it.` -- `<path>` is the argument, or the position of an element as `types[1]` | Send the argument in the form the input schema gives it. |
-| `UNEXPECTED_FAILURE` | `<call> failed unexpectedly. This is a defect, not a rule. Nothing was changed. Report the reference under data.report to the operator of this service.` -- `data.report` carries the reference, which is written to the service's log with the failure | Report the reference to the operator of this service. |
+| `UNEXPECTED_FAILURE` | `<call> failed unexpectedly. This is a defect, not a rule. Nothing was changed. Report the reference under data.reference to the operator of this service.` -- `data.reference` carries the reference, which is written to the service's log with the failure | Report the reference to the operator of this service. |
 
-On this surface the conflict token is a required argument wherever a call takes one, so its absence
-is answered as `ARGUMENT_MISSING`; an argument that narrows a query and is not declared is answered
+On this surface the conflict token is a required argument wherever a call takes one, and its
+absence is answered as `CONFLICT_TOKEN_MISSING` once the scope is resolved, so that a scope the
+caller cannot see answers `NOT_FOUND` whatever else the call lacks (C1.3); an argument that narrows a query and is not declared is answered
 as `ARGUMENT_UNKNOWN`; and a field that is fixed for the life of an entry is not an argument of any
 call here, so naming one is answered as `ARGUMENT_UNKNOWN` as well. A failure the service did not
 foresee, including a session the read contract could not be bound for, is answered as
 `UNEXPECTED_FAILURE` and never as a sentence of its own.
 
 Raised on the generic surface only, and declared in the catalogue all the same:
-`CONFLICT_TOKEN_MISSING`, `FIELD_IMMUTABLE`, `PAYLOAD_MALFORMED`,
-`VERB_NOT_CARRIED`, `ADDRESS_TRUNCATED`, `SESSION_NOT_BOUND`.
+`FIELD_IMMUTABLE`, `PAYLOAD_MALFORMED`, `VERB_NOT_CARRIED`, `ADDRESS_TRUNCATED`,
+`SESSION_NOT_BOUND`, `HEADER_INVALID`.
 
 A reason that is in neither list cannot be returned: the service refuses to start with an undeclared
 reason in its catalogue.
@@ -220,8 +224,10 @@ everything the call writes is under `fields`.
 > with the selector. Refused if an entry already stands there: change it with memory_update.
 > Callable by anyone who may write to the scope.
 
-Top-level: `scope`, `selector`. Under `fields`: `key`, `type`, `content`, optional `reference`.
-Result: the entry is in force.
+Top-level: `scope`, `selector`, optional `idempotency_key`. Under `fields`: `key`, `type`,
+`content`, optional `reference`. Result: the entry is in force. Under an idempotency key, a repeat
+with the same values within 24 hours answers the entry the first call laid down while it stands
+(C10.4).
 
 **`memory_read`**
 > Reads one entry by its complete address and hands out a fresh conflict token. Reads only. An
@@ -290,10 +296,11 @@ that answer would drift from it, and a listed call that is then refused is what 
 - Input schemas closed at every level.
 - A reason catalogue covering every reason the service can raise on either surface, with the
   check at start that section 4.4 states.
-- `UNEXPECTED_FAILURE` on every path of this surface that can fail unforeseen, with the report
-  reference written to the log beside the failure. The log receives the reference, the call, and
-  the types and stack frames of the failure and of its causes. It never receives a message of the
-  failure or of any cause: a database names the row it rejected, and that row holds the content.
+- `UNEXPECTED_FAILURE` on every path of this surface that can fail unforeseen, with the
+  reference under `data.reference` written to the log beside the failure. The log receives the
+  reference, the call, and the class names of the failure and of its causes (C8.3). It never
+  receives a message of the failure or of any cause, a stack frame, or the failure itself: a
+  database names the row it rejected, and that row holds the content.
 - No change to the generic surface beyond what DEC-0042 binds on both surfaces: the code and the
   status of a refusal of a call's arguments, `offenders` naming arguments and never values, and no
   value the caller sent in any member of `data`.
@@ -302,27 +309,30 @@ that answer would drift from it, and a listed call that is then refused is what 
 
 - **The generic surface words its refusals from the patterns of section 4.4** (DEC-0043 R18), as
   this surface does, and repeats no value the caller sent in its message or in any member of
-  `data`. Its refusals carry no `attempted` and no `next`. A refusal of the transport -- a body that
-  is not JSON, a verb in colon notation the address does not carry, a method the address does not
-  carry -- is raised before a verb is known, and its pattern names no call. A required argument
+  `data`. Its refusals carry `attempted`, naming the call as the generic surface names it
+  (`update`, C6.2), wherever the call is known, and no `next`. A refusal of the transport -- a body
+  that is not JSON, a verb in colon notation the address does not carry, a method the address does
+  not carry -- is worded from a pattern that names no call; a verb or a method not carried is
+  `VERB_NOT_CARRIED` 405 with `Allow` and the verbs carried at the address under `data.accepts`
+  (C3.3), and so is the framework's own 405, while a route nobody serves is `NOT_FOUND` (C8.3). A required argument
   absent or sent as `null` under `fields` is `ARGUMENT_MISSING` (400), as here (DEC-0043 R17). Its
   listing answers an undeclared argument as `ARGUMENT_UNKNOWN` (400), as this surface does, and so
   does an address that names one entry when it is sent a parameter, listing the parameters it
   accepts in `accepts`.
   This service declares no filter fields per scope, so it never answers `PREDICATE_UNKNOWN`.
-- **A hop in front of the service can ask the generic listing for this surface's projection.**
-  `GET` of a listing with the header `Kumbuka-Surface: assistant` answers as `memory_query` does
-  here: `next` names this surface's calls and a refusal is built from the patterns of section 4.4,
-  with the generic surface's HTTP status. Any other value of the header, an empty one or a second
-  one, is refused as `ARGUMENT_INVALID` with 400 and no `data`, before the scope is looked at, so a
-  scope the caller cannot see answers the same: the header is not an argument, and whether its value
-  is one it takes is decidable without a scope. Only the listing reads the header so far.
+- **A hop in front of the service can ask the generic surface for this surface's projection.**
+  Every call with the header `Kumbuka-Surface: assistant` answers as the same call does here:
+  `next` and `attempted` name this surface's calls and a refusal is built and shaped as here, with
+  the generic surface's HTTP status (C14.4). Any other value of the header, an empty one or a
+  second one, is refused as `HEADER_INVALID` with 400 and no `data`, after authentication and
+  before anything else is read (C14.5): the header is not an argument, and whether its value is
+  one it takes is decidable without a route, a scope or a body.
 - **The code for a write to an occupied address is not decided platform-wide** (DEC-0042, "What
   this does not settle"). This contract declares the code the service answers today,
   `ALREADY_EXISTS`.
-- **A reference can be changed and cannot be removed.** The service has no way to express the
-  removal. On this surface an empty `reference` on `memory_update` is refused as
-  `ARGUMENT_INVALID` rather than accepted without effect.
+- **A reference is removed by sending it as the empty text** on `memory_update`, on this surface
+  and on the generic one alike. `null` is absence and leaves the reference as it is
+  (C7.4); the empty text is the removal's own form.
 - **The selector may carry an underscore and the key may not**, so a selector with an underscore
   never yields a key the service stores.
 - **No edition of the open core keeps the address on withdrawal.** The last row of the table in

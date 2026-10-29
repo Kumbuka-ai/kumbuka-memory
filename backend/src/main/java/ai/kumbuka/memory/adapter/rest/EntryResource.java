@@ -8,19 +8,24 @@
 package ai.kumbuka.memory.adapter.rest;
 
 import ai.kumbuka.memory.adapter.payload.AssistantPayloads;
-import ai.kumbuka.memory.adapter.payload.AssistantRefusals;
 import ai.kumbuka.memory.adapter.payload.Payloads;
+import ai.kumbuka.memory.domain.EntryAddress;
+import ai.kumbuka.memory.domain.IdempotencyKey;
 import ai.kumbuka.memory.domain.MemoryException;
+import ai.kumbuka.memory.domain.MemoryService;
+import ai.kumbuka.memory.domain.Page;
 import ai.kumbuka.memory.surface.AddressParser;
+import ai.kumbuka.memory.surface.ArgumentName;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallerActor;
-import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.VerbSurface;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import io.quarkus.security.Authenticated;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -33,7 +38,6 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.EntityTag;
-import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -88,18 +92,18 @@ import java.util.UUID;
  * HTTP expression and nothing else, so an addition here would be an addition
  * with no act behind it.
  *
- * <h2>The surface a listing answers in</h2>
+ * <h2>The surface a call answers in</h2>
  *
- * A listing names calls — {@code next} on every entry, {@code attempted} on a
+ * An answer names calls — {@code next} on every entry, {@code attempted} on a
  * refusal — and a call has a name per surface. Without the
  * {@code Kumbuka-Surface} header that is this one. With
  * {@code Kumbuka-Surface: assistant} a hop that publishes these calls as
- * assistant tools and reaches this service over REST says so, and the
- * listing answers in the assistant surface's projection: its {@code next}
- * names {@code memory_read}, its refusals are worded from the reason
- * catalogue as the service's own MCP adapter words them. Any other value is
- * refused and nothing is read. The header is not an argument of the call, it
- * grants nothing, and for now only {@code query} reads it.
+ * assistant tools and reaches this service over REST says so, and every call
+ * answers in the assistant surface's projection: its {@code next} names
+ * {@code memory_read}, its refusals are worded and shaped as the service's
+ * own MCP adapter words and shapes them (C14.4). Any other value is refused
+ * by {@link SurfaceHeaderFilter} before anything is read. The header is not
+ * an argument of the call and grants nothing.
  *
  * <h2>Why the class carries a transaction</h2>
  *
@@ -115,24 +119,8 @@ import java.util.UUID;
 @Produces(MediaType.APPLICATION_JSON)
 public class EntryResource {
 
-    /** What a scope URI offers, for the {@code Allow} of a 405. */
-    private static final String SCOPE_ALLOW = "GET, POST";
-
-    /** What a collection URI offers. */
-    private static final String COLLECTION_ALLOW = "GET, POST";
-
-    /** What an item URI offers. */
-    private static final String ITEM_ALLOW = "GET, PATCH, POST";
-
-    /**
-     * Names the surface the caller came through, where that is not this one.
-     * It decides nothing else: who calls, and what that caller may do, come
-     * from the verified identity as always.
-     */
-    static final String SURFACE = "Kumbuka-Surface";
-
-    /** The one value {@link #SURFACE} takes: the assistant surface. */
-    static final String ASSISTANT = "assistant";
+    /** The header that carries the idempotency key of {@code create} on this surface (C10.4). */
+    static final String IDEMPOTENCY_KEY = "Idempotency-Key";
 
     @Inject VerbSurface verbs;
     @Inject CallerActor caller;
@@ -202,15 +190,14 @@ public class EntryResource {
      */
     @GET
     @Path("{segment}")
-    public Response scopeGet(@PathParam("segment") String segment, @Context UriInfo uri,
-                             @Context HttpHeaders http) {
+    public Response scopeGet(@PathParam("segment") String segment, @Context UriInfo uri) {
         Optional<UUID> technical = AddressParser.technicalAddress(segment);
         if (technical.isPresent()) {
             call.is(AssistantVerb.READ);
             refuseParametersOnAnItem(uri);
             return answer(verbs.readTechnical(caller.current(), technical.get()));
         }
-        return query(segment, null, uri, http);
+        return query(segment, null, uri);
     }
 
     /**
@@ -227,7 +214,7 @@ public class EntryResource {
         // A scope carries the compound reads in colon notation,
         // 'POST /api/<scope>:digest'. An entry is laid down under a selector,
         // so a create is posted one segment further in.
-        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.SCOPE, SCOPE_ALLOW);
+        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.SCOPE);
 
         return switch (at.known()) {
             case DIGEST -> digest(at, body);
@@ -264,8 +251,8 @@ public class EntryResource {
     @Path("{scope}/{selector}")
     public Response collectionGet(@PathParam("scope") String scope,
                                   @PathParam("selector") String selector,
-                                  @Context UriInfo uri, @Context HttpHeaders http) {
-        return query(scope, selector, uri, http);
+                                  @Context UriInfo uri) {
+        return query(scope, selector, uri);
     }
 
     /**
@@ -282,21 +269,29 @@ public class EntryResource {
     @Path("{scope}/{selector}")
     public Response collectionPost(@PathParam("scope") String scope,
                                    @PathParam("selector") String segment,
+                                   @HeaderParam(IDEMPOTENCY_KEY) @Nullable String idempotencyKey,
                                    String body) {
         CustomMethod.split(segment, CustomMethod.Depth.COLLECTION).ifPresent(at -> {
-            throw new SurfaceException(SurfaceException.Reason.VERB_NOT_CARRIED, COLLECTION_ALLOW);
+            throw new SurfaceException(SurfaceException.Reason.VERB_NOT_CARRIED,
+                CustomMethod.Depth.COLLECTION.allow(), CustomMethod.Depth.COLLECTION.carried());
         });
 
         call.is(AssistantVerb.CREATE);
-        VerbSurface.Answer answer = verbs.create(caller.current(), scope, segment,
-            Payloads.newEntry(read(body, Payloads.CreateRequestPayload.class).orElse(null)));
+        VerbSurface.NewEntry values =
+            Payloads.newEntry(read(body, Payloads.CreateRequestPayload.class).orElse(null));
+        String key = values.key();
+        if (key != null && EntryAddress.isAddressable(key)) {
+            call.aimsAt(EntryAddress.ofKey(scope, key).canonical());
+        }
+        VerbSurface.Answer answer = verbs.create(caller.current(), scope, segment, values,
+            IdempotencyKey.of(idempotencyKey));
 
         return tagged(Response
             .created(UriBuilder.fromResource(EntryResource.class)
                 .path("{scope}/{selector}/{id}")
                 .build(scope, answer.entry().address().selector(),
                     answer.entry().address().id()))
-            .entity(Payloads.EntryPayload.of(answer)), answer);
+            .entity(entity(answer)), answer);
     }
 
     // ======================================================================
@@ -311,6 +306,7 @@ public class EntryResource {
                          @PathParam("id") String id,
                          @Context UriInfo uri) {
         call.is(AssistantVerb.READ);
+        call.aimsAt(new EntryAddress(scope, selector, id).canonical());
         refuseParametersOnAnItem(uri);
         return answer(verbs.read(caller.current(),
             new AddressParser.Parts(scope, selector, id)));
@@ -333,10 +329,11 @@ public class EntryResource {
                            @HeaderParam("If-Match") @Nullable String ifMatch,
                            String body) {
         call.is(AssistantVerb.UPDATE);
+        call.aimsAt(new EntryAddress(scope, selector, id).canonical());
         VerbSurface.Answer answer = verbs.update(caller.current(),
             new AddressParser.Parts(scope, selector, id),
             unquoted(ifMatch).orElse(null),
-            Payloads.patch(read(body, Payloads.UpdateRequestPayload.class).orElse(null)));
+            Payloads.patch(readClosed(body, AssistantVerb.UPDATE).orElse(null)));
         return answer(answer);
     }
 
@@ -359,7 +356,7 @@ public class EntryResource {
         // changing it is a PATCH; there is no DELETE, because a withdrawal is an
         // act of this service whose effect the edition decides and not the
         // removal of a resource.
-        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.ITEM, ITEM_ALLOW);
+        CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.ITEM);
 
         return switch (at.known()) {
             case WITHDRAW -> withdraw(scope, selector, at, ifMatch);
@@ -371,18 +368,28 @@ public class EntryResource {
     private Response withdraw(String scope, String selector, CustomMethod.Split at,
                               @Nullable String ifMatch) {
         call.is(AssistantVerb.WITHDRAW);
-        return Response.ok(Payloads.WithdrawnPayload.of(
-                verbs.withdraw(caller.current(),
-                    new AddressParser.Parts(scope, selector, at.address()),
-                    unquoted(ifMatch).orElse(null)))).build();
+        call.aimsAt(new EntryAddress(scope, selector, at.address()).canonical());
+        MemoryService.Withdrawn withdrawn = verbs.withdraw(caller.current(),
+            new AddressParser.Parts(scope, selector, at.address()),
+            unquoted(ifMatch).orElse(null));
+        return Response.ok(call.assistant()
+            ? AssistantPayloads.AssistantWithdrawnPayload.of(withdrawn)
+            : Payloads.WithdrawnPayload.of(withdrawn)).build();
     }
 
     // ======================================================================
     // Dressing a result in HTTP
     // ======================================================================
 
-    private static Response answer(VerbSurface.Answer answer) {
-        return tagged(Response.ok(Payloads.EntryPayload.of(answer)), answer);
+    private Response answer(VerbSurface.Answer answer) {
+        return tagged(Response.ok(entity(answer)), answer);
+    }
+
+    /** An answer about one entry, on the surface the caller names. */
+    private Object entity(VerbSurface.Answer answer) {
+        return call.assistant()
+            ? AssistantPayloads.AssistantEntryPayload.of(answer.entry())
+            : Payloads.EntryPayload.of(answer);
     }
 
     /**
@@ -393,52 +400,13 @@ public class EntryResource {
      * would be a token a caller could send back on a field write, which is a
      * token about the wrong thing. Every entry of the listing carries its own.
      */
-    private Response query(String scope, @Nullable String selector, UriInfo uri,
-                           HttpHeaders http) {
+    private Response query(String scope, @Nullable String selector, UriInfo uri) {
         call.is(AssistantVerb.QUERY);
-        Map<String, String> asked = parametersOf(uri);
-        if (!onAssistantSurface(http.getRequestHeader(SURFACE))) {
-            return Response.ok(Payloads.PagePayload.of(
-                verbs.query(caller.current(), scope, selector, asked))).build();
-        }
-        try {
-            return Response.ok(AssistantPayloads.AssistantPagePayload.of(
-                verbs.query(caller.current(), scope, selector, asked))).build();
-        } catch (MemoryException refused) {
-            ReasonCatalogue.Reason reason =
-                ReasonCatalogue.of(ReasonCatalogue.wireCode(refused.reason().name()));
-            if (reason.reach() != ReasonCatalogue.Reach.BOTH) {
-                // A reason the assistant surface does not answer is a failure
-                // it did not foresee; the generic form at least says what it
-                // was rather than wording it in a vocabulary it has no entry in.
-                throw refused;
-            }
-            throw new AssistantRefused(refused, AssistantRefusals.of(AssistantVerb.QUERY,
-                refused, reason, Optional.empty()));
-        }
-    }
-
-    /**
-     * Whether the caller names the assistant surface: once, with the one
-     * value it takes. An empty value or a second one is a value the header
-     * cannot take, not an absence, and is refused before the scope is looked
-     * at, so a scope this caller cannot see answers the same.
-     *
-     * <p>Without {@code data}: the header is not an argument of the call, so
-     * there is no argument name for {@code offenders} to carry, and the value
-     * sent is never repeated (DEC-0042). The dispatch and the worklist service
-     * refuse it in the same form.
-     */
-    private static boolean onAssistantSurface(List<String> named) {
-        if (named == null || named.isEmpty()) {
-            return false;
-        }
-        if (!List.of(ASSISTANT).equals(named)) {
-            MemoryException refused =
-                new MemoryException(MemoryException.Reason.ARGUMENT_INVALID);
-            throw new AssistantRefused(refused, AssistantRefusals.headerRefused());
-        }
-        return true;
+        Page page = verbs.query(caller.current(), scope, selector,
+            Payloads.query(parametersOf(uri)));
+        return Response.ok(call.assistant()
+            ? AssistantPayloads.AssistantPagePayload.of(page)
+            : Payloads.PagePayload.of(page)).build();
     }
 
     private static Response tagged(Response.ResponseBuilder response,
@@ -459,18 +427,18 @@ public class EntryResource {
      * exist is the verb. A 404 in either case would send the caller looking
      * for the object.
      */
-    private static CustomMethod.Split verbAt(String segment, CustomMethod.Depth depth,
-                                             String allow) {
+    private static CustomMethod.Split verbAt(String segment, CustomMethod.Depth depth) {
         return CustomMethod.split(segment, depth)
             .filter(CustomMethod.Split::isKnown)
             .orElseThrow(() -> new SurfaceException(
                 segment.indexOf(CustomMethod.SEPARATOR) < 0
                     ? SurfaceException.Reason.ADDRESS_TRUNCATED
-                    : SurfaceException.Reason.VERB_NOT_CARRIED, allow));
+                    : SurfaceException.Reason.VERB_NOT_CARRIED, depth.allow(), depth.carried()));
     }
 
     /**
-     * The query parameters, flattened to one value per name.
+     * The query parameters, flattened to one value per name, for the binding
+     * that checks their form (C1.2).
      *
      * <p>The last value of a repeated parameter wins, and the choice is
      * arbitrary — what matters is that it is made here and not by whichever
@@ -521,6 +489,36 @@ public class EntryResource {
             return Optional.of(trimmed.substring(1, trimmed.length() - 1));
         }
         return Optional.of(trimmed);
+    }
+
+    /**
+     * The body of an {@code update}, read closed: a name the call does not
+     * declare, beside {@code fields} or inside it, is refused by name as
+     * {@code ARGUMENT_UNKNOWN} with what that level accepts, never read and
+     * dropped (DEC-0042). Decidable from the call alone, so it falls
+     * before the scope is resolved (C1.3). The names fixed for the life of an
+     * entry stay readable here, and are refused as such once the scope is
+     * resolved.
+     */
+    private Optional<Payloads.UpdateRequestPayload> readClosed(@Nullable String body,
+                                                               AssistantVerb verb) {
+        if (body == null || body.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable(json.readerFor(Payloads.UpdateRequestPayload.class)
+                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .readValue(body));
+        } catch (UnrecognizedPropertyException unknown) {
+            // The name that arrived is the caller's input and is repeated
+            // nowhere; the refusal lists what the level declares instead.
+            boolean inFields = unknown.getPath().size() > 1;
+            throw MemoryException.undeclared(inFields
+                ? verb.fieldNames().stream().map(ArgumentName::value).toList()
+                : List.of(AssistantVerb.FIELDS));
+        } catch (JsonProcessingException e) {
+            throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED);
+        }
     }
 
     /**

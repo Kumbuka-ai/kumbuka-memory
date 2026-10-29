@@ -95,6 +95,11 @@ public class MemoryException extends RuntimeException {
         UPDATE_EMPTY,
         /** The update names a field that is fixed for the life of the entry. */
         FIELD_IMMUTABLE,
+        /**
+         * The idempotency key was spent within 24 hours, and the first result
+         * cannot be answered again: other values, or its entry is gone (C10.4).
+         */
+        IDEMPOTENCY_KEY_REUSED,
 
         // --- the values ------------------------------------------------------
 

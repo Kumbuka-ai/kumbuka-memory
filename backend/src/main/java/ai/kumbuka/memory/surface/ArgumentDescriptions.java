@@ -37,6 +37,8 @@ public interface ArgumentDescriptions {
 
     @Message String createReference();
 
+    @Message String createIdempotencyKey();
+
     @Message String updateContent(Bound limit);
 
     @Message String updateType();

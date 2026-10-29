@@ -17,7 +17,6 @@ import ai.kumbuka.memory.surface.AssistantVerb.Names;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
-import ai.kumbuka.memory.surface.Texts;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,8 +50,8 @@ import java.util.regex.Pattern;
  * if it would succeed for this caller, judged from the same write right that
  * decides an answer's {@code next}. A stale conflict token additionally
  * carries the entry as this caller's own read would answer it (DEC-0041).
- * {@code NOT_FOUND} carries {@code attempted} and nothing else, so that its
- * three causes cannot be told apart.
+ * {@code NOT_FOUND} carries no {@code data} at all, on this surface as on the
+ * generic one, so that its three causes cannot be told apart (C8.4).
  *
  * <h2>Two ways in</h2>
  *
@@ -100,8 +99,7 @@ public final class AssistantRefusals {
     public static Payloads.RefusalPayload of(AssistantVerb verb, MemoryException e,
                                       ReasonCatalogue.Reason reason, Optional<EntryView> seen) {
         if (ReasonCatalogue.NOT_FOUND.equals(reason.code())) {
-            return new Payloads.RefusalPayload(reason.code(), notFound(),
-                RefusalDataPayload.attempting(verb.call()));
+            return Payloads.RefusalPayload.notFound();
         }
         RefusalDataPayload data = detail(verb, reason, seen);
         if (e.data().get(AssistantVerb.FIELDS) instanceof EntryView current) {
@@ -158,28 +156,35 @@ public final class AssistantRefusals {
     }
 
     /**
-     * A header that names the surface with a value it cannot take.
-     *
-     * <p>No {@code data}: the header is not an argument of the call, so there
-     * is no argument for {@code offenders} to name, and the value sent is the
-     * caller's input and is repeated nowhere (DEC-0042).
+     * A failure nobody foresaw, already logged under {@code reference}. The
+     * reference travels under {@code data.reference}, and the message points
+     * at it: a reference is no placeholder a text may take (C8.3).
      */
-    public static Payloads.RefusalPayload headerRefused() {
-        return new Payloads.RefusalPayload(MemoryException.Reason.ARGUMENT_INVALID.name(),
-            Texts.refusals().surfaceHeader() + " " + Texts.remedies().surfaceHeader(), null);
+    public static Payloads.RefusalPayload unexpected(AssistantVerb verb, String reference) {
+        return Payloads.RefusalPayload.unexpected(Optional.of(verb), Optional.of(verb.call()),
+            reference);
     }
 
     /**
-     * A failure nobody foresaw, already logged under {@code reportId}. The
-     * reference travels under {@code data.report}, and the message points at
-     * it: a reference is no placeholder a text may take.
+     * The entry a refusal carries itself, where it carries one: the current
+     * state a stale conflict token was written against.
      */
-    public static Payloads.RefusalPayload unexpected(AssistantVerb verb, String reportId) {
-        ReasonCatalogue.Reason reason =
-            ReasonCatalogue.of(CallException.Reason.UNEXPECTED_FAILURE.name());
-        return new Payloads.RefusalPayload(reason.code(),
-            reason.text(ReasonCatalogue.Facts.of(verb.verbName())),
-            RefusalDataPayload.attempting(verb.call()).reporting(reportId));
+    public static Optional<EntryView> carried(MemoryException e) {
+        return e.data().get(AssistantVerb.FIELDS) instanceof EntryView current
+            ? Optional.of(current) : Optional.empty();
+    }
+
+    /**
+     * Whether a refusal says of itself that there is no entry this caller may
+     * see: the not-found class, and a caller with no subject to read as.
+     */
+    public static boolean concernsNoEntry(MemoryException e) {
+        // A spent idempotency key carries nothing beyond the call (C8.7):
+        // the entry its first call laid down is the key's business, not this
+        // call's, and naming it would tell the caller of a reused key about it.
+        return ReasonCatalogue.NOT_FOUND.equals(ReasonCatalogue.wireCode(e.reason().name()))
+            || e.reason() == MemoryException.Reason.ACTOR_UNKNOWN
+            || e.reason() == MemoryException.Reason.IDEMPOTENCY_KEY_REUSED;
     }
 
     // ======================================================================

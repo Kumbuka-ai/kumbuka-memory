@@ -1,6 +1,14 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.tenancy;
 
 import ai.kumbuka.memory.repository.DigestPreferenceRepository;
+import ai.kumbuka.memory.repository.IdempotencyRepository;
 import ai.kumbuka.memory.repository.ScopeAccessRepository;
 
 import org.junit.jupiter.api.Test;
@@ -115,6 +123,10 @@ class RawSqlArchitectureTest {
             "reads a PostgreSQL text[] column; JPQL has no array expression and JPA "
                 + "no portable mapping for one, and an entity would suggest a table "
                 + "the service could write, which its grants deny"),
+        IdempotencyRepository.class, new Reasoned(1,
+            "takes a transaction-bound advisory lock over one caller's idempotency key "
+                + "(pg_advisory_xact_lock), which has no JPQL expression; a row lock cannot "
+                + "serialise two first calls under a key, because neither finds a row"),
         TenantDatabaseBinding.class, new Reasoned(1,
             "set_config('app.tenant_id', ..., true) has no JPQL expression"),
         TenantMigrationCallback.class, new Reasoned(2,

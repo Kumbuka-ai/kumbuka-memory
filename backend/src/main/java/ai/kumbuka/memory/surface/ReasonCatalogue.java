@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -119,6 +120,11 @@ public final class ReasonCatalogue {
             return required(call, "call");
         }
 
+        /** The call refused, where the request had become one. */
+        public Optional<VerbName> callIfKnown() {
+            return Optional.ofNullable(call);
+        }
+
         @Override
         public ArgumentName name() {
             return required(name, "name");
@@ -156,12 +162,21 @@ public final class ReasonCatalogue {
      * @param message what went wrong, from {@link RefusalMessages}
      * @param remedy  what the caller does next, from {@link RefusalRemedies};
      *                the message ends with it
+     * @param further the keys of the further messages {@code message} chooses
+     *                from, beside the reason's own key, declared with it
      */
     public record Reason(String code, List<AssistantVerb> steps, boolean repeat, Reach reach,
-                         Function<Facts, String> message, Function<Facts, String> remedy) {
+                         Function<Facts, String> message, Function<Facts, String> remedy,
+                         List<String> further) {
 
         public Reason {
             steps = List.copyOf(steps);
+            further = List.copyOf(further);
+        }
+
+        public Reason(String code, List<AssistantVerb> steps, boolean repeat, Reach reach,
+                      Function<Facts, String> message, Function<Facts, String> remedy) {
+            this(code, steps, repeat, reach, message, remedy, List.of());
         }
 
         /** The key both bundles carry this reason's texts under. */
@@ -216,8 +231,12 @@ public final class ReasonCatalogue {
         put(declared, "SCOPE_READ_ONLY", f -> m().scopeReadOnly(f.call()),
             f -> r().scopeReadOnly(read, query, digest),
             AssistantVerb.READ, AssistantVerb.QUERY, AssistantVerb.DIGEST);
-        repeat(declared, "ADDRESS_MALFORMED", f -> m().addressMalformed(f.call()),
-            f -> r().addressMalformed());
+        // A path below a reserved name is refused before the route is matched
+        // (C3.2), and so has no call to name.
+        declared.put("ADDRESS_MALFORMED", new Reason("ADDRESS_MALFORMED", List.of(), true,
+            Reach.BOTH, f -> f.callIfKnown().map(m()::addressMalformed)
+                .orElseGet(m()::scopeReserved),
+            f -> r().addressMalformed(), List.of("scopeReserved")));
         repeat(declared, "KEY_MALFORMED", f -> m().keyMalformed(f.call()),
             f -> r().keyMalformed());
         repeat(declared, "SELECTOR_ABSENT", f -> m().selectorAbsent(f.call()),
@@ -229,6 +248,10 @@ public final class ReasonCatalogue {
         put(declared, "ALREADY_EXISTS", f -> m().alreadyExists(f.call()),
             f -> r().alreadyExists(read, update),
             AssistantVerb.READ, AssistantVerb.UPDATE);
+        repeat(declared, "IDEMPOTENCY_KEY_REUSED", f -> m().idempotencyKeyReused(f.call()),
+            f -> r().idempotencyKeyReused());
+        put(declared, "CONFLICT_TOKEN_MISSING", f -> m().conflictTokenMissing(f.call()),
+            f -> r().conflictTokenMissing(read), AssistantVerb.READ);
         put(declared, "CONFLICT_TOKEN_STALE", f -> m().conflictTokenStale(f.call()),
             f -> r().conflictTokenStale(read), AssistantVerb.READ);
         repeat(declared, "UPDATE_EMPTY", f -> m().updateEmpty(f.call()),
@@ -256,18 +279,22 @@ public final class ReasonCatalogue {
             f -> r().argumentMissing(f.name()));
         repeat(declared, "ARGUMENT_INVALID", f -> m().argumentInvalid(f.call(), f.path()),
             f -> r().argumentInvalid(f.path()));
+        // A request that fails before it became a call has no call to name.
         declared.put("UNEXPECTED_FAILURE", new Reason("UNEXPECTED_FAILURE", List.of(), false,
-            Reach.BOTH, f -> m().unexpectedFailure(f.call()), f -> r().unexpectedFailure()));
+            Reach.BOTH, f -> f.callIfKnown().map(m()::unexpectedFailure)
+                .orElseGet(m()::unexpectedFailureOfRequest),
+            f -> r().unexpectedFailure(), List.of("unexpectedFailureOfRequest")));
 
         // --- the generic surface's own -------------------------------------
-        generic(declared, "CONFLICT_TOKEN_MISSING", f -> m().conflictTokenMissing(f.call()),
-            f -> r().conflictTokenMissing(read));
         // A field fixed for the life of an entry is no argument of any call on
         // the assistant surface, so naming one there is ARGUMENT_UNKNOWN.
         generic(declared, "FIELD_IMMUTABLE", f -> m().fieldImmutable(),
             f -> r().fieldImmutable());
-        // The three transport reasons are raised before a verb is known, so
-        // their texts name none.
+        // The transport reasons are raised before a verb is known, so their
+        // texts name none. The surface header is refused before the route is
+        // matched, and only the REST surface reads it (C14.4, C14.5).
+        generic(declared, "HEADER_INVALID", f -> m().headerInvalid(),
+            f -> r().headerInvalid());
         generic(declared, "PAYLOAD_MALFORMED", f -> m().payloadMalformed(),
             f -> r().payloadMalformed());
         generic(declared, "VERB_NOT_CARRIED", f -> m().verbNotCarried(),

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.tenancy;
 
 import io.quarkus.runtime.StartupEvent;
@@ -6,6 +13,7 @@ import jakarta.enterprise.event.Observes;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigValue;
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.jboss.logging.Logger;
 
 import java.util.UUID;
 
@@ -49,6 +57,8 @@ import java.util.UUID;
 @ApplicationScoped
 public class TenancyConfigurationGuard {
 
+    private static final Logger LOG = Logger.getLogger(TenancyConfigurationGuard.class);
+
     /** The tenancy axis for this deployment. Environment: {@code MEMORY_TENANT_ID}. */
     public static final String TENANT_KEY = "memory.tenant-id";
 
@@ -91,7 +101,7 @@ public class TenancyConfigurationGuard {
         String value = raw == null ? null : raw.getValue();
 
         if (value == null || value.isBlank()) {
-            throw new IllegalStateException(
+            throw refused(new IllegalStateException(
                 "'" + TENANT_KEY + "' is " + (value == null ? "not set" : "empty")
                     + ", and this service will not start without it. It names the estate "
                     + "this installation serves; one installation serves one tenant, and "
@@ -99,18 +109,30 @@ public class TenancyConfigurationGuard {
                     + "resolved tenant produces well-formed queries against the wrong "
                     + "estate's data, which row-level security cannot catch because "
                     + "nothing about such a query is malformed. Set the environment "
-                    + "variable MEMORY_TENANT_ID to the estate's tenant id.");
+                    + "variable MEMORY_TENANT_ID to the estate's tenant id."));
         }
 
         try {
             return UUID.fromString(value.trim());
         } catch (IllegalArgumentException notAUuid) {
-            throw new IllegalStateException(
+            throw refused(new IllegalStateException(
                 "'" + TENANT_KEY + "' is set to something that is not a uuid. A tenant id "
                     + "is a uuid; a value of another shape would reach the session "
                     + "binding and fail there, in a message about a cast rather than "
                     + "about this setting. Set MEMORY_TENANT_ID to the estate's tenant "
-                    + "id.", notAUuid);
+                    + "id.", notAUuid));
         }
+    }
+
+    /**
+     * The refusal of the start, written on a line of its own before it is
+     * thrown (C13.3, WARN: the deployment's configuration). The log format
+     * prints no exception (C13.1), so a reason carried only by the exception
+     * would leave an operator with a start that failed and no word why.
+     */
+    private static IllegalStateException refused(IllegalStateException refusal) {
+        String why = String.valueOf(refusal.getMessage());
+        LOG.warnf("start refused: %s", why);
+        return refusal;
     }
 }

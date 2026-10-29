@@ -14,6 +14,7 @@ import ai.kumbuka.memory.adapter.payload.EmptyPayload;
 import ai.kumbuka.memory.adapter.payload.InitializePayload;
 import ai.kumbuka.memory.adapter.payload.Payloads;
 import ai.kumbuka.memory.adapter.payload.RpcErrorBodyPayload;
+import ai.kumbuka.memory.adapter.payload.RpcErrorDataPayload;
 import ai.kumbuka.memory.adapter.payload.RpcErrorPayload;
 import ai.kumbuka.memory.adapter.payload.RpcResultPayload;
 import ai.kumbuka.memory.adapter.payload.ServerInfoPayload;
@@ -23,6 +24,7 @@ import ai.kumbuka.memory.adapter.payload.ToolResultPayload;
 import ai.kumbuka.memory.domain.Actor;
 import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.EntryView;
+import ai.kumbuka.memory.domain.IdempotencyKey;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.Patch;
 import ai.kumbuka.memory.surface.AddressParser;
@@ -37,6 +39,7 @@ import ai.kumbuka.memory.surface.UnexpectedFailures;
 import ai.kumbuka.memory.surface.VerbSurface;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.quarkus.arc.properties.IfBuildProperty;
 import io.quarkus.security.Authenticated;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -86,8 +89,8 @@ import java.util.Optional;
  *
  * The refusal of a tool call is a tool result marked as an error, carrying
  * {@code { reason, message, data }}. A failure nobody foresaw on a tool call
- * is {@code UNEXPECTED_FAILURE} with a report reference that stands in the
- * log beside it — never a sentence of its own and never a bare 500.
+ * is {@code UNEXPECTED_FAILURE} with a reference under {@code data.reference}
+ * that stands in the log beside it — never a sentence of its own and never a bare 500.
  *
  * <p>A request that is not a call of a tool is not refused in the envelope
  * but answered as an error of the protocol: a body that is not JSON, a
@@ -97,6 +100,8 @@ import java.util.Optional;
  */
 @Path("/mcp")
 @Authenticated
+@IfBuildProperty(name = "kumbuka.local-mcp.enabled", stringValue = "true",
+    enableIfMissing = true)
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class McpAdapter {
@@ -136,15 +141,15 @@ public class McpAdapter {
         try {
             parsed = json.readValue(body == null ? "" : body, Object.class);
         } catch (JsonProcessingException notJson) {
-            return error(null, PARSE_ERROR, Texts.notices().bodyNotJson());
+            return error(null, PARSE_ERROR, Texts.protocol().bodyNotJson());
         }
         if (!(parsed instanceof Map<?, ?> raw)) {
-            return error(null, INVALID_REQUEST, Texts.notices().oneRequest());
+            return error(null, INVALID_REQUEST, Texts.protocol().oneRequest());
         }
         Map<String, Object> request = objectOf(raw).orElseGet(Map::of);
         Object id = request.get("id");
         if (!JSONRPC.equals(request.get(KEY_JSONRPC))) {
-            return error(id, INVALID_REQUEST, Texts.notices().notJsonRpc());
+            return error(id, INVALID_REQUEST, Texts.protocol().notJsonRpc());
         }
         if (!request.containsKey("id")) {
             // A notification: the protocol forbids an answer to it.
@@ -158,7 +163,7 @@ public class McpAdapter {
             case "tools/call" -> call(id, request);
             // The method that arrived is the caller's input and is never
             // repeated; the answer names the methods there are (DEC-0043 R19).
-            default -> error(id, METHOD_NOT_FOUND, Texts.notices().methods());
+            default -> error(id, METHOD_NOT_FOUND, Texts.protocol().methods());
         };
     }
 
@@ -182,22 +187,26 @@ public class McpAdapter {
     private Response call(@Nullable Object id, Map<String, Object> request) {
         Optional<Map<String, Object>> present = presentObject(request, "params");
         if (present.isEmpty()) {
-            return error(id, INVALID_PARAMS, Texts.notices().paramsObject());
+            return error(id, INVALID_PARAMS, Texts.protocol().paramsObject());
         }
         Map<String, Object> params = present.get();
-        String tool = String.valueOf(params.get("name"));
-        Optional<AssistantVerb> verb = AssistantVerb.byCall(tool);
+        Optional<AssistantVerb> verb = params.get("name") instanceof String tool
+            ? AssistantVerb.byCall(tool) : Optional.empty();
         if (verb.isEmpty()) {
             // Not a refusal of a call but a call that does not exist: the
-            // protocol answers it as an error of the request, and names the
-            // tools there are and never the name that arrived (DEC-0043 R19).
-            return error(id, INVALID_PARAMS, Texts.notices().tools(AssistantVerb.verbNames()));
+            // protocol answers it as an error of the request, with the tools
+            // there are under error.data.accepts and never the name that
+            // arrived (C4.3, DEC-0043 R19). A name that is absent or no text
+            // names no tool either, and is answered alike: it once
+            // became the word null, a tool name nobody sent.
+            return error(id, INVALID_PARAMS, Texts.protocol().toolUnknown(),
+                new RpcErrorDataPayload(McpTools.names()));
         }
         Optional<Map<String, Object>> args = presentObject(params, "arguments");
         if (args.isEmpty()) {
             // Present and not an object: there are no named arguments to
             // refuse one of, so this is no call yet.
-            return error(id, INVALID_PARAMS, Texts.notices().argumentsObject());
+            return error(id, INVALID_PARAMS, Texts.protocol().argumentsObject());
         }
         return result(id, toolResult(verb.get(), args.get()));
     }
@@ -259,20 +268,21 @@ public class McpAdapter {
                 in.top(Names.SCOPE).orElseThrow(), in.top(Names.SELECTOR).orElseThrow(),
                 new VerbSurface.NewEntry(in.field(Names.KEY).orElse(null),
                     in.field(Names.TYPE).orElse(null), in.field(Names.CONTENT).orElse(null),
-                    in.field(Names.REFERENCE).orElse(null))).entry());
+                    in.field(Names.REFERENCE).orElse(null)),
+                IdempotencyKey.of(in.top(Names.IDEMPOTENCY_KEY).orElse(null))).entry());
             case READ -> AssistantPayloads.AssistantEntryPayload.of(verbs.read(actor,
                 AddressParser.complete(in.top(Names.ADDRESS).orElseThrow())).entry());
             case UPDATE -> AssistantPayloads.AssistantEntryPayload.of(verbs.update(actor,
                 AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
                 in.top(Names.CONFLICT_TOKEN).orElse(null),
-                new Patch(in.field(Names.TYPE), in.field(Names.CONTENT),
-                    in.field(Names.REFERENCE))).entry());
+                Patch.of(in.field(Names.TYPE), in.field(Names.CONTENT),
+                    in.field(Names.REFERENCE), List.of())).entry());
             case WITHDRAW -> AssistantPayloads.AssistantWithdrawnPayload.of(verbs.withdraw(actor,
                 AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
                 in.top(Names.CONFLICT_TOKEN).orElse(null)));
             case QUERY -> AssistantPayloads.AssistantPagePayload.of(verbs.query(actor,
                 in.top(Names.SCOPE).orElseThrow(), in.top(Names.SELECTOR).orElse(null),
-                narrowing(in)));
+                Payloads.query(narrowing(in))));
             case DIGEST -> Payloads.DigestPayload.of(verbs.digest(actor,
                 in.top(Names.SCOPE).orElseThrow(), in.list(Names.TYPES).orElse(null)));
         };
@@ -308,13 +318,9 @@ public class McpAdapter {
     private Optional<EntryView> seen(AssistantVerb verb, Map<String, Object> args,
                                      Optional<MemoryException> refusal) {
         if (refusal.isPresent()) {
-            MemoryException e = refusal.get();
-            if (e.data().get(AssistantVerb.FIELDS) instanceof EntryView current) {
-                return Optional.of(current);
-            }
-            if (ReasonCatalogue.NOT_FOUND.equals(ReasonCatalogue.wireCode(e.reason().name()))
-                || e.reason() == MemoryException.Reason.ACTOR_UNKNOWN) {
-                return Optional.empty();
+            Optional<EntryView> carried = AssistantRefusals.carried(refusal.get());
+            if (carried.isPresent() || AssistantRefusals.concernsNoEntry(refusal.get())) {
+                return carried;
             }
         }
         @Nullable Object address = null;
@@ -386,7 +392,15 @@ public class McpAdapter {
     }
 
     private static Response error(@Nullable Object id, int code, String message) {
-        return Response.ok(new RpcErrorPayload(JSONRPC, id, new RpcErrorBodyPayload(code, message)))
+        return Response.ok(new RpcErrorPayload(JSONRPC, id,
+                new RpcErrorBodyPayload(code, message, null)))
+            .build();
+    }
+
+    private static Response error(@Nullable Object id, int code, String message,
+                                  RpcErrorDataPayload data) {
+        return Response.ok(new RpcErrorPayload(JSONRPC, id,
+                new RpcErrorBodyPayload(code, message, data)))
             .build();
     }
 

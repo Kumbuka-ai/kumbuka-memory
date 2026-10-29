@@ -381,10 +381,15 @@ class AssistantRefusalIT {
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
-    void a_missing_argument_is_argument_missing_and_so_is_a_missing_conflict_token() {
-        assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS,
-                "fields", Map.of("content", "x"))),
-            "ARGUMENT_MISSING", UPDATE, Map.of("call", UPDATE, "n", "conflict_token"));
+    void a_missing_argument_is_argument_missing_and_a_missing_token_is_its_own_refusal() {
+        // The conflict token is refused by the domain once the scope is
+        // resolved, so that an invisible scope answers NOT_FOUND whatever else
+        // the call lacks (C1.3); its refusal is the table's own (C8.7).
+        Mcp.Result tokenless = Mcp.call(UPDATE, args("address", ADDRESS,
+            "fields", Map.of("content", "x")));
+        assertRefusal(tokenless, "CONFLICT_TOKEN_MISSING", UPDATE,
+            Map.of("call", UPDATE, "read", READ));
+        assertConcernsAVisibleEntry(tokenless, List.of(READ));
         assertRefusal(Mcp.call(READ, Map.of()), "ARGUMENT_MISSING", READ,
             Map.of("call", READ, "n", "address"));
         assertRefusal(Mcp.call(CREATE, args("scope", SCOPE, "selector", "decision",
@@ -456,9 +461,10 @@ class AssistantRefusalIT {
     private static void assertNotFound(Mcp.Result refusal, String tool) {
         assertThat(refusal.isError()).isTrue();
         assertThat(refusal.reason()).isEqualTo("NOT_FOUND");
-        assertThat(refusal.map("data"))
-            .as("4.3: data carries attempted and nothing else")
-            .containsExactlyEntriesOf(Map.of("attempted", tool));
+        assertThat(refusal.structured())
+            .as("4.3: no data at all, so that the three causes cannot be told apart (C8.4); "
+                + "%s is named nowhere", tool)
+            .containsOnlyKeys("reason", "message");
     }
 
     private static void assertRefusal(Mcp.Result refusal, String reason, String tool,
