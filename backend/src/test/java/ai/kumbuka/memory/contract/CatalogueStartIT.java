@@ -1,6 +1,7 @@
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.surface.CatalogueWithAGap;
+import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTestProfile;
@@ -54,10 +55,12 @@ class CatalogueStartIT {
             .as("a reason the service can raise is not in the catalogue, so the "
                 + "application does not start. It said:%n%s", said)
             .isNotZero();
+        // The line names the problem by its constant and carries no free text
+        // (DEC-0051): which reason is left out stays in the exception.
         assertThat(said)
-            .as("and it says which reason, so that this failure is told apart from any "
+            .as("and it names the problem, so that this failure is told apart from any "
                 + "other a start can have")
-            .contains("the reason catalogue does not declare")
-            .contains(CatalogueWithAGap.LEFT_OUT);
+            .contains("start refused: "
+                + PlatformLog.StartProblem.REASON_CATALOGUE_INCOMPLETE);
     }
 }
