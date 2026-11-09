@@ -80,7 +80,7 @@ public class MemoryService {
     private static final String SOURCE_SERVICE = "mcp";
 
     /** The call an idempotency key is spent on; the only one that takes a key. */
-    private static final String CREATE = "create";
+    private static final String KEYED_CALL = "create";
 
     /** The argument a type travels in, and the one its refusal names. */
     private static final String TYPE = "type";
@@ -381,7 +381,7 @@ public class MemoryService {
         if (held.isEmpty() || !held.get().stillStandsAt(clock.instant())) {
             return Optional.empty();
         }
-        if (!held.get().records(CREATE, digest)) {
+        if (!held.get().records(KEYED_CALL, digest)) {
             throw keyReused();
         }
         return Optional.of(held.get().entryLogicalId);
@@ -402,7 +402,7 @@ public class MemoryService {
         row.scopeId = scopeId;
         row.callerSubject = caller.subject();
         row.key = given.value();
-        row.callName = CREATE;
+        row.callName = KEYED_CALL;
         row.argumentDigest = digest;
         row.entryLogicalId = produced.logicalId;
         row.firstSeenAt = StoredInstant.asStored(clock.instant());

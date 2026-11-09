@@ -37,7 +37,7 @@ public final class TenancyLog {
      */
     static final String BINDING_APPLIED = TenantMigrationCallback.FIRED_MARKER
         + ": app.tenant_id=%s before a migration";
-    static final String REBINDING = "tenant rebinding inside one transaction: %s -> %s";
+    static final String TENANT_REBOUND ="tenant rebinding inside one transaction: %s -> %s";
     static final String START_REFUSED = "start refused: %s";
 
     private TenancyLog() {
@@ -53,7 +53,7 @@ public final class TenancyLog {
      * a programming error.
      */
     static void rebinding(TenantId bound, TenantId requested) {
-        LOG.warnf(REBINDING, bound, requested);
+        LOG.warnf(TENANT_REBOUND, bound, requested);
     }
 
     /**
