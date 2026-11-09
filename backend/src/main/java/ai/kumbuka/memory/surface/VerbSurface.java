@@ -14,6 +14,7 @@ import ai.kumbuka.memory.domain.Draft;
 import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.IdempotencyKey;
+import ai.kumbuka.memory.domain.Memory;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
@@ -135,7 +136,10 @@ public class VerbSurface {
      */
     private static <T> T logged(MemoryService.Written<T> written,
                                 Consumer<PlatformLog.TechnicalAddress> line) {
-        written.stored().map(PlatformLog.TechnicalAddress::of).ifPresent(line);
+        Memory stored = written.stored();
+        if (stored != null) {
+            line.accept(PlatformLog.TechnicalAddress.of(stored));
+        }
         return written.answer();
     }
 

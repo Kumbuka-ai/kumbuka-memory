@@ -168,7 +168,7 @@ public class MemoryService {
         // absent insert, and it is the same occupied address.
         Memory laidDown = entries.insert(entry).orElseThrow(MemoryService::occupied);
         remember(scope.scopeId(), actor, key, digest, laidDown);
-        return new Written<>(EntryView.of(laidDown, scope.slug(), true), Optional.of(laidDown));
+        return new Written<>(EntryView.of(laidDown, scope.slug(), true), laidDown);
     }
 
     // ======================================================================
@@ -259,7 +259,7 @@ public class MemoryService {
         entry.changedAt(clock.instant());
 
         Memory updated = entries.update(entry);
-        return new Written<>(EntryView.of(updated, scope.slug(), true), Optional.of(updated));
+        return new Written<>(EntryView.of(updated, scope.slug(), true), updated);
     }
 
     // ======================================================================
@@ -300,7 +300,7 @@ public class MemoryService {
                 actor.subject())
             .isEmpty();
 
-        return new Written<>(new Withdrawn(address, outcome, released), Optional.of(entry));
+        return new Written<>(new Withdrawn(address, outcome, released), entry);
     }
 
     // ======================================================================
@@ -564,10 +564,10 @@ public class MemoryService {
      * @param stored the entry the write laid down, changed or withdrew;
      *               absent where it wrote nothing
      */
-    public record Written<T>(T answer, Optional<Memory> stored) {
+    public record Written<T>(T answer, @Nullable Memory stored) {
 
         static <T> Written<T> unchanged(T answer) {
-            return new Written<>(answer, Optional.empty());
+            return new Written<>(answer, null);
         }
     }
 }

@@ -192,10 +192,10 @@ public final class PlatformLog {
     /** How many members a collection the service holds has. */
     public static final class Count {
 
-        private final int count;
+        private final int size;
 
-        private Count(int count) {
-            this.count = count;
+        private Count(int size) {
+            this.size = size;
         }
 
         public static Count of(Collection<?> members) {
@@ -204,7 +204,7 @@ public final class PlatformLog {
 
         @Override
         public String toString() {
-            return Integer.toString(count);
+            return Integer.toString(size);
         }
     }
 

@@ -147,15 +147,24 @@ class LogFacadeAccessTest {
     /** A class outside the facades that holds a logger. */
     static final class PlantedLoggerHolder {
 
-        @SuppressWarnings("unused")
-        private Logger held;
+        private final Logger held;
+
+        PlantedLoggerHolder(Logger held) {
+            this.held = held;
+        }
+
+        @Override
+        public String toString() {
+            return String.valueOf(held);
+        }
     }
 
-    /** A class that writes to the console. */
+    /** A class that writes to the console: the offence this guard exists for, planted. */
+    @SuppressWarnings("java:S106")
     static final class PlantedConsoleWriter {
 
         void print() {
-            System.out.println("planted");
+            System.out.println("printed past the facades");
         }
     }
 
@@ -163,7 +172,7 @@ class LogFacadeAccessTest {
     static final class PlantedThrowableLogger {
 
         void log(RuntimeException failure) {
-            Logger.getLogger(PlantedThrowableLogger.class).error("planted", failure);
+            Logger.getLogger(PlantedThrowableLogger.class).error("failed past the facades", failure);
         }
     }
 

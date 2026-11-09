@@ -126,44 +126,51 @@ class LogFacadeTypeTest {
                 + "could choose");
     }
 
-    /** A facade as a careless change would write it; never called. */
-    static final class PlantedLog {
+    /** A facade as a careless change would write it; never implemented, never called. */
+    interface PlantedLog {
 
-        private PlantedLog() {
-        }
+        void said(String text);
 
-        static void said(String text) {
-            // planted
-        }
+        void at(TechnicalAddress address);
 
-        static void at(TechnicalAddress address) {
-            // planted
-        }
-
-        static void in(ScopeId scope) {
-            // planted
-        }
+        void in(ScopeId scope);
     }
 
     /** An allowed name with a factory from a text. */
     static final class TechnicalAddress {
 
-        private TechnicalAddress() {
+        private final String text;
+
+        private TechnicalAddress(String text) {
+            this.text = text;
         }
 
         public static TechnicalAddress of(String text) {
-            return new TechnicalAddress();
+            return new TechnicalAddress(text);
+        }
+
+        @Override
+        public String toString() {
+            return text;
         }
     }
 
     /** An allowed name with a factory from a uuid. */
     static final class ScopeId {
 
-        private ScopeId() {
+        private final UUID id;
+
+        private ScopeId(UUID id) {
+            this.id = id;
         }
 
         public static ScopeId of(UUID id) {
-            return new ScopeId();
+            return new ScopeId(id);
+        }
+
+        @Override
+        public String toString() {
+            return id.toString();
         }
     }
 
