@@ -15,6 +15,7 @@ import ai.kumbuka.memory.surface.AddressParser;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.CallerActor;
+import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.UnexpectedFailures;
@@ -28,7 +29,6 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
-import org.jboss.logging.Logger;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -73,32 +73,27 @@ import java.util.Optional;
 @Provider
 public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
-    /**
-     * Every refusal at DEBUG, by its code (C13.3).
+    /*
+     * Every refusal at DEBUG, by its code (C13.3), through PlatformLog.
      *
-     * <p><strong>DEBUG and not WARN, deliberately.</strong> A malformed
-     * address arrives on every client typo, and a refusal log at WARN would
-     * make this service's operational log writable by whoever calls it —
-     * flood the surface with broken addresses and you fill the log. What
-     * belongs at WARN is a statement about the deployment, and those live
-     * where they are decided: the directory warns on a session it could not
-     * bind. The one refusal at ERROR is {@code UNEXPECTED_FAILURE}, written by
-     * {@link UnexpectedFailures}.
+     * DEBUG and not WARN, deliberately. A malformed address arrives on every
+     * client typo, and a refusal log at WARN would make this service's
+     * operational log writable by whoever calls it — flood the surface with
+     * broken addresses and you fill the log. What belongs at WARN is a
+     * statement about the deployment: a session the read contract could not
+     * be bound for, written here where its refusal arrives. The one refusal
+     * at ERROR is UNEXPECTED_FAILURE, written by UnexpectedFailures.
      *
-     * <p>The actor is absent, as everywhere in this service. A second
+     * The actor is absent, as everywhere in this service. A second
      * aggregatable record of who was refused what is how not-collecting
      * behavioural data gets circumvented without anybody deciding to.
      */
-    private static final Logger LOG = Logger.getLogger(RefusalMapper.class);
-
-    /** The one DEBUG line of a refusal: its code and nothing else. */
-    private static final String REFUSED = "refusal: %s";
 
     @Inject RestCall call;
 
     @Override
     public Response toResponse(SurfaceException e) {
-        LOG.debugf(REFUSED, e.reason().name());
+        PlatformLog.refused(PlatformLog.RefusalCode.of(e.reason()));
         // The surface header is refused before the route is matched, and so
         // names no call; every other transport refusal names the call where
         // the route had resolved one.
@@ -164,7 +159,8 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
             // Not an answer about visibility but a failure nobody foresaw. It
             // is logged as one; the caller still gets the refusal of the call,
             // without the state of an entry nobody could read.
-            UnexpectedFailures.logged(call.verb().map(AssistantVerb::call).orElse(null), failure);
+            UnexpectedFailures.logged(call.verb().map(AssistantVerb::verbName).orElse(null),
+                failure);
             return Optional.empty();
         }
     }
@@ -183,7 +179,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
         @Override
         public Response toResponse(CallException e) {
-            LOG.debugf(REFUSED, e.reason());
+            PlatformLog.refused(PlatformLog.RefusalCode.of(e.reason()));
             AssistantVerb verb = verbOf(call);
             return answer(400, call.assistant()
                 ? AssistantRefusals.of(verb, e, seen(call, verbs, caller, Optional.empty()))
@@ -201,7 +197,13 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
         @Override
         public Response toResponse(MemoryException e) {
-            LOG.debugf(REFUSED, e.reason().name());
+            PlatformLog.RefusalCode code = PlatformLog.RefusalCode.of(e.reason());
+            PlatformLog.refused(code);
+            if (e.reason() == MemoryException.Reason.SESSION_NOT_BOUND) {
+                // Not the caller's: the read contract could not be bound for
+                // this session, and no retry of theirs will fix it (C13.3).
+                PlatformLog.sessionNotBound(code);
+            }
             AssistantVerb verb = verbOf(call);
             int status = statusOf(e.reason());
             ReasonCatalogue.Reason reason =
@@ -315,7 +317,7 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
             }
             Optional<AssistantVerb> verb = call.verb();
             String reference = UnexpectedFailures.logged(
-                verb.map(AssistantVerb::call).orElse(null), failure);
+                verb.map(AssistantVerb::verbName).orElse(null), failure);
             return answer(500, Payloads.RefusalPayload.unexpected(verb, verb.map(call::named),
                 reference), null);
         }

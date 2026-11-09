@@ -123,7 +123,7 @@ class ConcurrentWriteIT {
     private String created() throws Exception {
         try (AutoCloseable ignored = tenantContext.bind(TENANT)) {
             return memory.create(PROBE, CONTESTED, new Draft("decision", "as laid down", null))
-                .conflictToken();
+                .answer().conflictToken();
         }
     }
 
