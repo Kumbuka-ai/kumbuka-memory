@@ -82,7 +82,6 @@ CREATE INDEX idx_entry_tag_tag ON memory.entry_tag (tag_id);
 -- Row-level security in the form V3 established, which the completeness
 -- probe requires of every table carrying `tenant_id`.
 ALTER TABLE memory.entry_tag ENABLE ROW LEVEL SECURITY;
-ALTER TABLE memory.entry_tag FORCE  ROW LEVEL SECURITY;
 
 CREATE POLICY entry_tag_tenant_isolation ON memory.entry_tag
     USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
