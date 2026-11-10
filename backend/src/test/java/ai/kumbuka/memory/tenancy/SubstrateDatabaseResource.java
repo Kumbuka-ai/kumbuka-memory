@@ -414,6 +414,11 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
      * {@code PlatformFixture}, once the role exists, as for the scope view.
      */
     private static void stageTagVocabulary(Statement s) throws SQLException {
+        // The platform's role reaches its own schema. The foreign key from the
+        // tag to its scope is checked as the owner of platform.tag, and that
+        // check needs USAGE on the schema the table sits in: without it a
+        // scope cannot be deleted at all (measured: ForeignTenantCursorIT).
+        s.execute("GRANT USAGE ON SCHEMA " + PLATFORM_SCHEMA + " TO " + PLATFORM_ROLE);
         s.execute("""
             CREATE TABLE IF NOT EXISTS platform.tag (
                 id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
