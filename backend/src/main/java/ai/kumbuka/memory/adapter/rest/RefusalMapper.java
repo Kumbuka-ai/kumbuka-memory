@@ -273,8 +273,11 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
                 // be stored at all. No PREDICATE_UNKNOWN: this service declares
                 // no filter fields per scope, so an unknown filter is an
                 // unknown argument (DEC-0042).
+                // A tag is the scope's vocabulary as well: one the scope does
+                // not declare, or one it has withdrawn.
                 case TYPE_UNKNOWN, SELECTOR_RESERVED,
-                     FIELD_IMMUTABLE, REFERENCE_CREDENTIAL_BEARING -> 422;
+                     FIELD_IMMUTABLE, REFERENCE_CREDENTIAL_BEARING,
+                     VALUE_UNDECLARED, VALUE_WITHDRAWN -> 422;
 
                 // Ours, not the caller's: the session contract was not bound,
                 // and no retry of theirs will fix it.

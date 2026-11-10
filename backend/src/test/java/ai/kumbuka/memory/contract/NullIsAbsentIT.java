@@ -173,6 +173,11 @@ class NullIsAbsentIT {
             case "digest" -> {
                 arguments.put("scope", SCOPE);
                 arguments.put("types", List.of("convention"));
+                arguments.put("tags", List.of(SubstrateDatabaseResource.TAG_COMPONENT));
+            }
+            case "tag_attach", "tag_detach" -> {
+                arguments.put("address", ADDRESS);
+                arguments.put("tag", SubstrateDatabaseResource.TAG_COMPONENT);
             }
             default -> throw new IllegalStateException("no valid arguments for " + tool);
         }
@@ -203,6 +208,8 @@ class NullIsAbsentIT {
             .header("If-Match", etag()).body(body ? "{\"fields\":null}" : "{}").patch(ITEM));
         same("digest types", differing, body -> SurfaceFixture.call()
             .body(body ? "{\"types\":null}" : "{}").post(digest));
+        same("digest tags", differing, body -> SurfaceFixture.call()
+            .body(body ? "{\"tags\":null}" : "{}").post(digest));
 
         assertThat(differing)
             .as("null and absence are one thing on this surface too (DEC-0043 R17)")

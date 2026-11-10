@@ -56,6 +56,10 @@ class RowLevelSecurityProbeIT {
 
     private static final String POLICY = "memory_tenant_isolation";
 
+    /** The tag assignments of V11, and their policy. */
+    private static final String TAG_TABLE = "memory.entry_tag";
+    private static final String TAG_POLICY = "entry_tag_tenant_isolation";
+
     /**
      * A fresh pair of tenants per test method.
      *
@@ -367,6 +371,140 @@ class RowLevelSecurityProbeIT {
                 assertThat(expected.getMessage()).contains("row-level security");
             } finally {
                 c.rollback();
+            }
+        }
+    }
+
+    /**
+     * The tag assignments of V11 (memory.entry_tag): one tenant's assignment
+     * is invisible under another tenant, a write under a foreign tenant is
+     * refused, and the red states are observed on this table too.
+     *
+     * <p>The assignment of tenant B is counted under B first, so the green
+     * state cannot be satisfied by an empty table. Then the policy is dropped
+     * (the table closes: tenant B's own assignment disappears for B), and row
+     * level security is switched off (the table opens: tenant A reads B's
+     * assignment). Both are restored in a {@code finally}, and the green
+     * state is asserted again.
+     */
+    @Test
+    void the_tag_assignments_are_isolated_and_their_red_states_are_observed()
+            throws SQLException {
+        UUID foreignTag;
+        try (Connection c = Db.asService()) {
+            Db.bindTenant(c, tenantB);
+            UUID foreignEntry = Db.insertEntry(c, tenantB, keyFor(tenantB));
+            foreignTag = insertAssignment(c, tenantB, foreignEntry);
+            c.commit();
+
+            Db.bindTenant(c, tenantB);
+            assertThat(countAssignments(c, foreignTag))
+                .as("green run, the count the probe rests on: tenant B's assignment is really "
+                    + "in the table, counted under its own tenant")
+                .isEqualTo(1);
+
+            Db.bindTenant(c, tenantA);
+            assertThat(countAssignments(c, foreignTag))
+                .as("green state: tenant A sees none of tenant B's assignments")
+                .isZero();
+
+            try {
+                // Without RETURNING, so that only the write-side predicate can
+                // refuse it (see a_write_under_a_foreign_tenant_is_refused_by_the_policy).
+                insertAssignment(c, tenantB, foreignEntry);
+                throw new AssertionError("a session bound to tenant A wrote an assignment "
+                    + "owned by tenant B — the policy of entry_tag is missing its WITH CHECK");
+            } catch (SQLException expected) {
+                assertThat(expected.getMessage()).contains("row-level security");
+            } finally {
+                c.rollback();
+            }
+
+            c.commit();
+            try {
+                asOwner("DROP POLICY " + TAG_POLICY + " ON " + TAG_TABLE);
+
+                Db.bindTenant(c, tenantB);
+                assertThat(countAssignments(c, foreignTag))
+                    .as("RED STATE, observed: with the policy of entry_tag gone the table is "
+                        + "closed, and even tenant B no longer sees its own assignment")
+                    .isZero();
+                c.commit();
+
+                asOwner("ALTER TABLE " + TAG_TABLE + " DISABLE ROW LEVEL SECURITY");
+
+                Db.bindTenant(c, tenantA);
+                assertThat(countAssignments(c, foreignTag))
+                    .as("RED STATE, observed, the leak: with row-level security switched off "
+                        + "on entry_tag, tenant A reads tenant B's assignment")
+                    .isEqualTo(1);
+            } finally {
+                c.commit();
+                asOwner("ALTER TABLE " + TAG_TABLE + " ENABLE ROW LEVEL SECURITY");
+                asOwner("CREATE POLICY " + TAG_POLICY + " ON " + TAG_TABLE
+                    + " USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)"
+                    + " WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)");
+            }
+
+            Db.bindTenant(c, tenantA);
+            assertThat(countAssignments(c, foreignTag))
+                .as("and restored: tenant A sees none of tenant B's assignments again")
+                .isZero();
+            Db.bindTenant(c, tenantB);
+            assertThat(countAssignments(c, foreignTag))
+                .as("and tenant B sees its own again")
+                .isEqualTo(1);
+            c.commit();
+        }
+
+        try (Connection owner = Db.asMigrator()) {
+            Db.bindTenant(owner, tenantA);
+            assertThat(countAssignments(owner, foreignTag))
+                .as("green state: FORCE binds the owner of entry_tag to its policy too")
+                .isZero();
+            try {
+                Db.exec(owner, "ALTER TABLE " + TAG_TABLE + " NO FORCE ROW LEVEL SECURITY");
+                owner.commit();
+                Db.bindTenant(owner, tenantA);
+                assertThat(countAssignments(owner, foreignTag))
+                    .as("RED STATE, observed: without FORCE the owner of entry_tag, bound to "
+                        + "tenant A, reads tenant B's assignment")
+                    .isEqualTo(1);
+            } finally {
+                owner.commit();
+                Db.exec(owner, "ALTER TABLE " + TAG_TABLE + " FORCE ROW LEVEL SECURITY");
+                owner.commit();
+            }
+            Db.bindTenant(owner, tenantA);
+            assertThat(countAssignments(owner, foreignTag))
+                .as("and restored, so the red state was the removal and nothing else")
+                .isZero();
+        }
+    }
+
+    /** One assignment of a fresh tag id to an entry, under the tenant named; no RETURNING. */
+    private static UUID insertAssignment(Connection c, UUID tenant, UUID entry)
+            throws SQLException {
+        UUID tag = UUID.randomUUID();
+        try (var st = c.prepareStatement("""
+                INSERT INTO memory.entry_tag (tenant_id, entry_logical_id, tag_id, attached_by)
+                VALUES (?, ?, ?, 'probe')
+                """)) {
+            st.setObject(1, tenant);
+            st.setObject(2, entry);
+            st.setObject(3, tag);
+            st.executeUpdate();
+        }
+        return tag;
+    }
+
+    private static long countAssignments(Connection c, UUID tag) throws SQLException {
+        try (var st = c.prepareStatement(
+                "SELECT count(*) FROM " + TAG_TABLE + " WHERE tag_id = ?")) {
+            st.setObject(1, tag);
+            try (var rs = st.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
             }
         }
     }

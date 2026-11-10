@@ -50,6 +50,12 @@ An entry has no intermediate state. It is in force from the call that creates it
 that withdraws it; there is no draft, no hand-over and nothing that only somebody else can move.
 That is why this surface carries the six verbs of the service and no process verbs beyond them.
 
+An entry carries **tags**: tokens of the vocabulary its scope declares on the platform, attached
+and detached by two further verbs. The vocabulary is the platform's; this service declares none.
+A withdrawn tag takes no new assignment, and the assignments that stand stay readable. An
+assignment is a relation of the entry and not a value of it: attaching or detaching one moves
+neither the conflict token nor the change time.
+
 ## 2. Who may call
 
 The platform's read contract answers, per scope, whether a caller may read and whether it may
@@ -67,7 +73,7 @@ Every answer about one entry has this shape (DEC-0040):
   "fields": {
     "scope": "kumbuka", "key": "convention.branch-names", "type": "convention",
     "content": "...", "reference": null, "state": "...", "private": false,
-    "created_at": "...", "updated_at": "..."
+    "created_at": "...", "updated_at": "...", "tags": ["component:memory"]
   },
   "conflict_token": "...",
   "next": [
@@ -90,12 +96,18 @@ URI, exactly as every call takes it.
 name, including an argument nested in `fields`; and every argument a call declares has the effect
 its declaration states.
 
+`fields.tags` lists the tokens of the tags the entry carries, sorted ascending, withdrawn ones
+included, and is an empty list where it carries none.
+
 A **listing** (`memory_query`) carries `objects`, each in the shape above, and beside them
 `next_cursor` and `unaddressable`; it does not repeat the page size it was asked in (ADR-0049).
 `next_cursor` is the one continuation: present, it is what `after` takes for the next page; absent,
 the page is the last. It is bound to the scope -- by its technical identity, so a scope of the same
-name in another estate is another scope --, the selector, the type and text, the sort and the
+name in another estate is another scope --, the selector, the type, text and tag, the sort and the
 direction it was handed out for, and is refused for any other.
+
+An answer to **`memory_tag_attach` or `memory_tag_detach`** carries `address`, `tags` (every tag the
+entry carries after the call, as in `fields.tags`) and `next`, and no conflict token.
 
 A **withdrawal** answers with `address`, `outcome` (`destroyed` or `tombstoned`),
 `address_released` and `next`.
@@ -103,7 +115,9 @@ A **withdrawal** answers with `address`, `outcome` (`destroyed` or `tombstoned`)
 A **digest** answers with `address`, `scopes`, `selected_types`, `summary` (per type: `type`,
 `count`, `token_estimate`, `carried`), `total_entries`, `total_token_estimate`, `sections` (per
 carried type: `type` and `entries`, each with `address`, `key` and `content`), `unaddressable` and
-`truncated`.
+`truncated`. Asked with `tags`, it carries every constraint of its selection and of the other
+types only the entries carrying at least one of the tags, and the summary and the totals count
+what it carries.
 
 ## 4. The refusal
 
@@ -188,9 +202,11 @@ is the cause (DEC-0042).
 | `CONTENT_ABSENT` | `<call> needs content: an entry without content is not stored. Send the text of the entry as content.` | Send the text of the entry as content. |
 | `CONTENT_OVERSIZE` | `The content is longer than an entry holds, which is at most <limit> characters. Shorten the content to at most <limit> characters, or split it into several entries.` | Shorten the content to at most <limit> characters, or split it into several entries. |
 | `REFERENCE_CREDENTIAL_BEARING` | `The reference carries a credential and is not stored. Remove the user information and every secret parameter from the URL, then send it again.` | Remove the user information and every secret parameter from the URL, then send it again. |
+| `VALUE_UNDECLARED` | `<path> names a value that is not in the vocabulary of the entry's scope, so <call> has nothing to attach or detach. Send <path> as a value the entry's scope declares.` -- `data.offenders` names `tag` | Send the argument as a value the entry's scope declares. |
+| `VALUE_WITHDRAWN` | `<path> names a value the entry's scope has withdrawn, and a withdrawn value takes no new use through <call>. Send <path> as a value the entry's scope declares and keeps in force.` -- `data.offenders` names `tag` | Send the argument as a value the entry's scope declares and keeps in force. |
 | `PAGE_SIZE_REJECTED` | `page_size is outside what <call> takes. Send page_size as a whole number from 1 to <max>.` | Send page_size as a whole number from 1 to <max>. |
 | `CURSOR_MALFORMED` | `after is not a cursor <query> handed out. Call <query> again from the first page, or send as after the next_cursor of the page you read last.` | Call `<query>` again from the first page, or send as after the next_cursor of the page you read last. |
-| `CURSOR_FOREIGN` | `after was handed out by <query> for another scope, selector, type, text, sort or direction. Call <query> again from the first page.` | Call `<query>` again from the first page. |
+| `CURSOR_FOREIGN` | `after was handed out by <query> for another scope, selector, type, text, tag, sort or direction. Call <query> again from the first page.` | Call `<query>` again from the first page. |
 | `SORT_UNDECLARED` | `sort names an order <call> does not declare. Send sort as one of the values accepts lists.` -- `data.accepts` lists the orders | Send sort as one of the values accepts lists. |
 | `ACTOR_UNKNOWN` | `The token is valid but names no subject to act as. Authenticate as a subject and call again with that token.` | Authenticate as a subject and call again with that token. |
 | `ARGUMENT_UNKNOWN` | `<call> was sent an argument outside the names it declares at that level, which are: <list>. Name each argument as one of these.` | Name each argument as one of these. |
@@ -254,18 +270,37 @@ Top-level: `address`, `conflict_token`. Callable by anyone who may write to the 
 > only. Use it to find an address.
 
 Top-level: `scope`, optional `selector`, optional `type`, optional `text` (a text the entry must
-contain), optional `after` (the next cursor of the previous page), optional `sort` (id or
+contain), optional `tag` (the token of a tag the entry carries; a token the scope does not declare
+answers an empty page), optional `after` (the next cursor of the previous page), optional `sort` (id or
 created_at, default id; created_at carries the key as second key), optional `direction` (asc or
 desc, default asc), optional `page_size` (1 to 200, default 50). Callable by anyone who may read
 the scope.
 
 **`memory_digest`**
 > Returns everything in force in a scope, whole and grouped by type, with a tally per type. Reads
-> only. Carries the types the scope's digest selection names, or those that types names. Call it
+> only. Carries the types the scope's digest selection names, or those that types names; with
+> tags, every constraint and of the other types the entries carrying one of the tags. Call it
 > once at the start of a session.
 
-Top-level: `scope`, optional `types` (a list of type names). Callable by anyone who may read the
-scope.
+Top-level: `scope`, optional `types` (a list of type names), optional `tags` (a list of tag tokens;
+without them, or with an empty list, the digest is the one without tags). Callable by anyone who
+may read the scope.
+
+**`memory_tag_attach`**
+> Attaches a tag of the scope's vocabulary to an entry and answers the entry's tags. A tag already
+> attached stays attached. Leaves the entry and its conflict token unchanged. Callable by anyone
+> who may write to the scope.
+
+Top-level: `address`, `tag`. Result: the entry carries the tag. A tag the scope does not declare is
+`VALUE_UNDECLARED`, a withdrawn one `VALUE_WITHDRAWN`.
+
+**`memory_tag_detach`**
+> Detaches a tag from an entry and answers the entry's tags, a withdrawn tag included. A tag the
+> entry lacks stays detached. Leaves the entry and its conflict token unchanged. Callable by anyone
+> who may write to the scope.
+
+Top-level: `address`, `tag`. Result: the entry no longer carries the tag. A tag the scope does not
+declare is `VALUE_UNDECLARED`.
 
 ## 6. How `next` is computed
 
@@ -345,6 +380,13 @@ that answer would drift from it, and a listed call that is then refused is what 
   vendors complete the service's processes without a skill is unproven on this path.
 - **Reading by technical address is not offered on this surface**; it stays on the generic one.
 - **`relate` and `unrelate` are not carried.** The service holds no relation between entries.
+- **`next` on an entry does not list `memory_tag_attach` and `memory_tag_detach`.** Whether either
+  succeeds depends on a value of the scope's vocabulary that the answer does not carry, so the table
+  of section 6 is unchanged for now; whether the tag verbs join it is open.
+- **The REST form of the tag verbs is colon notation on the item,** `POST
+  /api/<scope>/<selector>/<id>:tag_attach` and `:tag_detach` with the body `{"tag": "…"}`, as the
+  service's other item verbs are; the router's catalogue of answer shapes is not read for
+  `ENTRY_TAGS`.
 - **Whether the key or the address of an entry may stand in a log line is not decided.**
 - **A stale conflict token is the one refusal that carries an address the caller sent.** It
   carries the entry as this caller's own read would answer it (DEC-0041), and a read answers with

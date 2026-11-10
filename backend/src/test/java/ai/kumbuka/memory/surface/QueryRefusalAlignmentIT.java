@@ -79,12 +79,12 @@ class QueryRefusalAlignmentIT {
         // Answered with the declared names under accepts, and never with the
         // name that arrived (DEC-0043 R19). On the generic surface the scope
         // and the selector are the path, so the query parameters it accepts
-        // are the six beside them.
+        // are the seven beside them, the tag filter of V11 among them.
         Response rest = call().get(API + "/" + SCOPE + "?limit=5&cursor=x&foo=1");
         assertThat(rest.statusCode()).isEqualTo(400);
         assertThat(rest.jsonPath().getString("reason")).isEqualTo("ARGUMENT_UNKNOWN");
         assertThat(rest.jsonPath().getList("data.accepts", String.class))
-            .containsExactly("type", "text", "after", "sort", "direction", "page_size");
+            .containsExactly("type", "text", "tag", "after", "sort", "direction", "page_size");
         assertThat(rest.asString()).doesNotContain("limit").doesNotContain("foo");
 
         for (String name : List.of("limit", "cursor", "foo")) {

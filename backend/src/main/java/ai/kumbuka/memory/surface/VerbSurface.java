@@ -33,7 +33,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The six verbs, once, for every protocol that reaches them.
+ * The verbs, once, for every protocol that reaches them.
  *
  * <h2>Why this layer exists at all</h2>
  *
@@ -143,14 +143,37 @@ public class VerbSurface {
             // reads as "there is nothing of that kind here".
             AddressParser.parse(scope, selector, "x");
         }
-        return memory.query(actor, scope, selector, asked.type(), asked.text(), asked.page());
+        return memory.query(actor, scope, selector,
+            new MemoryService.Narrowing(asked.type(), asked.text(), asked.tag()), asked.page());
     }
 
-    /** Everything in force in a scope, whole. */
+    /**
+     * Everything in force in a scope, whole, or narrowed to tags.
+     *
+     * @param types the types to carry, or null for the scope's selection
+     * @param tags  the tags to narrow to, or null or empty for none
+     */
     @Transactional
-    public DigestView digest(Actor actor, String scope, @Nullable List<String> types) {
+    public DigestView digest(Actor actor, String scope, @Nullable List<String> types,
+                             @Nullable List<String> tags) {
         AddressParser.refuseReservedScope(scope);
-        return digests.digest(actor, scope, types);
+        return digests.digest(actor, scope, types, tags);
+    }
+
+    /** Attaches a tag of the scope's vocabulary to the entry at an address. */
+    @Transactional
+    public Answer tagAttach(Actor actor, AddressParser.Parts parts, String tag) {
+        EntryAddress address = AddressParser.parse(parts);
+        AddressParser.requireWritableSelector(address);
+        return answerFor(memory.tagAttach(actor, address, tag));
+    }
+
+    /** Detaches a tag from the entry at an address. */
+    @Transactional
+    public Answer tagDetach(Actor actor, AddressParser.Parts parts, String tag) {
+        EntryAddress address = AddressParser.parse(parts);
+        AddressParser.requireWritableSelector(address);
+        return answerFor(memory.tagDetach(actor, address, tag));
     }
 
     // ======================================================================
@@ -247,8 +270,10 @@ public class VerbSurface {
      * @param type the entry type to narrow to, as the caller wrote it; absent
      *             for every type
      * @param text the text to narrow to; absent for any text
+     * @param tag  the token of a tag the entries carry; absent for any tags
      * @param page the page asked for
      */
-    public record Query(@Nullable String type, @Nullable String text, PageRequest page) {
+    public record Query(@Nullable String type, @Nullable String text, @Nullable String tag,
+                        PageRequest page) {
     }
 }

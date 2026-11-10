@@ -50,10 +50,11 @@ class AssistantSurfaceIT {
     /**
      * The fields of an entry written without a reference, as every entry these
      * probes write is. A member with no value is absent rather than null
-     * (C7.2), so {@code reference} is not among them.
+     * (C7.2), so {@code reference} is not among them. {@code tags} is: an entry
+     * without tags carries the empty list (V11).
      */
     private static final List<String> ENTRY_FIELDS = List.of("scope", "key", "type", "content",
-        "state", "private", "created_at", "updated_at");
+        "state", "private", "created_at", "updated_at", "tags");
 
     @BeforeAll
     static void grantDirectoryAccess() {
@@ -83,7 +84,7 @@ class AssistantSurfaceIT {
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
-    void tools_list_answers_exactly_the_six_tools_with_the_contract_s_descriptions() {
+    void tools_list_answers_exactly_the_contract_s_tools_with_their_descriptions() {
         JsonPath answer = Mcp.rpc("tools/list", Map.of()).jsonPath();
         List<Map<String, Object>> tools = answer.getList("result.tools");
 

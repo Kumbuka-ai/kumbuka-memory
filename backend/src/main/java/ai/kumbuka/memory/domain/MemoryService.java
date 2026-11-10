@@ -9,6 +9,8 @@ package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.platform.Access;
 import ai.kumbuka.memory.platform.ScopeDirectory;
+import ai.kumbuka.memory.platform.TagDirectory;
+import ai.kumbuka.memory.repository.EntryTagRepository;
 import ai.kumbuka.memory.repository.IdempotencyRepository;
 import ai.kumbuka.memory.repository.MemoryRepository;
 import ai.kumbuka.memory.repository.StoredInstant;
@@ -30,7 +32,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * The five verbs that act on an entry, and the order they check in.
+ * The verbs that act on an entry, and the order they check in.
  *
  * <h2>The check order, and why it is written once</h2>
  *
@@ -86,11 +88,16 @@ public class MemoryService {
     /** The argument a type travels in, and the one its refusal names. */
     private static final String TYPE = "type";
 
+    /** The argument a tag travels in, and the one its refusals name. */
+    private static final String TAG = "tag";
+
     /** One INFO line per completed write, naming the verb and the entry (C13.3). */
     private static final Logger LOG = Logger.getLogger(MemoryService.class);
 
     @Inject ScopeDirectory scopes;
+    @Inject TagDirectory vocabulary;
     @Inject MemoryRepository entries;
+    @Inject EntryTagRepository assignments;
     @Inject IdempotencyRepository ledger;
     @Inject TenantContext tenants;
     @Inject Withdrawal withdrawal;
@@ -142,7 +149,7 @@ public class MemoryService {
             Memory standing = entries.findByLogicalId(first.get(), actor.subject())
                 .filter(entry -> entry.scopeId.equals(scope.scopeId()))
                 .orElseThrow(MemoryService::keyReused);
-            return EntryView.of(standing, scope.slug(), true);
+            return view(standing, scope.slug(), true);
         }
 
         entries.findOccupant(scope.scopeId(), address.key(), scope.isPrivate(),
@@ -172,7 +179,7 @@ public class MemoryService {
         Memory laidDown = entries.insert(entry).orElseThrow(MemoryService::occupied);
         remember(scope.scopeId(), actor, key, digest, laidDown);
         LOG.infof("create %s", technical(laidDown));
-        return EntryView.of(laidDown, scope.slug(), true);
+        return EntryView.of(laidDown, scope.slug(), true, List.of());
     }
 
     // ======================================================================
@@ -186,7 +193,7 @@ public class MemoryService {
             scopes.resolve(actor.subject(), address.scope(), Access.READ);
         Memory entry = entries.findInScope(scope.scopeId(), address.key(), actor.subject())
             .orElseThrow(MemoryService::absent);
-        return EntryView.of(entry, scope.slug(), writable(scope));
+        return view(entry, scope.slug(), writable(scope));
     }
 
     /**
@@ -207,7 +214,7 @@ public class MemoryService {
         ScopeDirectory.ScopeAccess scope =
             scopes.visibleScopeOf(actor.subject(), entry.scopeId)
                 .orElseThrow(MemoryService::absent);
-        return EntryView.of(entry, scope.slug(), writable(scope));
+        return view(entry, scope.slug(), writable(scope));
     }
 
     // ======================================================================
@@ -252,7 +259,7 @@ public class MemoryService {
             || !java.util.Objects.equals(reference, entry.reference);
 
         if (!changed) {
-            return EntryView.of(entry, scope.slug(), true);
+            return view(entry, scope.slug(), true);
         }
 
         entry.type = type;
@@ -264,7 +271,8 @@ public class MemoryService {
 
         Memory updated = entries.update(entry);
         LOG.infof("update %s", technical(updated));
-        return EntryView.of(updated, scope.slug(), true);
+        // The tags are a relation of the entry, and update leaves them alone.
+        return view(updated, scope.slug(), true);
     }
 
     // ======================================================================
@@ -311,6 +319,79 @@ public class MemoryService {
     }
 
     // ======================================================================
+    // tag_attach and tag_detach
+    // ======================================================================
+
+    /**
+     * Attaches a tag of the scope's vocabulary to an entry.
+     *
+     * <p>The check order is the one every write has: the scope and its write
+     * right, then the entry, then the value. The token is resolved in the
+     * scope of the entry and nowhere else, so a tag of another scope, or of a
+     * scope this caller cannot see, is not in the vocabulary here. A
+     * withdrawn tag takes no new assignment.
+     *
+     * <p>No conflict token is asked for and none moves: an assignment is a
+     * relation of the entry, written beside it (V11), and the entry's own row
+     * is not written. A tag the entry already carries is attached already,
+     * and the call succeeds without writing anything.
+     *
+     * <p>The entry is read under {@code PESSIMISTIC_WRITE}, so two attaches of
+     * one tag to one entry decide one after the other and the second finds the
+     * first's row instead of meeting the primary key.
+     */
+    @Transactional
+    public EntryView tagAttach(Actor actor, EntryAddress address, String token) {
+        ScopeDirectory.ScopeAccess scope =
+            scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
+        Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
+            .orElseThrow(MemoryService::absent);
+
+        TagDirectory.Tag tag = vocabulary.inScope(scope.scopeId(), token)
+            .orElseThrow(MemoryService::tagUndeclared);
+        if (tag.isRetired()) {
+            throw MemoryException.offending(MemoryException.Reason.VALUE_WITHDRAWN, List.of(TAG));
+        }
+
+        if (!assignments.carries(entry, tag.id())) {
+            EntryTag assignment = new EntryTag();
+            assignment.entryLogicalId = entry.logicalId;
+            assignment.entryVersion = entry.version;
+            assignment.tagId = tag.id();
+            assignment.tenantId = tenants.current().toString();
+            assignment.attachedBy = actor.subject();
+            assignment.attachedAt = StoredInstant.asStored(clock.instant());
+            assignments.insert(assignment);
+            LOG.infof("tag_attach %s", technical(entry));
+        }
+        return view(entry, scope.slug(), true);
+    }
+
+    /**
+     * Detaches a tag from an entry.
+     *
+     * <p>The same checks as {@link #tagAttach}, with one difference: a
+     * withdrawn tag is detached like any other, because withdrawing a tag
+     * forbids new assignments and leaves the standing ones to be read and
+     * removed. A tag the entry does not carry is detached already, and the
+     * call succeeds without writing anything.
+     */
+    @Transactional
+    public EntryView tagDetach(Actor actor, EntryAddress address, String token) {
+        ScopeDirectory.ScopeAccess scope =
+            scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
+        Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
+            .orElseThrow(MemoryService::absent);
+
+        TagDirectory.Tag tag = vocabulary.inScope(scope.scopeId(), token)
+            .orElseThrow(MemoryService::tagUndeclared);
+        if (assignments.delete(entry, tag.id()) > 0) {
+            LOG.infof("tag_detach %s", technical(entry));
+        }
+        return view(entry, scope.slug(), true);
+    }
+
+    // ======================================================================
     // query
     // ======================================================================
 
@@ -327,21 +408,35 @@ public class MemoryService {
      * not: it names the scope by a mark of its technical identity, which only
      * the resolution yields, and a scope this caller may not enter is the
      * single not-found before anything is said about a cursor.
+     *
+     * <p>The tag is the scope's vocabulary, resolved once the scope is
+     * visible, and combined with the other narrowings by AND. A token the
+     * scope does not declare names no entry: the answer is an empty page and
+     * not a refusal, because "nothing carries this" is the true answer to the
+     * question asked. A withdrawn tag still narrows to the entries that carry
+     * it.
      */
     @Transactional
     public Page query(Actor actor, String scopeSlug, @Nullable String selector,
-                      @Nullable String type, @Nullable String text, PageRequest request) {
+                      Narrowing narrowing, PageRequest request) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
         // The type is the service's vocabulary, so it is checked once the
         // scope is known to be visible: an invisible scope answers NOT_FOUND
         // whatever type was asked for, as C1.3 orders the checks.
+        @Nullable String type = narrowing.type();
+        @Nullable String text = narrowing.text();
+        @Nullable String tag = narrowing.tag();
+        @Nullable String token = tag == null || tag.isBlank() ? null : tag;
+        Optional<TagDirectory.Tag> named = token == null ? Optional.empty()
+            : vocabulary.inScope(scope.scopeId(), token);
         QueryFilter filter = new QueryFilter(
             type == null || type.isBlank() ? null : knownType(type),
-            text == null || text.isBlank() ? null : text);
+            text == null || text.isBlank() ? null : text,
+            named.map(TagDirectory.Tag::id).orElse(null));
 
         PageCursor.Binding binding = new PageCursor.Binding(PageCursor.mark(scope.scopeId()), selector,
-            PageCursor.fingerprint(filter.type(), filter.text()), request.sort(),
+            PageCursor.fingerprint(filter.type(), filter.text(), token), request.sort(),
             request.direction());
         String asked = request.after();
         @Nullable PageCursor after = asked == null ? null : PageCursor.decode(asked);
@@ -349,12 +444,19 @@ public class MemoryService {
             throw foreign();
         }
 
+        if (token != null && named.isEmpty()) {
+            return new Page(List.of(), null,
+                entries.unaddressableIn(scope.scopeId(), actor.subject()));
+        }
+
         MemoryRepository.Rows page = entries.page(new MemoryRepository.Keyset(
             scope.scopeId(), selector, actor.subject(), filter, request, after));
 
         boolean writable = writable(scope);
+        Map<UUID, List<String>> tagsOf = tokensOf(page.entries());
         List<EntryView> views = page.entries().stream()
-            .map(entry -> EntryView.of(entry, scope.slug(), writable))
+            .map(entry -> EntryView.of(entry, scope.slug(), writable,
+                tagsOf.getOrDefault(entry.logicalId, List.of())))
             .toList();
 
         @Nullable String next = null;
@@ -507,7 +609,7 @@ public class MemoryService {
             data.put(MemoryException.ADDRESS,
                 EntryAddress.ofKey(scope.slug(), entry.key).canonical());
             data.put("conflict_token", current);
-            data.put("fields", EntryView.of(entry, scope.slug(), writable(scope)));
+            data.put("fields", view(entry, scope.slug(), writable(scope)));
             throw new MemoryException(MemoryException.Reason.CONFLICT_TOKEN_STALE, data);
         }
     }
@@ -535,6 +637,46 @@ public class MemoryService {
     /** Whether this caller may write in a scope, which is what decides `next`. */
     private static boolean writable(ScopeDirectory.ScopeAccess scope) {
         return !scope.locked() && scope.canWrite();
+    }
+
+    /**
+     * The projection of a stored entry with the tags it carries: the one way
+     * an entry that already stood becomes an answer, so that read, update, a
+     * stale-token refusal and the tag verbs answer the same field set.
+     */
+    private EntryView view(Memory entry, String scopeSlug, boolean writable) {
+        Map<UUID, String> tokens = vocabulary.tokensOf(assignments.tagIdsOf(entry));
+        return EntryView.of(entry, scopeSlug, writable, tokens.values());
+    }
+
+    /** The tokens each entry of a page carries, by logical id, in two statements for the page. */
+    private Map<UUID, List<String>> tokensOf(List<Memory> page) {
+        Map<UUID, List<UUID>> ids = assignments.tagIdsOf(page);
+        Map<UUID, String> tokens = vocabulary.tokensOf(ids.values().stream()
+            .flatMap(List::stream).distinct().toList());
+        Map<UUID, List<String>> carried = new LinkedHashMap<>();
+        ids.forEach((entry, tags) -> carried.put(entry, tags.stream()
+            .map(tokens::get).filter(java.util.Objects::nonNull).toList()));
+        return carried;
+    }
+
+    /**
+     * A token the entry's scope does not declare, named by the argument and
+     * never by the value (DEC-0042): the vocabulary's not-found.
+     */
+    private static MemoryException tagUndeclared() {
+        return MemoryException.offending(MemoryException.Reason.VALUE_UNDECLARED, List.of(TAG));
+    }
+
+    /**
+     * What a query narrows by, beside its selector, each as the caller wrote
+     * it and absent for no narrowing.
+     *
+     * @param type the entry type
+     * @param text a text the content contains
+     * @param tag  the token of a tag the entry carries
+     */
+    public record Narrowing(@Nullable String type, @Nullable String text, @Nullable String tag) {
     }
 
     /**

@@ -226,13 +226,13 @@ class CheckOrderConformanceIT {
         assertThat(put.header("Allow")).as("the methods the route carries").isNotBlank();
         assertThat(put.jsonPath().getList("data.accepts", String.class))
             .as("the verbs carried at the address, in the REST names")
-            .containsExactly("read", "update", "withdraw");
+            .containsExactly("read", "update", "withdraw", "tag_attach", "tag_detach");
 
         Response verb = call().post(API + "/" + VISIBLE + "/decision/storage-engine:invented");
         assertThat(verb.statusCode()).isEqualTo(405);
         assertThat(verb.jsonPath().getList("data.accepts", String.class))
             .as("a colon verb the address does not carry names them too (C3.3)")
-            .containsExactly("read", "update", "withdraw");
+            .containsExactly("read", "update", "withdraw", "tag_attach", "tag_detach");
     }
 
     /** The security layer's 401 is handed back as it is (DEC-0042). */

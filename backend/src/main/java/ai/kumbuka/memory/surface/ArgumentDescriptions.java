@@ -51,6 +51,8 @@ public interface ArgumentDescriptions {
 
     @Message String queryText();
 
+    @Message String queryTag();
+
     @Message String queryAfter();
 
     @Message String querySort();
@@ -60,4 +62,10 @@ public interface ArgumentDescriptions {
     @Message String queryPageSize(Bound min, Bound max, Bound fallback);
 
     @Message String digestTypes();
+
+    @Message String digestTags();
+
+    @Message String tagAttachTag();
+
+    @Message String tagDetachTag();
 }
