@@ -50,24 +50,24 @@ public final class PlatformLog {
     // that may stand in a line is not decided.
     // ======================================================================
 
-    public static void created(TechnicalAddress address) {
-        LOG.infof("create %s", address);
+    public static void created(TechnicalAddress entry) {
+        LOG.infof("create %s", entry);
     }
 
-    public static void updated(TechnicalAddress address) {
-        LOG.infof("update %s", address);
+    public static void updated(TechnicalAddress entry) {
+        LOG.infof("update %s", entry);
     }
 
-    public static void withdrawn(TechnicalAddress address) {
-        LOG.infof("withdraw %s", address);
+    public static void withdrawn(TechnicalAddress entry) {
+        LOG.infof("withdraw %s", entry);
     }
 
-    public static void tagAttached(TechnicalAddress address) {
-        LOG.infof("tag_attach %s", address);
+    public static void tagAttached(TechnicalAddress entry) {
+        LOG.infof("tag_attach %s", entry);
     }
 
-    public static void tagDetached(TechnicalAddress address) {
-        LOG.infof("tag_detach %s", address);
+    public static void tagDetached(TechnicalAddress entry) {
+        LOG.infof("tag_detach %s", entry);
     }
 
     // ======================================================================
@@ -130,14 +130,14 @@ public final class PlatformLog {
     // told to report and the class names of the failure's chain.
     // ======================================================================
 
-    static void unexpectedFailure(VerbName call, UnexpectedFailures.FailureReference minted,
+    static void unexpectedFailure(VerbName call, UnexpectedFailures.FailureReference reference,
                                   UnexpectedFailures.FailureCause cause) {
-        LOG.errorf("unexpected failure on %s, reference %s, cause %s", call, minted, cause);
+        LOG.errorf("unexpected failure on %s, reference %s, cause %s", call, reference, cause);
     }
 
-    static void unexpectedFailureBeforeACall(UnexpectedFailures.FailureReference minted,
+    static void unexpectedFailureBeforeACall(UnexpectedFailures.FailureReference reference,
                                              UnexpectedFailures.FailureCause cause) {
-        LOG.errorf("unexpected failure on this request, reference %s, cause %s", minted, cause);
+        LOG.errorf("unexpected failure on this request, reference %s, cause %s", reference, cause);
     }
 
     // ======================================================================

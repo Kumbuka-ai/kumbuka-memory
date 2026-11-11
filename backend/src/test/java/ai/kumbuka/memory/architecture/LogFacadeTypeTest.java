@@ -13,13 +13,18 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.WildcardType;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -35,9 +40,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * type a request could fill. And none of the types a facade takes can be
  * built from such a value: none is a record, none has a public constructor,
  * and none has a public static method that takes a {@code String}, a number, a
- * {@code UUID} or a {@code Duration} and returns the type -- {@code valueOf}
- * of an enum apart. So a value a caller chose cannot be turned into a
- * parameter outside the package that holds the value.
+ * {@code UUID} or a {@code Duration}, or a container of one, and returns the
+ * type -- {@code valueOf} of an enum apart. So a value a caller chose cannot
+ * be turned into a parameter outside the package that holds the value.
  *
  * <p>The list is this test's own, written from the decision, and not read
  * off the facades: a list derived from the thing it checks would agree with
@@ -105,8 +110,9 @@ class LogFacadeTypeTest {
     /**
      * The red state, observed on every build: a facade method with a
      * {@code String} parameter, and an allowed type with a public factory
-     * from a {@code String} and one from a {@code UUID}. Each is reported,
-     * while the real facades above come back without an offence.
+     * from a {@code String}, one from a {@code UUID}, one from a
+     * {@code List<String>} and one from an {@code Optional<UUID>}. Each is
+     * reported, while the real facades above come back without an offence.
      */
     @Test
     void the_checks_report_each_offence_they_exist_for() {
@@ -124,6 +130,16 @@ class LogFacadeTypeTest {
                 + "is reported")
             .containsExactly("ScopeId.of(java.util.UUID) builds one from a value a caller "
                 + "could choose");
+        assertThat(openings(Status.class))
+            .as("RED STATE, observed: an allowed type with a public factory from a list of "
+                + "Strings is reported")
+            .containsExactly("Status.of(java.util.List<java.lang.String>) builds one from a "
+                + "value a caller could choose");
+        assertThat(openings(TenantId.class))
+            .as("RED STATE, observed: an allowed type with a public factory from an optional "
+                + "UUID is reported")
+            .containsExactly("TenantId.of(java.util.Optional<java.util.UUID>) builds one from "
+                + "a value a caller could choose");
     }
 
     /** A facade as a careless change would write it; never implemented, never called. */
@@ -166,6 +182,44 @@ class LogFacadeTypeTest {
 
         public static ScopeId of(UUID id) {
             return new ScopeId(id);
+        }
+
+        @Override
+        public String toString() {
+            return id.toString();
+        }
+    }
+
+    /** An allowed name with a factory from a list of texts. */
+    static final class Status {
+
+        private final List<String> texts;
+
+        private Status(List<String> texts) {
+            this.texts = texts;
+        }
+
+        public static Status of(List<String> texts) {
+            return new Status(texts);
+        }
+
+        @Override
+        public String toString() {
+            return String.join(",", texts);
+        }
+    }
+
+    /** An allowed name with a factory from an optional uuid. */
+    static final class TenantId {
+
+        private final UUID id;
+
+        private TenantId(UUID id) {
+            this.id = id;
+        }
+
+        public static TenantId of(Optional<UUID> id) {
+            return new TenantId(id.orElseThrow());
         }
 
         @Override
@@ -232,9 +286,12 @@ class LogFacadeTypeTest {
                     && Modifier.isStatic(method.getModifiers())
                     && type.isAssignableFrom(method.getReturnType())
                     && !(type.isEnum() && "valueOf".equals(method.getName()))) {
-                for (Class<?> parameter : method.getParameterTypes()) {
-                    if (callerChosen(parameter)) {
-                        openings.add(name + "." + method.getName() + "(" + parameter.getName()
+                Class<?>[] parameters = method.getParameterTypes();
+                Type[] declared = method.getGenericParameterTypes();
+                for (int i = 0; i < parameters.length; i++) {
+                    if (callerChosen(parameters[i]) || holdsCallerChosen(declared[i])) {
+                        openings.add(name + "." + method.getName() + "("
+                            + declared[i].getTypeName()
                             + ") builds one from a value a caller could choose");
                     }
                 }
@@ -258,5 +315,46 @@ class LogFacadeTypeTest {
             || parameter == Character.class
             || parameter == UUID.class
             || parameter == Duration.class;
+    }
+
+    /**
+     * A container of such a value: an {@code Iterable}, a {@code Map}, an
+     * {@code Optional}, a {@code Stream} or any other generic type one of whose
+     * type arguments a caller could choose, at any depth.
+     *
+     * <p>A wildcard without a bound and a type variable are not caller-chosen.
+     * {@code PlatformLog.Count.of(Collection<?>)} must stay allowed: it reads
+     * the size of the collection and none of its members, so what the members
+     * are cannot reach a line. A bounded wildcard is judged by its bounds.
+     */
+    private static boolean holdsCallerChosen(Type declared) {
+        if (declared instanceof ParameterizedType generic) {
+            return Arrays.stream(generic.getActualTypeArguments())
+                .anyMatch(LogFacadeTypeTest::typeArgumentCallerChosen);
+        }
+        if (declared instanceof GenericArrayType array) {
+            return holdsCallerChosen(array.getGenericComponentType());
+        }
+        return false;
+    }
+
+    private static boolean typeArgumentCallerChosen(Type argument) {
+        if (argument instanceof Class<?> type) {
+            return callerChosen(type);
+        }
+        if (argument instanceof ParameterizedType generic) {
+            return callerChosen((Class<?>) generic.getRawType()) || holdsCallerChosen(generic);
+        }
+        if (argument instanceof GenericArrayType array) {
+            return typeArgumentCallerChosen(array.getGenericComponentType());
+        }
+        if (argument instanceof WildcardType wildcard) {
+            return Arrays.stream(wildcard.getUpperBounds())
+                    .filter(bound -> bound != Object.class)
+                    .anyMatch(LogFacadeTypeTest::typeArgumentCallerChosen)
+                || Arrays.stream(wildcard.getLowerBounds())
+                    .anyMatch(LogFacadeTypeTest::typeArgumentCallerChosen);
+        }
+        return false;
     }
 }
