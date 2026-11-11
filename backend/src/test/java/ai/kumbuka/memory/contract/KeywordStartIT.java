@@ -8,6 +8,7 @@
 package ai.kumbuka.memory.contract;
 
 import ai.kumbuka.memory.surface.KeywordOutsideTheSchema;
+import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTestProfile;
@@ -28,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Before, the keyword failed only at the first {@code tools/list}: the
  * service came up, and the caller who listed its tools met the failure. Now
- * the start is refused, with the call, the argument and the keyword named.
+ * the start is refused, and the log names the problem by its constant; the
+ * call, the argument and the keyword stay in the exception (DEC-0051).
  *
  * <p>RED STATE, observed 2026-10-29 with the keyword check taken out of the
  * start: the application came up with the planted argument ("started in
@@ -63,9 +65,11 @@ class KeywordStartIT {
             .as("an argument publishes a keyword the tool schema does not carry, so the "
                 + "application does not start. It said:%n%s", said)
             .isNotZero();
+        // The line names the problem by its constant and carries no free text
+        // (DEC-0051): the call, the argument and the keyword stay in the exception.
         assertThat(said)
-            .as("and it names the call, the argument and the keyword")
-            .contains("memory_read declares address_pattern with the schema keyword "
-                + KeywordOutsideTheSchema.PLANTED);
+            .as("and it names the problem, so that this failure is told apart from any "
+                + "other a start can have")
+            .contains("start refused: " + PlatformLog.StartProblem.SCHEMA_KEYWORD_UNKNOWN);
     }
 }

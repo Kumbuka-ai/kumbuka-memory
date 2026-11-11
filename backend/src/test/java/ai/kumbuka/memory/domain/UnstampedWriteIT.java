@@ -102,17 +102,19 @@ class UnstampedWriteIT {
             .isEqualTo("first");
 
         EntryView changed =
-            memory.update(PROBE, ENTRY, created.conflictToken(), content("second"));
+            memory.update(PROBE, ENTRY, created.conflictToken(), content("second")).answer();
         assertThat(changed.content()).as("an update through the verb is stamped")
             .isEqualTo("second");
         assertThat(changed.conflictToken()).isNotEqualTo(created.conflictToken());
 
-        EntryView same = memory.update(PROBE, ENTRY, changed.conflictToken(), content("second"));
+        EntryView same = memory.update(PROBE, ENTRY, changed.conflictToken(), content("second"))
+            .answer();
         assertThat(same.conflictToken())
             .as("a write that changes nothing flushes nothing and keeps its token")
             .isEqualTo(changed.conflictToken());
 
-        EntryView again = memory.update(PROBE, ENTRY, same.conflictToken(), content("third"));
+        EntryView again = memory.update(PROBE, ENTRY, same.conflictToken(), content("third"))
+            .answer();
         assertThat(again.content())
             .as("and the stamp of one write does not stand in for the next")
             .isEqualTo("third");
@@ -122,7 +124,7 @@ class UnstampedWriteIT {
     // -----------------------------------------------------------------------
 
     private EntryView create(String content) {
-        return memory.create(PROBE, ENTRY, new Draft("decision", content, null));
+        return memory.create(PROBE, ENTRY, new Draft("decision", content, null)).answer();
     }
 
     private static Patch content(String content) {

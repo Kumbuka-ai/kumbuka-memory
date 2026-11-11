@@ -7,7 +7,6 @@
  */
 package ai.kumbuka.memory.surface;
 
-import org.jboss.logging.Logger;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -30,22 +29,10 @@ import java.util.UUID;
  * service wrote: a database that refuses a row names the row, and the row
  * holds an entry's content. A stack trace says where, and the class names
  * already say what failed; the reference finds the line. So the failure is
- * never handed to the logger; the line is assembled here from the parts that
- * cannot carry content.
+ * never handed to the logger; {@link FailureCause} reads the class names off
+ * it, and is made here and nowhere else, as {@link FailureReference} is.
  */
 public final class UnexpectedFailures {
-
-    /**
-     * ERROR, because a failure nobody foresaw is ours and no retry of the
-     * caller's fixes it, and the only refusal this service logs at ERROR
-     * (C13.3).
-     *
-     * <p>The line carries the call, the reference and the class names. Not
-     * the address and not the key: whether those may stand in a log line is
-     * not decided, and a line written before it is decided cannot be taken
-     * back.
-     */
-    private static final Logger LOG = Logger.getLogger(UnexpectedFailures.class);
 
     /** How deep the chain of causes is followed: a cycle must not hang the log line. */
     private static final int CHAIN_LIMIT = 8;
@@ -54,31 +41,66 @@ public final class UnexpectedFailures {
     }
 
     /**
-     * Logs an unforeseen failure once and returns the reference it was logged
-     * under.
+     * Logs an unforeseen failure once, at ERROR, and returns the reference it
+     * was logged under.
+     *
+     * <p>The line carries the call, the reference and the class names. Not
+     * the address and not the key: whether those may stand in a log line is
+     * not decided, and a line written before it is decided cannot be taken
+     * back. The call is the one the declaration names, never a name a request
+     * carried.
      *
      * @param call    the call the caller made; absent for a request that had
      *                become no call yet
      * @param failure what went wrong
      */
-    public static String logged(@Nullable String call, Throwable failure) {
-        // Both put in locals first: the line names no exception and no member
-        // of an entry, only the identifier minted here and the class names.
-        String minted = UUID.randomUUID().toString();
-        String chain = classNames(failure);
-        LOG.errorf("unexpected failure on %s, reference %s, cause %s",
-            call == null ? "this request" : call, minted, chain);
-        return minted;
+    public static String logged(@Nullable VerbName call, Throwable failure) {
+        FailureReference reference = new FailureReference(UUID.randomUUID());
+        FailureCause cause = new FailureCause(failure);
+        if (call == null) {
+            PlatformLog.unexpectedFailureBeforeACall(reference, cause);
+        } else {
+            PlatformLog.unexpectedFailure(call, reference, cause);
+        }
+        return reference.toString();
     }
 
-    /** The class names of a failure and its causes, outermost first. */
-    static String classNames(Throwable failure) {
-        List<String> names = new ArrayList<>();
-        Throwable at = failure;
-        while (at != null && names.size() < CHAIN_LIMIT) {
-            names.add(at.getClass().getName());
-            at = at.getCause() == at ? null : at.getCause();
+    /** The reference a caller is told to report, minted for one failure. */
+    public static final class FailureReference {
+
+        private final UUID reference;
+
+        private FailureReference(UUID reference) {
+            this.reference = reference;
         }
-        return String.join(" <- ", names);
+
+        @Override
+        public String toString() {
+            return reference.toString();
+        }
+    }
+
+    /**
+     * The class names of a failure and its causes, outermost first. Read off
+     * the chain by class and nothing else: no message, no stack frame.
+     */
+    public static final class FailureCause {
+
+        private final String chain;
+
+        private FailureCause(Throwable failure) {
+            List<String> names = new ArrayList<>();
+            Throwable at = failure;
+            while (at != null && names.size() < CHAIN_LIMIT) {
+                names.add(at.getClass().getName());
+                at = at.getCause() == at ? null : at.getCause();
+            }
+            this.chain = String.join(" <- ", names);
+        }
+
+        @Override
+        public String toString() {
+            return chain;
+        }
     }
 }

@@ -13,7 +13,6 @@ import ai.kumbuka.memory.tenancy.TenantBound;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import org.jboss.logging.Logger;
 
 import java.util.List;
 import java.util.Optional;
@@ -59,15 +58,12 @@ import java.util.UUID;
 @TenantBound
 public class ScopeDirectory {
 
-    /** Bound by the same convention as every logger here: no title, no body, no
-     *  metadata text, no token, no actor, and no value the caller sent (C13.2).
-     *  The slug is the caller's input; the scope is named by its id. A refusal
-     *  is a DEBUG line by its code; WARN is for the deployment, a session the
-     *  directory could not bind (C13.3). */
-    private static final Logger LOG = Logger.getLogger(ScopeDirectory.class);
-
-    /** The one DEBUG line of a refusal: its code and nothing else. */
-    private static final String REFUSED = "refusal: %s";
+    /*
+     * The directory logs nothing (DEC-0051, C4). Its refusals are logged by
+     * code where they arrive at the surface, in the REST refusal mapper and
+     * the MCP adapter; the WARN for a session it could not bind is written
+     * there too, beside the refusal that follows from it (C13.3).
+     */
 
     /** The kind whose entries are private to their author, as the platform spells it. */
     public static final String KIND_PRIVATE = "private";
@@ -94,13 +90,11 @@ public class ScopeDirectory {
         if (row.isEmpty()) {
             // Reached only with both settings bound, so this genuinely means
             // "no such scope for this subject" and not "nothing was bound".
-            LOG.debugf(REFUSED, MemoryException.Reason.SCOPE_UNRESOLVED);
             throw new MemoryException(MemoryException.Reason.SCOPE_UNRESOLVED);
         }
 
         ScopeAccess resolved = accessOf(row.get());
         requireWritable(resolved, access);
-        LOG.debugf("resolved scope %s", resolved.scopeId());
         return resolved;
     }
 
@@ -166,12 +160,10 @@ public class ScopeDirectory {
         }
 
         if (scope.locked()) {
-            LOG.debugf(REFUSED, MemoryException.Reason.SCOPE_LOCKED);
             throw new MemoryException(MemoryException.Reason.SCOPE_LOCKED);
         }
 
         if (!scope.canWrite()) {
-            LOG.debugf(REFUSED, MemoryException.Reason.SCOPE_READ_ONLY);
             throw new MemoryException(MemoryException.Reason.SCOPE_READ_ONLY);
         }
     }
@@ -206,8 +198,6 @@ public class ScopeDirectory {
         Object subject = scopes.boundSubject();
 
         if (tenant == null || subject == null) {
-            LOG.warnf("directory call with unbound session: %s",
-                MemoryException.Reason.SESSION_NOT_BOUND);
             throw unbound(new IllegalStateException("app.tenant_id or app.subject is not "
                 + "bound, so the directory would return zero rows for every scope, which reads "
                 + "as no such scope"));

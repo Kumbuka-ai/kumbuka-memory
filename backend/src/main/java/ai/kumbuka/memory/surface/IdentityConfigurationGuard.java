@@ -14,7 +14,6 @@ import jakarta.enterprise.event.Observes;
 import jakarta.interceptor.Interceptor;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
-import org.jboss.logging.Logger;
 
 import java.util.Optional;
 
@@ -57,8 +56,6 @@ import java.util.Optional;
 @ApplicationScoped
 public class IdentityConfigurationGuard {
 
-    private static final Logger LOG = Logger.getLogger(IdentityConfigurationGuard.class);
-
     /** The claim the acting identity must come from. */
     public static final String EXPECTED_PRINCIPAL_CLAIM = "sub";
 
@@ -92,8 +89,8 @@ public class IdentityConfigurationGuard {
         String claim = config.getOptionalValue(PRINCIPAL_CLAIM_KEY, String.class)
             .orElse("");
         if (!EXPECTED_PRINCIPAL_CLAIM.equals(claim)) {
-            throw refused(new IllegalStateException(
-                "'" + PRINCIPAL_CLAIM_KEY + "' is '" + claim + "' and must be '"
+            throw refused(PlatformLog.StartProblem.PRINCIPAL_CLAIM_NOT_SUBJECT,
+                new IllegalStateException("'" + PRINCIPAL_CLAIM_KEY + "' is '" + claim + "' and must be '"
                     + EXPECTED_PRINCIPAL_CLAIM + "'. The principal is this service's "
                     + "authorship record and the owner of every private entry; resolved "
                     + "from any other claim it becomes an identifier that can change, and "
@@ -104,8 +101,8 @@ public class IdentityConfigurationGuard {
 
         Optional<String> audience = config.getOptionalValue(AUDIENCE_KEY, String.class);
         if (audience.isEmpty() || audience.get().isBlank()) {
-            throw refused(new IllegalStateException(
-                "'" + AUDIENCE_KEY + "' is not set, so no audience would be validated and "
+            throw refused(PlatformLog.StartProblem.AUDIENCE_NOT_SET,
+                new IllegalStateException("'" + AUDIENCE_KEY + "' is not set, so no audience would be validated and "
                     + "a token minted for any other resource would be accepted here. "
                     + "ADR-0034 gives the platform one audience and has every recipient "
                     + "validate it against the identifier its own installation "
@@ -117,11 +114,12 @@ public class IdentityConfigurationGuard {
      * The refusal of the start, written on a line of its own before it is
      * thrown (C13.3, WARN: the deployment's configuration). The log format
      * prints no exception (C13.1), so a reason carried only by the exception
-     * would leave an operator with a start that failed and no word why.
+     * would leave an operator with a start that failed and no word why. The
+     * line names the problem; the setting's value stays in the exception.
      */
-    private static IllegalStateException refused(IllegalStateException refusal) {
-        String why = String.valueOf(refusal.getMessage());
-        LOG.warnf("start refused: %s", why);
+    private static IllegalStateException refused(PlatformLog.StartProblem problem,
+                                                 IllegalStateException refusal) {
+        PlatformLog.startRefused(problem);
         return refusal;
     }
 }

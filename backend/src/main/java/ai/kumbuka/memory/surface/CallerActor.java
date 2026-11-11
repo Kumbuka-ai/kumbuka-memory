@@ -12,7 +12,6 @@ import ai.kumbuka.memory.domain.MemoryException;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
-import org.jboss.logging.Logger;
 
 /**
  * Derives the acting identity from the validated token, and from nothing else.
@@ -32,6 +31,8 @@ import org.jboss.logging.Logger;
 @RequestScoped
 public class CallerActor {
 
+    @Inject SecurityIdentity identity;
+
     /**
      * The one refusal on this surface worth WARN, and why it is the exception.
      *
@@ -45,12 +46,7 @@ public class CallerActor {
      * <p>The subject is not logged. Which token it was belongs to the audit
      * log under its own rules; what an operator needs from this line is that
      * the realm is handing out tokens this service cannot act on at all.
-     */
-    private static final Logger LOG = Logger.getLogger(CallerActor.class);
-
-    @Inject SecurityIdentity identity;
-
-    /**
+     *
      * @return the actor this request acts as
      * @throws MemoryException with {@code ACTOR_UNKNOWN} when the validated
      *         identity carries no subject
@@ -59,8 +55,8 @@ public class CallerActor {
         if (identity == null || identity.isAnonymous() || identity.getPrincipal() == null
             || identity.getPrincipal().getName() == null
             || identity.getPrincipal().getName().isBlank()) {
-            LOG.warnf("a token authenticated with no subject to act as: %s",
-                MemoryException.Reason.ACTOR_UNKNOWN);
+            PlatformLog.tokenWithoutSubject(
+                PlatformLog.RefusalCode.of(MemoryException.Reason.ACTOR_UNKNOWN));
             throw new MemoryException(MemoryException.Reason.ACTOR_UNKNOWN);
         }
         return new Actor(identity.getPrincipal().getName());

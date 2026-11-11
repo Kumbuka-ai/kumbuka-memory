@@ -8,6 +8,7 @@
 package ai.kumbuka.memory.adapter.rest;
 
 import ai.kumbuka.memory.adapter.payload.WhoamiPayload;
+import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.tenancy.TenantContext;
 import io.quarkus.security.Authenticated;
 import io.quarkus.security.identity.SecurityIdentity;
@@ -16,7 +17,6 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
-import org.jboss.logging.Logger;
 
 /**
  * Who the caller is, and which tenant the request was bound to (C16.2), at the
@@ -31,19 +31,17 @@ import org.jboss.logging.Logger;
 @Authenticated
 public class WhoamiResource {
 
+    @Inject SecurityIdentity identity;
+    @Inject TenantContext tenants;
+
     /**
      * The endpoint logs that it was reached and nothing about who reached it:
      * correlation runs through the request id, never through a subject.
      */
-    private static final Logger LOG = Logger.getLogger(WhoamiResource.class);
-
-    @Inject SecurityIdentity identity;
-    @Inject TenantContext tenants;
-
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public WhoamiPayload whoami() {
-        LOG.debug("whoami");
+        PlatformLog.whoamiReached();
         return new WhoamiPayload(identity.getPrincipal().getName(),
             tenants.current().toString());
     }

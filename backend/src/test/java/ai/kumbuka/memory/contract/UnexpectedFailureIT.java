@@ -11,8 +11,8 @@ import ai.kumbuka.memory.adapter.mcp.FailingCommit;
 import ai.kumbuka.memory.platform.PlatformFixture;
 import ai.kumbuka.memory.surface.FailingCallerActor;
 import ai.kumbuka.memory.surface.FailingWithdrawal;
+import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.surface.SurfaceFixture;
-import ai.kumbuka.memory.surface.UnexpectedFailures;
 import ai.kumbuka.memory.tenancy.SubstrateDatabaseResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -102,7 +102,9 @@ class UnexpectedFailureIT {
         SurfaceFixture.clearEntries();
         SurfaceFixture.plant(SurfaceFixture.Planted.shared(SubstrateDatabaseResource.SCOPE_ID,
             KEY, "convention", CONTENT));
-        watched = Logger.getLogger(UnexpectedFailures.class.getName());
+        // The line is written through the surface's log facade, under its
+        // category; UnexpectedFailures mints the reference and the cause.
+        watched = Logger.getLogger(PlatformLog.class.getName());
         handler = new Handler() {
             @Override
             public void publish(LogRecord line) {

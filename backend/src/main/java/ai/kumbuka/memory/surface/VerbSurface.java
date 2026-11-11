@@ -14,6 +14,7 @@ import ai.kumbuka.memory.domain.Draft;
 import ai.kumbuka.memory.domain.EntryAddress;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.IdempotencyKey;
+import ai.kumbuka.memory.domain.Memory;
 import ai.kumbuka.memory.domain.MemoryException;
 import ai.kumbuka.memory.domain.MemoryService;
 import ai.kumbuka.memory.domain.NextStep;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * The six verbs, once, for every protocol that reaches them.
@@ -85,9 +87,9 @@ public class VerbSurface {
         AddressParser.requireAgreement(selectorOf(selector), address);
         AddressParser.requireWritableSelector(address);
 
-        return answerFor(memory.create(actor,
+        return answerFor(logged(memory.create(actor,
             address, new Draft(values.type(), values.content(), values.reference(),
-                values.fixed()), key));
+                values.fixed()), key), PlatformLog::created));
     }
 
     /** The entry at a canonical address. */
@@ -114,7 +116,8 @@ public class VerbSurface {
                          Patch patch) {
         EntryAddress address = AddressParser.parse(parts);
         AddressParser.requireWritableSelector(address);
-        return answerFor(memory.update(actor, address, conflictToken, patch));
+        return answerFor(logged(memory.update(actor, address, conflictToken, patch),
+            PlatformLog::updated));
     }
 
     /** Takes an entry out of force, by whatever means this edition withdraws. */
@@ -123,7 +126,21 @@ public class VerbSurface {
                                             @Nullable String conflictToken) {
         EntryAddress address = AddressParser.parse(parts);
         AddressParser.requireWritableSelector(address);
-        return memory.withdraw(actor, address, conflictToken);
+        return logged(memory.withdraw(actor, address, conflictToken), PlatformLog::withdrawn);
+    }
+
+    /**
+     * The answer of a write, after its one INFO line (C13.3): the verb and
+     * the entry by its technical address, for a write that wrote something.
+     * Written here and not in the domain, which logs nothing (DEC-0051, C4).
+     */
+    private static <T> T logged(MemoryService.Written<T> written,
+                                Consumer<PlatformLog.TechnicalAddress> line) {
+        Memory stored = written.stored();
+        if (stored != null) {
+            line.accept(PlatformLog.TechnicalAddress.of(stored));
+        }
+        return written.answer();
     }
 
     /**
