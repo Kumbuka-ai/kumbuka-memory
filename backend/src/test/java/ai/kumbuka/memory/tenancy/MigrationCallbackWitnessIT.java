@@ -208,7 +208,9 @@ class MigrationCallbackWitnessIT {
         };
         collector.setLevel(Level.ALL);
 
-        var logger = java.util.logging.Logger.getLogger(TenantMigrationCallback.class.getName());
+        // The callback writes its line through the tenancy log facade, under
+        // the facade's category.
+        var logger = java.util.logging.Logger.getLogger(TenancyLog.class.getName());
         var previousLevel = logger.getLevel();
         logger.addHandler(collector);
         logger.setLevel(Level.ALL);

@@ -4,10 +4,10 @@ import org.eclipse.microprofile.config.ConfigProvider;
 import org.flywaydb.core.api.callback.BaseCallback;
 import org.flywaydb.core.api.callback.Context;
 import org.flywaydb.core.api.callback.Event;
-import org.jboss.logging.Logger;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.UUID;
 
 /**
  * Binds {@code app.tenant_id} before every migration, so that a migration
@@ -51,10 +51,9 @@ import java.sql.SQLException;
  */
 public class TenantMigrationCallback extends BaseCallback {
 
-    private static final Logger LOG = Logger.getLogger(TenantMigrationCallback.class);
-
     /**
-     * The prefix of the line this callback leaves behind. Named as a constant
+     * The prefix of the line this callback leaves behind, through
+     * {@link TenancyLog}. Named as a constant
      * because it is a contract with two readers outside this class — the probe
      * that asserts the line is emitted, and whoever reads a deployment's logs
      * to answer "did the binding hold on that run".
@@ -74,8 +73,8 @@ public class TenantMigrationCallback extends BaseCallback {
         // missing or empty value has to be refused, and refusing it in one
         // place is what keeps the two entries agreeing about what counts as
         // set.
-        String tenantId =
-            TenancyConfigurationGuard.requireConfigured(ConfigProvider.getConfig()).toString();
+        UUID tenant = TenancyConfigurationGuard.requireConfigured(ConfigProvider.getConfig());
+        String tenantId = tenant.toString();
         // is_local = true scopes the binding to the transaction Flyway runs
         // the migration in, so it cannot outlive the migration on a pooled
         // connection. Parameterised rather than concatenated: a configured
@@ -103,12 +102,9 @@ public class TenantMigrationCallback extends BaseCallback {
         // handful of lines on a cold start; what it buys is that a deployment
         // can be shown to have bound its tenant rather than assumed to have.
         //
-        // getMigrationInfo() is read without a null guard on purpose. It is
-        // absent only for events that are not per-migration, and supports()
-        // above admits BEFORE_EACH_MIGRATE and nothing else. A guard here
-        // would be a branch no run can take — dead defensive code that reads
-        // as caution while actually being a line nobody can ever test.
-        LOG.infof("%s: app.tenant_id=%s before %s",
-            FIRED_MARKER, tenantId, context.getMigrationInfo().getScript());
+        // Through TenancyLog, and with the tenant only: the line carries the
+        // platform's vocabulary and nothing else (DEC-0051), and the
+        // migration's script name is no type of it.
+        TenancyLog.bindingApplied(TenancyLog.TenantId.of(tenant));
     }
 }

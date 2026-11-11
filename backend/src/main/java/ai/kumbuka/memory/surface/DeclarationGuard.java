@@ -10,7 +10,6 @@ package ai.kumbuka.memory.surface;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
-import org.jboss.logging.Logger;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -40,25 +39,32 @@ import java.util.Set;
 @ApplicationScoped
 public class DeclarationGuard {
 
-    private static final Logger LOG = Logger.getLogger(DeclarationGuard.class);
-
     void onStart(@Observes StartupEvent event) {
         Map<String, ReasonCatalogue.Reason> catalogue = catalogue();
+        refusingWith(PlatformLog.StartProblem.REASON_CATALOGUE_INCOMPLETE,
+            () -> ReasonCatalogue.requireComplete(catalogue));
+        refusingWith(PlatformLog.StartProblem.SCHEMA_KEYWORD_UNKNOWN,
+            () -> requireKnownKeywords(argumentsByCall()));
+        refusingWith(PlatformLog.StartProblem.DECLARATION_NOT_SERVABLE,
+            () -> requireServable(SurfaceDeclaration.asMap(), catalogue.keySet()));
+        PlatformLog.surfaceDeclared(PlatformLog.Count.of(SurfaceDeclaration.calls()),
+            PlatformLog.Count.of(catalogue.keySet()));
+    }
+
+    /**
+     * Runs one stage of the start check, and names its problem on a line of
+     * its own when it refuses (C13.3, WARN): the log format prints no
+     * exception (C13.1), and a start refused without a word why sends an
+     * operator looking for a database that was there. The line names the
+     * stage; the exception, which names calls and codes, is thrown on.
+     */
+    private static void refusingWith(PlatformLog.StartProblem problem, Runnable check) {
         try {
-            ReasonCatalogue.requireComplete(catalogue);
-            requireKnownKeywords(argumentsByCall());
-            requireServable(SurfaceDeclaration.asMap(), catalogue.keySet());
+            check.run();
         } catch (IllegalStateException refusal) {
-            // The reason on a line of its own (C13.3, WARN): the log format
-            // prints no exception (C13.1), and a start refused without a word
-            // why sends an operator looking for a database that was there.
-            // The text is this service's own, naming calls and codes.
-            String why = String.valueOf(refusal.getMessage());
-            LOG.warnf("start refused: %s", why);
+            PlatformLog.startRefused(problem);
             throw refusal;
         }
-        LOG.infof("assistant surface declared: %d calls, %d reasons",
-            SurfaceDeclaration.calls().size(), catalogue.size());
     }
 
     /**

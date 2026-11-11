@@ -13,7 +13,6 @@ import jakarta.enterprise.event.Observes;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigValue;
 import org.eclipse.microprofile.config.ConfigProvider;
-import org.jboss.logging.Logger;
 
 import java.util.UUID;
 
@@ -57,8 +56,6 @@ import java.util.UUID;
 @ApplicationScoped
 public class TenancyConfigurationGuard {
 
-    private static final Logger LOG = Logger.getLogger(TenancyConfigurationGuard.class);
-
     /** The tenancy axis for this deployment. Environment: {@code MEMORY_TENANT_ID}. */
     public static final String TENANT_KEY = "memory.tenant-id";
 
@@ -101,7 +98,9 @@ public class TenancyConfigurationGuard {
         String value = raw == null ? null : raw.getValue();
 
         if (value == null || value.isBlank()) {
-            throw refused(new IllegalStateException(
+            throw refused(value == null
+                ? TenancyLog.StartProblem.TENANT_NOT_SET
+                : TenancyLog.StartProblem.TENANT_EMPTY, new IllegalStateException(
                 "'" + TENANT_KEY + "' is " + (value == null ? "not set" : "empty")
                     + ", and this service will not start without it. It names the estate "
                     + "this installation serves; one installation serves one tenant, and "
@@ -115,7 +114,7 @@ public class TenancyConfigurationGuard {
         try {
             return UUID.fromString(value.trim());
         } catch (IllegalArgumentException notAUuid) {
-            throw refused(new IllegalStateException(
+            throw refused(TenancyLog.StartProblem.TENANT_NOT_A_UUID, new IllegalStateException(
                 "'" + TENANT_KEY + "' is set to something that is not a uuid. A tenant id "
                     + "is a uuid; a value of another shape would reach the session "
                     + "binding and fail there, in a message about a cast rather than "
@@ -128,11 +127,12 @@ public class TenancyConfigurationGuard {
      * The refusal of the start, written on a line of its own before it is
      * thrown (C13.3, WARN: the deployment's configuration). The log format
      * prints no exception (C13.1), so a reason carried only by the exception
-     * would leave an operator with a start that failed and no word why.
+     * would leave an operator with a start that failed and no word why. The
+     * line names the problem; the value that was wrong stays in the exception.
      */
-    private static IllegalStateException refused(IllegalStateException refusal) {
-        String why = String.valueOf(refusal.getMessage());
-        LOG.warnf("start refused: %s", why);
+    private static IllegalStateException refused(TenancyLog.StartProblem problem,
+                                                 IllegalStateException refusal) {
+        TenancyLog.startRefused(problem);
         return refusal;
     }
 }

@@ -151,12 +151,12 @@ class ConflictTokenIT {
     // -----------------------------------------------------------------------
 
     private EntryView create(String content) {
-        return memory.create(PROBE, ENTRY, new Draft("decision", content, null));
+        return memory.create(PROBE, ENTRY, new Draft("decision", content, null)).answer();
     }
 
     private EntryView rewrite(EntryView entry, String content) {
         return memory.update(PROBE, ENTRY, entry.conflictToken(),
-            new Patch(Optional.empty(), Optional.of(content), Optional.empty()));
+            new Patch(Optional.empty(), Optional.of(content), Optional.empty())).answer();
     }
 
     private EntryView read() {

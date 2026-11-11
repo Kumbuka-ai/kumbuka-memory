@@ -19,7 +19,6 @@ import ai.kumbuka.memory.tenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import org.jboss.logging.Logger;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Clock;
@@ -83,16 +82,13 @@ public class MemoryService {
     private static final String SOURCE_SERVICE = "mcp";
 
     /** The call an idempotency key is spent on; the only one that takes a key. */
-    private static final String CREATE = "create";
+    private static final String KEYED_CALL = "create";
 
     /** The argument a type travels in, and the one its refusal names. */
     private static final String TYPE = "type";
 
     /** The argument a tag travels in, and the one its refusals name. */
     private static final String TAG = "tag";
-
-    /** One INFO line per completed write, naming the verb and the entry (C13.3). */
-    private static final Logger LOG = Logger.getLogger(MemoryService.class);
 
     @Inject ScopeDirectory scopes;
     @Inject TagDirectory vocabulary;
@@ -127,13 +123,14 @@ public class MemoryService {
      * type are one value.
      */
     @Transactional
-    public EntryView create(Actor actor, EntryAddress address, Draft draft) {
+    public Written<EntryView> create(Actor actor, EntryAddress address, Draft draft) {
         return create(actor, address, draft, IdempotencyKey.NONE);
     }
 
     /** {@link #create(Actor, EntryAddress, Draft)}, under the key the call carried. */
     @Transactional
-    public EntryView create(Actor actor, EntryAddress address, Draft draft, IdempotencyKey key) {
+    public Written<EntryView> create(Actor actor, EntryAddress address, Draft draft,
+                                     IdempotencyKey key) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
         refuseFixed(draft.fixed());
@@ -149,7 +146,7 @@ public class MemoryService {
             Memory standing = entries.findByLogicalId(first.get(), actor.subject())
                 .filter(entry -> entry.scopeId.equals(scope.scopeId()))
                 .orElseThrow(MemoryService::keyReused);
-            return view(standing, scope.slug(), true);
+            return Written.unchanged(view(standing, scope.slug(), true));
         }
 
         entries.findOccupant(scope.scopeId(), address.key(), scope.isPrivate(),
@@ -178,8 +175,7 @@ public class MemoryService {
         // absent insert, and it is the same occupied address.
         Memory laidDown = entries.insert(entry).orElseThrow(MemoryService::occupied);
         remember(scope.scopeId(), actor, key, digest, laidDown);
-        LOG.infof("create %s", technical(laidDown));
-        return EntryView.of(laidDown, scope.slug(), true, List.of());
+        return new Written<>(EntryView.of(laidDown, scope.slug(), true, List.of()), laidDown);
     }
 
     // ======================================================================
@@ -236,8 +232,8 @@ public class MemoryService {
      * waits at the read and then compares against what the first wrote.
      */
     @Transactional
-    public EntryView update(Actor actor, EntryAddress address, @Nullable String conflictToken,
-                            Patch patch) {
+    public Written<EntryView> update(Actor actor, EntryAddress address,
+                                     @Nullable String conflictToken, Patch patch) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
         refuseFixed(patch.fixed());
@@ -259,7 +255,7 @@ public class MemoryService {
             || !java.util.Objects.equals(reference, entry.reference);
 
         if (!changed) {
-            return view(entry, scope.slug(), true);
+            return Written.unchanged(view(entry, scope.slug(), true));
         }
 
         entry.type = type;
@@ -270,9 +266,8 @@ public class MemoryService {
         entry.changedAt(clock.instant());
 
         Memory updated = entries.update(entry);
-        LOG.infof("update %s", technical(updated));
         // The tags are a relation of the entry, and update leaves them alone.
-        return view(updated, scope.slug(), true);
+        return new Written<>(view(updated, scope.slug(), true), updated);
     }
 
     // ======================================================================
@@ -292,8 +287,8 @@ public class MemoryService {
      * changed after its caller read the token.
      */
     @Transactional
-    public Withdrawn withdraw(Actor actor, EntryAddress address,
-                              @Nullable String conflictToken) {
+    public Written<Withdrawn> withdraw(Actor actor, EntryAddress address,
+                                       @Nullable String conflictToken) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
         Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
@@ -301,9 +296,7 @@ public class MemoryService {
 
         requireCurrentToken(conflictToken, entry, scope);
 
-        String withdrawn = technical(entry);
         Withdrawal.Outcome outcome = withdrawal.withdraw(entry);
-        LOG.infof("withdraw %s", withdrawn);
 
         // Measured after the act, not inferred from it. What the answer says
         // is open next has to come from what is actually true — a listed call
@@ -315,7 +308,7 @@ public class MemoryService {
                 actor.subject())
             .isEmpty();
 
-        return new Withdrawn(address, outcome, released);
+        return new Written<>(new Withdrawn(address, outcome, released), entry);
     }
 
     // ======================================================================
@@ -341,7 +334,7 @@ public class MemoryService {
      * first's row instead of meeting the primary key.
      */
     @Transactional
-    public EntryView tagAttach(Actor actor, EntryAddress address, String token) {
+    public Written<EntryView> tagAttach(Actor actor, EntryAddress address, String token) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
         Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
@@ -362,9 +355,9 @@ public class MemoryService {
             assignment.attachedBy = actor.subject();
             assignment.attachedAt = StoredInstant.asStored(clock.instant());
             assignments.insert(assignment);
-            LOG.infof("tag_attach %s", technical(entry));
+            return new Written<>(view(entry, scope.slug(), true), entry);
         }
-        return view(entry, scope.slug(), true);
+        return Written.unchanged(view(entry, scope.slug(), true));
     }
 
     /**
@@ -377,7 +370,7 @@ public class MemoryService {
      * call succeeds without writing anything.
      */
     @Transactional
-    public EntryView tagDetach(Actor actor, EntryAddress address, String token) {
+    public Written<EntryView> tagDetach(Actor actor, EntryAddress address, String token) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
         Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
@@ -386,9 +379,9 @@ public class MemoryService {
         TagDirectory.Tag tag = vocabulary.inScope(scope.scopeId(), token)
             .orElseThrow(MemoryService::tagUndeclared);
         if (assignments.delete(entry, tag.id()) > 0) {
-            LOG.infof("tag_detach %s", technical(entry));
+            return new Written<>(view(entry, scope.slug(), true), entry);
         }
-        return view(entry, scope.slug(), true);
+        return Written.unchanged(view(entry, scope.slug(), true));
     }
 
     // ======================================================================
@@ -490,7 +483,7 @@ public class MemoryService {
         if (held.isEmpty() || !held.get().stillStandsAt(clock.instant())) {
             return Optional.empty();
         }
-        if (!held.get().records(CREATE, digest)) {
+        if (!held.get().records(KEYED_CALL, digest)) {
             throw keyReused();
         }
         return Optional.of(held.get().entryLogicalId);
@@ -511,7 +504,7 @@ public class MemoryService {
         row.scopeId = scopeId;
         row.callerSubject = caller.subject();
         row.key = given.value();
-        row.callName = CREATE;
+        row.callName = KEYED_CALL;
         row.argumentDigest = digest;
         row.entryLogicalId = produced.logicalId;
         row.firstSeenAt = StoredInstant.asStored(clock.instant());
@@ -538,16 +531,6 @@ public class MemoryService {
         if (!fixed.isEmpty()) {
             throw MemoryException.offending(MemoryException.Reason.FIELD_IMMUTABLE, fixed);
         }
-    }
-
-    /**
-     * The technical address of an entry, the one an INFO line names (C13.3).
-     * Minted by this service and no value its caller wrote: the canonical
-     * address carries the caller's key, and whether that may stand in a log
-     * line is not decided.
-     */
-    private static String technical(Memory entry) {
-        return "memory://" + entry.logicalId;
     }
 
     private static String requireKnownType(@Nullable String type) {
@@ -706,5 +689,27 @@ public class MemoryService {
      */
     public record Withdrawn(EntryAddress address, Withdrawal.Outcome outcome,
                             boolean addressReleased) {
+    }
+
+    /**
+     * What a write answers, and the entry it wrote, if it wrote one.
+     *
+     * <p>The domain logs nothing (DEC-0051, C4). The one INFO line per
+     * completed write (C13.3) is written by the verb surface, which called the
+     * write, and it names the entry by its technical address — which only the
+     * entity carries. So the entity travels back beside the answer, inside the
+     * transaction the surface opened, and stays absent where nothing was
+     * written: a repeat under an idempotency key, an update whose values were
+     * already the entry's.
+     *
+     * @param answer what the verb answers its caller
+     * @param stored the entry the write laid down, changed, withdrew or
+     *               tagged; absent where it wrote nothing
+     */
+    public record Written<T>(T answer, @Nullable Memory stored) {
+
+        static <T> Written<T> unchanged(T answer) {
+            return new Written<>(answer, null);
+        }
     }
 }

@@ -84,7 +84,7 @@ class IdempotencyRaceIT {
                 try {
                     first = memory.create(PROBE, EntryAddress.ofKey(SCOPE, KEY),
                         new Draft("decision", "the one text", null),
-                        IdempotencyKey.of(IDEMPOTENCY_KEY));
+                        IdempotencyKey.of(IDEMPOTENCY_KEY)).answer();
                     int holder = LockWaits.sessionOf(em);
 
                     second = pool.submit(IdempotencyRaceIT::createOverRest);

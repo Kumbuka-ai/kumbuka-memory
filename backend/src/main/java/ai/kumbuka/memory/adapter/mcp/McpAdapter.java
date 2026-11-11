@@ -32,6 +32,7 @@ import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.AssistantVerb.Names;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.CallerActor;
+import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import ai.kumbuka.memory.surface.Texts;
@@ -51,7 +52,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jspecify.annotations.Nullable;
-import org.jboss.logging.Logger;
 
 import java.io.UncheckedIOException;
 import java.util.LinkedHashMap;
@@ -105,13 +105,6 @@ import java.util.Optional;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class McpAdapter {
-
-    /**
-     * DEBUG, as on the generic surface: a refusal is the surface working, and
-     * a log a caller can fill by sending broken calls is a log a caller writes.
-     * Only the reason travels, never an argument.
-     */
-    private static final Logger LOG = Logger.getLogger(McpAdapter.class);
 
     private static final String PROTOCOL_VERSION = "2025-06-18";
     private static final String JSONRPC = "2.0";
@@ -220,26 +213,36 @@ public class McpAdapter {
             return answered(verb, args);
         } catch (RuntimeException failure) {
             return refused(AssistantRefusals.unexpected(verb,
-                UnexpectedFailures.logged(verb.call(), failure)));
+                UnexpectedFailures.logged(verb.verbName(), failure)));
         }
     }
 
+    /*
+     * A refusal is logged at DEBUG, as on the generic surface: a refusal is
+     * the surface working, and a log a caller can fill by sending broken calls
+     * is a log a caller writes. Only the reason travels, never an argument.
+     */
     private ToolResultPayload answered(AssistantVerb verb, Map<String, Object> args) {
         try {
             CallArguments in = new CallArguments(verb, args);
             return transaction.run(() -> content(invoke(verb, in), false));
         } catch (CallException e) {
-            LOG.debugf("assistant refusal: %s", e.reason());
+            PlatformLog.assistantRefused(PlatformLog.RefusalCode.of(e.reason()));
             return refused(AssistantRefusals.of(verb, e, seen(verb, args, Optional.empty())));
         } catch (MemoryException e) {
             if (!foreseen(e)) {
                 // A reason of the generic surface arriving here — a session
                 // the read contract could not be bound for, above all — is a
                 // failure this surface did not foresee, and is answered as one.
+                // The unbound session is a statement about the deployment and
+                // is named at WARN by its code before the failure's line.
+                if (e.reason() == MemoryException.Reason.SESSION_NOT_BOUND) {
+                    PlatformLog.sessionNotBound(PlatformLog.RefusalCode.of(e.reason()));
+                }
                 return refused(AssistantRefusals.unexpected(verb,
-                    UnexpectedFailures.logged(verb.call(), e)));
+                    UnexpectedFailures.logged(verb.verbName(), e)));
             }
-            LOG.debugf("assistant refusal: %s", e.reason());
+            PlatformLog.assistantRefused(PlatformLog.RefusalCode.of(e.reason()));
             return refused(AssistantRefusals.of(verb, e, reasonOf(e),
                 seen(verb, args, Optional.of(e))));
         }
@@ -345,7 +348,10 @@ public class McpAdapter {
                 .entry());
         } catch (MemoryException refused) {
             if (!foreseen(refused)) {
-                UnexpectedFailures.logged(verb.call(), refused);
+                if (refused.reason() == MemoryException.Reason.SESSION_NOT_BOUND) {
+                    PlatformLog.sessionNotBound(PlatformLog.RefusalCode.of(refused.reason()));
+                }
+                UnexpectedFailures.logged(verb.verbName(), refused);
             }
             // Otherwise the read's own refusal: the caller may not see the
             // entry, or there is none.
@@ -354,7 +360,7 @@ public class McpAdapter {
             // Not an answer about visibility but a failure nobody foresaw. It
             // is logged as one; the caller still gets the refusal of the call,
             // without the state of an entry nobody could read.
-            UnexpectedFailures.logged(verb.call(), failure);
+            UnexpectedFailures.logged(verb.verbName(), failure);
             return Optional.empty();
         }
     }
