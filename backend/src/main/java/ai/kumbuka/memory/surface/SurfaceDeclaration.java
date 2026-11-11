@@ -128,7 +128,7 @@ public final class SurfaceDeclaration {
     public static boolean openOn(AssistantVerb verb, EntryView entry) {
         return switch (verb) {
             case READ, QUERY, DIGEST -> true;
-            case UPDATE, WITHDRAW -> entry.writable();
+            case UPDATE, WITHDRAW, TAG_ATTACH, TAG_DETACH -> entry.writable();
             // The entry stands, so its address is taken.
             case CREATE -> false;
         };
@@ -197,6 +197,9 @@ public final class SurfaceDeclaration {
             Map<String, Object> answer = new LinkedHashMap<>();
             answer.put("shape", form.answer().name());
             answer.put("members", form.answer().members());
+            if (!form.answer().fields().isEmpty()) {
+                answer.put("fields", form.answer().fields());
+            }
             call.put("answer", answer);
             call.put("refusals", form.refusals());
             calls.add(call);
@@ -381,6 +384,15 @@ public final class SurfaceDeclaration {
             case DIGEST -> new Form(EffectClass.SCOPE_COMPOUND, null, false,
                 AnswerShape.DIGEST_VIEW, refusals(List.of(Reason.ADDRESS_MALFORMED, Reason.TYPE_UNKNOWN),
                     BODY));
+            // A write on an addressed entry that asks for no conflict token:
+            // an assignment is a relation added or removed, which is the
+            // router's graph class, and the entry's own row is not written.
+            case TAG_ATTACH -> new Form(EffectClass.GRAPH_ADD_OR_REMOVE, null, false,
+                AnswerShape.ENTRY_TAGS, refusals(WRITE, ADDRESSED,
+                    List.of(Reason.VALUE_UNDECLARED, Reason.VALUE_WITHDRAWN), BODY));
+            case TAG_DETACH -> new Form(EffectClass.GRAPH_ADD_OR_REMOVE, null, false,
+                AnswerShape.ENTRY_TAGS, refusals(WRITE, ADDRESSED,
+                    List.of(Reason.VALUE_UNDECLARED), BODY));
         };
     }
 

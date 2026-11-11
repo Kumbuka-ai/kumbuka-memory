@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.tenancy;
 
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager;
@@ -122,6 +129,31 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
     public static final String PLATFORM_ROLE = "kumbuka";
     public static final String PLATFORM_SCHEMA = "platform";
     public static final String DIRECTORY_VIEW = "scope_access";
+
+    /**
+     * The platform's tag vocabulary: the base table, which the service may
+     * not read, and the view it reads instead (the contract built in
+     * kumbuka-server, staged here so that the suite runs before that release).
+     */
+    public static final String TAG_TABLE = "tag";
+    public static final String TAG_VIEW = "tag_access";
+
+    /**
+     * The vocabulary every tag probe reads against. In the probe scope of
+     * tenant A: two tags in force and one withdrawn. In the scope of tenant B:
+     * a tag with the same token as one of A's, which no call of A may reach,
+     * and one of B's own.
+     */
+    public static final String TAG_COMPONENT = "component:memory";
+    public static final String TAG_RELEASE = "release:v1";
+    public static final String TAG_RETIRED = "legacy";
+    public static final String TAG_OTHER_TENANT = "beta-only";
+
+    public static final String TAG_COMPONENT_ID = "00000000-0000-0000-0000-0000000000a1";
+    public static final String TAG_RELEASE_ID = "00000000-0000-0000-0000-0000000000a2";
+    public static final String TAG_RETIRED_ID = "00000000-0000-0000-0000-0000000000a3";
+    public static final String OTHER_TENANT_COMPONENT_ID = "00000000-0000-0000-0000-0000000000b1";
+    public static final String OTHER_TENANT_TAG_ID = "00000000-0000-0000-0000-0000000000b2";
 
     /**
      * The population every probe in this suite reads against.
@@ -320,11 +352,15 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
                        OR s.created_by = NULLIF(current_setting('app.subject', true), ''))
             """);
 
+        stageTagVocabulary(s);
+
         // The owner-normalisation sweep, in the one respect this suite cares
         // about: the view must not be owned by a superuser.
         s.execute("ALTER TABLE public.scope        OWNER TO " + PLATFORM_ROLE);
         s.execute("ALTER TABLE public.user_account OWNER TO " + PLATFORM_ROLE);
         s.execute("ALTER VIEW  platform.scope_access OWNER TO " + PLATFORM_ROLE);
+        s.execute("ALTER TABLE platform.tag        OWNER TO " + PLATFORM_ROLE);
+        s.execute("ALTER VIEW  platform.tag_access OWNER TO " + PLATFORM_ROLE);
 
         // The grants are NOT issued here, and the omission is deliberate. The
         // service's own migration creates its role during boot, which is after
@@ -350,6 +386,79 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
         stageScope(s, OTHER_TENANT_SCOPE_ID, OTHER_TENANT_SCOPE_SLUG, "project", false);
         stageMember(s, OTHER_TENANT_SUBJECT, false);
         s.execute("RESET app.tenant_id");
+
+        // The vocabulary, after the scopes it is declared in.
+        stageTag(s, TAG_COMPONENT_ID, TENANT_ID, SCOPE_ID, TAG_COMPONENT, "declared");
+        stageTag(s, TAG_RELEASE_ID, TENANT_ID, SCOPE_ID, TAG_RELEASE, "declared");
+        stageTag(s, TAG_RETIRED_ID, TENANT_ID, SCOPE_ID, TAG_RETIRED, "withdrawn");
+        stageTag(s, OTHER_TENANT_COMPONENT_ID, OTHER_TENANT_ID, OTHER_TENANT_SCOPE_ID,
+            TAG_COMPONENT, "declared");
+        stageTag(s, OTHER_TENANT_TAG_ID, OTHER_TENANT_ID, OTHER_TENANT_SCOPE_ID,
+            TAG_OTHER_TENANT, "declared");
+    }
+
+    /**
+     * The tag vocabulary as the platform contract has it: the base table
+     * {@code platform.tag} under row-level security, and the view
+     * {@code platform.tag_access} over it, joined to {@code platform.scope_access}
+     * by scope, so that it answers only tags of scopes the bound tenant and
+     * subject may see.
+     *
+     * <p>Reconstructed column for column from the contract, for the reason the
+     * scope table is: a substrate publishing a column the platform does not
+     * have would let a probe pass against a contract no deployment offers. The
+     * reference to the scope points at {@code public.scope}, where this
+     * substrate keeps its base tables.
+     *
+     * <p>The grant to the service role is not issued here but by
+     * {@code PlatformFixture}, once the role exists, as for the scope view.
+     */
+    private static void stageTagVocabulary(Statement s) throws SQLException {
+        // The platform's role reaches its own schema. The foreign key from the
+        // tag to its scope is checked as the owner of platform.tag, and that
+        // check needs USAGE on the schema the table sits in: without it a
+        // scope cannot be deleted at all (measured: ForeignTenantCursorIT).
+        s.execute("GRANT USAGE ON SCHEMA " + PLATFORM_SCHEMA + " TO " + PLATFORM_ROLE);
+        s.execute("""
+            CREATE TABLE IF NOT EXISTS platform.tag (
+                id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id    uuid NOT NULL,
+                scope_id     uuid NOT NULL REFERENCES public.scope (id),
+                token        text NOT NULL CHECK (token ~ '^[a-z0-9][a-z0-9:-]{0,62}$'),
+                description  text NULL,
+                status       text NOT NULL DEFAULT 'declared'
+                             CHECK (status IN ('declared', 'withdrawn')),
+                created_by   text NOT NULL,
+                created_at   timestamptz NOT NULL DEFAULT now(),
+                withdrawn_at timestamptz NULL,
+                UNIQUE (scope_id, token))
+            """);
+        s.execute("ALTER TABLE platform.tag ENABLE ROW LEVEL SECURITY");
+        s.execute("ALTER TABLE platform.tag FORCE  ROW LEVEL SECURITY");
+        s.execute("DROP POLICY IF EXISTS tag_tenant_isolation ON platform.tag");
+        s.execute("CREATE POLICY tag_tenant_isolation ON platform.tag"
+            + " USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)"
+            + " WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)");
+        s.execute("""
+            CREATE OR REPLACE VIEW platform.tag_access AS
+                SELECT t.id          AS tag_id,
+                       t.scope_id    AS scope_id,
+                       t.token       AS token,
+                       t.description AS description,
+                       t.status      AS status
+                FROM platform.tag t
+                JOIN platform.scope_access sa ON sa.scope_id = t.scope_id
+            """);
+    }
+
+    /** One tag of the vocabulary, written as the superuser under its own tenant. */
+    private static void stageTag(Statement s, String id, String tenant, String scope,
+                                 String token, String status) throws SQLException {
+        s.execute("INSERT INTO platform.tag (id, tenant_id, scope_id, token, status, created_by, "
+            + "withdrawn_at) SELECT '" + id + "', '" + tenant + "', '" + scope + "', '" + token
+            + "', '" + status + "', 'platform-admin', "
+            + ("withdrawn".equals(status) ? "now()" : "NULL") + " "
+            + "WHERE NOT EXISTS (SELECT 1 FROM platform.tag WHERE id = '" + id + "')");
     }
 
     /** One scope of the bound tenant. Autorless, as a fresh chain produces them. */

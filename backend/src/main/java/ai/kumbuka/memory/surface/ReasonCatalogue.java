@@ -264,6 +264,11 @@ public final class ReasonCatalogue {
             f -> r().contentOversize(Bound.CONTENT_LIMIT));
         repeat(declared, "REFERENCE_CREDENTIAL_BEARING", f -> m().referenceCredentialBearing(),
             f -> r().referenceCredentialBearing());
+        // A tag is named by its argument and never by the token sent.
+        repeat(declared, "VALUE_UNDECLARED", f -> m().valueUndeclared(f.call(), f.path()),
+            f -> r().valueUndeclared(f.path()));
+        repeat(declared, "VALUE_WITHDRAWN", f -> m().valueWithdrawn(f.call(), f.path()),
+            f -> r().valueWithdrawn(f.path()));
         repeat(declared, "PAGE_SIZE_REJECTED", f -> m().pageSizeRejected(f.call()),
             f -> r().pageSizeRejected(Bound.PAGE_SIZE_MIN, Bound.PAGE_SIZE_MAX));
         put(declared, "CURSOR_MALFORMED", f -> m().cursorMalformed(query),

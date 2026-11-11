@@ -9,6 +9,7 @@ package ai.kumbuka.memory.domain;
 
 import ai.kumbuka.memory.platform.Access;
 import ai.kumbuka.memory.platform.ScopeDirectory;
+import ai.kumbuka.memory.platform.TagDirectory;
 import ai.kumbuka.memory.repository.DigestPreferenceRepository;
 import ai.kumbuka.memory.repository.MemoryRepository;
 import ai.kumbuka.memory.tenancy.TenantBound;
@@ -50,20 +51,34 @@ public class DigestService {
     /** The argument the chosen types travel in, and the one their refusals name. */
     private static final String TYPES = "types";
 
+    /** The argument the tags to narrow to travel in, and the one their refusals name. */
+    private static final String TAGS = "tags";
+
     @Inject ScopeDirectory scopes;
+    @Inject TagDirectory vocabulary;
     @Inject MemoryRepository entries;
     @Inject DigestPreferenceRepository preferences;
 
     /**
      * The digest of a scope.
      *
+     * <p>Without tags, or with an empty list, it is the digest the estate's
+     * selection or the override names, exactly. With tags it carries every constraint it would carry anyway, whatever
+     * the constraint's tags, and of every other type of its selection only the
+     * entries that carry at least one of the tags. A token no covered scope
+     * declares, or one withdrawn, is no refusal: it keeps nothing, or what
+     * still carries it. The summary and the totals count what the narrowing
+     * keeps, so that they describe the digest the caller holds.
+     *
      * @param actor     who is asking; private entries of others are not here
      * @param scopeSlug the scope to read
      * @param override  the types to carry content for, or null to use the
      *                  estate's selection
+     * @param tags      the tokens to narrow to, or null or empty for no narrowing
      */
     @Transactional
-    public DigestView digest(Actor actor, String scopeSlug, @Nullable List<String> override) {
+    public DigestView digest(Actor actor, String scopeSlug, @Nullable List<String> override,
+                             @Nullable List<String> tags) {
         ScopeDirectory.ScopeAccess scope =
             scopes.resolve(actor.subject(), scopeSlug, Access.READ);
 
@@ -73,15 +88,22 @@ public class DigestService {
         List<EntryType> carried = override == null
             ? knownTypesOf(selection.types())
             : chosen(override);
+        List<String> asked = tags == null ? List.of() : named(tags);
 
         List<ScopeAndSlug> covered = coveredScopes(actor, scope, selection.includeGlobal());
         List<UUID> scopeIds = covered.stream().map(ScopeAndSlug::id).toList();
+
+        // The tokens are resolved in every covered scope, of any status: a
+        // withdrawn tag takes no new assignment, and the ones that stand are
+        // still read.
+        MemoryRepository.@Nullable Tagged narrowing = asked.isEmpty() ? null
+            : new MemoryRepository.Tagged(EntryType.CONSTRAINT, vocabulary.idsOf(scopeIds, asked));
 
         // Read once and passed on. The summary, the entry count and the token
         // total are three readings of one aggregate; three statements would be
         // three chances for them to disagree with each other inside one answer.
         Map<String, MemoryRepository.TypeTally> tallies =
-            entries.tallyByType(scopeIds, actor.subject());
+            entries.tallyByType(scopeIds, actor.subject(), narrowing);
 
         return new DigestView(
             scope.slug(),
@@ -91,7 +113,7 @@ public class DigestService {
             tallies.values().stream().mapToLong(MemoryRepository.TypeTally::count).sum(),
             DigestView.tokensFor(tallies.values().stream()
                 .mapToLong(MemoryRepository.TypeTally::characters).sum()),
-            sectionsOf(scopeIds, carried, covered, actor),
+            sectionsOf(new Reading(scopeIds, carried, narrowing), covered, actor),
             unaddressableIn(covered, actor));
     }
 
@@ -154,15 +176,17 @@ public class DigestService {
      * grouping preserves that inside each type, so the two orderings the
      * contract asks for come out of one read.
      */
-    private List<DigestView.Section> sectionsOf(List<UUID> scopeIds, List<EntryType> carried,
-                                                List<ScopeAndSlug> covered, Actor actor) {
+    private List<DigestView.Section> sectionsOf(Reading reading, List<ScopeAndSlug> covered,
+                                                Actor actor) {
+        List<EntryType> carried = reading.carried();
         Map<UUID, String> slugs = new LinkedHashMap<>();
         covered.forEach(scope -> slugs.put(scope.id(), scope.slug()));
 
         Map<String, List<DigestView.Entry>> byType = new LinkedHashMap<>();
         carried.forEach(type -> byType.put(type.wire(), new ArrayList<>()));
 
-        for (Memory entry : entries.loadForDigest(scopeIds, carried, actor.subject())) {
+        for (Memory entry : entries.loadForDigest(reading.scopeIds(), carried, actor.subject(),
+                reading.narrowing())) {
             loaded(byType, entry.type).add(new DigestView.Entry(
                 EntryAddress.ofKey(loaded(slugs, entry.scopeId), entry.key),
                 entry.key,
@@ -242,6 +266,25 @@ public class DigestService {
         return stored.stream().map(t -> EntryType.of(t).orElseThrow()).toList();
     }
 
+    /**
+     * The tokens a caller narrowed to, refused by position where one is no
+     * text. Whether a token names a tag is not checked: an unknown one keeps
+     * nothing, which is the answer and not a refusal.
+     */
+    private static List<String> named(List<String> asked) {
+        List<String> blank = new ArrayList<>();
+        for (int at = 0; at < asked.size(); at++) {
+            String token = asked.get(at);
+            if (token == null || token.isBlank()) {
+                blank.add(TAGS + "[" + at + "]");
+            }
+        }
+        if (!blank.isEmpty()) {
+            throw MemoryException.offending(MemoryException.Reason.ARGUMENT_INVALID, blank);
+        }
+        return asked.stream().distinct().toList();
+    }
+
     private static IllegalStateException selectionMissing() {
         return new IllegalStateException(
             "no digest selection is stored, not even the estate's default. V4 seeds that "
@@ -251,5 +294,10 @@ public class DigestService {
 
     /** A covered scope and the name a digest entry's address carries for it. */
     private record ScopeAndSlug(UUID id, String slug) {
+    }
+
+    /** What the content is read over: the scopes, the types and the narrowing. */
+    private record Reading(List<UUID> scopeIds, List<EntryType> carried,
+                           MemoryRepository.@Nullable Tagged narrowing) {
     }
 }

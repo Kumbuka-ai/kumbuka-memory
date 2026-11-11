@@ -110,6 +110,21 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
     }
 
     /**
+     * The filter with a tag, reduced the same way. Without a tag it is the
+     * fingerprint above, so a cursor handed out before the tag filter existed
+     * still continues its listing.
+     */
+    public static String fingerprint(@Nullable EntryType type, @Nullable String text,
+                                     @Nullable String tag) {
+        if (tag == null) {
+            return fingerprint(type, text);
+        }
+        return digestOf("type=" + (type == null ? "" : type.wire())
+            + SEPARATOR + "text=" + (text == null ? "" : text)
+            + SEPARATOR + "tag=" + tag);
+    }
+
+    /**
      * A scope, reduced to a value that names it in one estate and in no other.
      *
      * <p>Its technical identity rather than its slug, for the reason the class

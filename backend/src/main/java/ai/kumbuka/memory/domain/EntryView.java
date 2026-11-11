@@ -10,6 +10,8 @@ package ai.kumbuka.memory.domain;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 
 /**
  * One entry, as a caller reads it.
@@ -34,6 +36,11 @@ import java.time.Instant;
  *
  * <p>{@code reference} is the one member that may be absent, and its absence
  * says the entry carries no provenance pointer.
+ *
+ * <p>{@code tags} are the tokens of the tags the entry carries, sorted
+ * ascending, withdrawn ones included, and empty where it carries none. They
+ * are a relation of the entry rather than a value of it (V11), and no write of
+ * the entry's own fields changes them.
  */
 public record EntryView(
     EntryAddress address,
@@ -47,7 +54,12 @@ public record EntryView(
     Instant createdAt,
     Instant updatedAt,
     String conflictToken,
-    boolean writable) {
+    boolean writable,
+    List<String> tags) {
+
+    public EntryView {
+        tags = List.copyOf(tags);
+    }
 
     /**
      * The projection of a stored entry, for a caller who may already see it.
@@ -55,8 +67,10 @@ public record EntryView(
      * @param scopeSlug the scope's name, resolved — never the stored uuid
      * @param writable  whether this caller may write in that scope, which is
      *                  what decides the calls the answer offers next
+     * @param tags      the tokens the entry carries, in any order; sorted here
      */
-    public static EntryView of(Memory entry, String scopeSlug, boolean writable) {
+    public static EntryView of(Memory entry, String scopeSlug, boolean writable,
+                               Collection<String> tags) {
         return new EntryView(
             EntryAddress.ofKey(scopeSlug, entry.key),
             scopeSlug,
@@ -69,7 +83,8 @@ public record EntryView(
             entry.createdAt,
             entry.updatedAt,
             tokenOf(entry),
-            writable);
+            writable,
+            tags.stream().sorted().toList());
     }
 
     /**

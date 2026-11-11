@@ -10,6 +10,7 @@ package ai.kumbuka.memory.tenancy;
 import ai.kumbuka.memory.repository.DigestPreferenceRepository;
 import ai.kumbuka.memory.repository.IdempotencyRepository;
 import ai.kumbuka.memory.repository.ScopeAccessRepository;
+import ai.kumbuka.memory.repository.TagAccessRepository;
 
 import org.junit.jupiter.api.Test;
 
@@ -119,6 +120,10 @@ class RawSqlArchitectureTest {
                 + "like a table this service maps and could write), and binds and "
                 + "reads the session settings through set_config and current_setting, "
                 + "which have no JPQL expression"),
+        TagAccessRepository.class, new Reasoned(3,
+            "reads platform.tag_access, the platform's published tag vocabulary, which "
+                + "deliberately has no entity here for the reason scope_access has none: an "
+                + "entity would make it look like a table this service maps and could write"),
         DigestPreferenceRepository.class, new Reasoned(1,
             "reads a PostgreSQL text[] column; JPQL has no array expression and JPA "
                 + "no portable mapping for one, and an entity would suggest a table "

@@ -132,7 +132,7 @@ final class CallArguments {
             case Argument.INTEGER -> isWholeNumber(value);
             case Argument.ARRAY -> {
                 requireTextElements(argument.argumentName(), value);
-                yield value instanceof List<?> list && !list.isEmpty();
+                yield value instanceof List<?> list && list.size() >= minItems(argument);
             }
             default -> throw new IllegalStateException(
                 argument.name() + " is declared with a type the check does not know");
@@ -143,6 +143,16 @@ final class CallArguments {
             }
             throw CallException.invalid(ArgumentPath.of(argument.argumentName()));
         }
+    }
+
+    /**
+     * The fewest elements a list argument takes, as its declaration states
+     * it: {@code types} at least one, {@code tags} none, because an empty list
+     * of tags is the digest without tags.
+     */
+    private static int minItems(Argument argument) {
+        return argument.keywords().get("minItems") instanceof Number least
+            ? least.intValue() : 0;
     }
 
     private static boolean isWholeNumber(Object value) {

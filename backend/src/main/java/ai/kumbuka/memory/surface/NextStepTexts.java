@@ -34,6 +34,10 @@ public interface NextStepTexts {
 
     @Message String digest();
 
+    @Message String tagAttach();
+
+    @Message String tagDetach();
+
     /** After a withdrawal that freed the address. */
     @Message String afterRelease();
 

@@ -95,13 +95,24 @@ public final class Payloads {
     /**
      * The body of a {@code digest}.
      *
-     * <p>One member, and it overrides rather than configures: a digest asked
-     * with types answers for those types once, and the estate's stored
-     * selection is unchanged. There is no write surface for that selection.
+     * <p>Both members override rather than configure: a digest asked with
+     * types or tags answers for them once, and the estate's stored selection
+     * is unchanged. There is no write surface for that selection.
      *
      * @param types the types to carry; absent for the estate's stored selection
+     * @param tags  the tags to narrow to; absent or empty for no narrowing
      */
-    public record DigestRequestPayload(@JsonProperty("types") @Nullable List<String> types) {
+    public record DigestRequestPayload(@JsonProperty("types") @Nullable List<String> types,
+                                       @JsonProperty("tags") @Nullable List<String> tags) {
+    }
+
+    /**
+     * The body of {@code tag_attach} and {@code tag_detach}.
+     *
+     * @param tag the token; absent where the body carried none, which the verb
+     *            refuses as a missing argument
+     */
+    public record TagRequestPayload(@JsonProperty("tag") @Nullable String tag) {
     }
 
     // ======================================================================
@@ -121,6 +132,11 @@ public final class Payloads {
      * <p>Every member may be absent in a body, which says the caller did not
      * send it. In an answer only {@code reference} is ever absent, and there
      * it says the entry has none.
+     *
+     * <p>{@code tags} are the tokens the entry carries, sorted, and an empty
+     * list where it carries none. They are read here and written only by
+     * {@code tag_attach} and {@code tag_detach}; a body of create or update
+     * that names them is refused like a field those calls do not change.
      */
     public record EntryFieldsPayload(
         @JsonProperty("scope") @Nullable String scope,
@@ -131,21 +147,22 @@ public final class Payloads {
         @JsonProperty("state") @Nullable String state,
         @JsonProperty("private") @Nullable Boolean isPrivate,
         @JsonProperty("created_at") @Nullable Instant createdAt,
-        @JsonProperty("updated_at") @Nullable Instant updatedAt) {
+        @JsonProperty("updated_at") @Nullable Instant updatedAt,
+        @JsonProperty("tags") @Nullable List<String> tags) {
 
         /** The one projection of a stored entry. Used by every answer and every refusal. */
         public static EntryFieldsPayload of(EntryView entry) {
             return new EntryFieldsPayload(entry.scope(), entry.key(), entry.type(), entry.content(),
                 entry.reference(), entry.state(), entry.isPrivate(),
-                entry.createdAt(), entry.updatedAt());
+                entry.createdAt(), entry.updatedAt(), entry.tags());
         }
 
         /** The names a caller may send. Everything else in a body is refused by name. */
         public static final Set<String> WRITABLE = Set.of("type", "content", "reference");
 
-        /** The names that exist but are fixed for the life of an entry. */
+        /** The names that exist but that create and update do not write. */
         public static final Set<String> IMMUTABLE = Set.of("scope", "key", "state",
-            "private", "created_at", "updated_at");
+            "private", "created_at", "updated_at", "tags");
     }
 
     /** One call open to this caller, and what it does. */
@@ -257,6 +274,25 @@ public final class Payloads {
             return new WithdrawnPayload(address,
                 withdrawn.outcome().name().toLowerCase(Locale.ROOT),
                 withdrawn.addressReleased(), next);
+        }
+    }
+
+    /**
+     * The answer to {@code tag_attach} and {@code tag_detach}: the entry's
+     * complete address, every tag it carries now, and the steps open on it.
+     *
+     * <p>No {@code fields} and no conflict token: the call wrote no value of
+     * the entry and moved no token, and an answer that handed one out would
+     * suggest it had.
+     */
+    public record TagsPayload(
+        @JsonProperty("address") String address,
+        @JsonProperty("tags") List<String> tags,
+        @JsonProperty("next") List<NextPayload> next) {
+
+        public static TagsPayload of(VerbSurface.Answer answer) {
+            return new TagsPayload(answer.entry().address().canonical(), answer.entry().tags(),
+                NextPayload.of(answer.next()));
         }
     }
 
@@ -603,8 +639,8 @@ public final class Payloads {
      * argument the call does not have, decidable without a scope (DEC-0042).
      */
     private static final List<String> QUERY_ARGUMENTS = List.of(AssistantVerb.Names.TYPE,
-        AssistantVerb.Names.TEXT, PageCursor.AFTER, AssistantVerb.Names.SORT,
-        AssistantVerb.Names.DIRECTION, PageRequest.PAGE_SIZE);
+        AssistantVerb.Names.TEXT, AssistantVerb.Names.TAG, PageCursor.AFTER,
+        AssistantVerb.Names.SORT, AssistantVerb.Names.DIRECTION, PageRequest.PAGE_SIZE);
 
     /**
      * The narrowing and the page of a {@code query}, by name as they arrived,
@@ -625,6 +661,7 @@ public final class Payloads {
         return new VerbSurface.Query(
             nonBlank(asked.get(AssistantVerb.Names.TYPE)).orElse(null),
             nonBlank(asked.get(AssistantVerb.Names.TEXT)).orElse(null),
+            nonBlank(asked.get(AssistantVerb.Names.TAG)).orElse(null),
             new PageRequest(
                 nonBlank(asked.get(PageCursor.AFTER)).orElse(null),
                 sortOf(asked.get(AssistantVerb.Names.SORT)),
@@ -685,6 +722,23 @@ public final class Payloads {
         return request == null ? Optional.empty() : Optional.ofNullable(request.types());
     }
 
+    /** The tags a digest was asked to narrow to, or empty for no narrowing. */
+    public static Optional<List<String>> digestTags(@Nullable DigestRequestPayload request) {
+        return request == null ? Optional.empty() : Optional.ofNullable(request.tags());
+    }
+
+    /**
+     * The token of a tag call, refused as missing where the body carried
+     * none: JSON {@code null} means the argument was not sent (DEC-0043 R17).
+     */
+    public static String tagOf(AssistantVerb verb, @Nullable TagRequestPayload request) {
+        @Nullable String tag = request == null ? null : request.tag();
+        if (tag == null) {
+            throw CallException.missing(verb.declaredName(AssistantVerb.Names.TAG).orElseThrow());
+        }
+        return tag;
+    }
+
     /**
      * {@code fields} is required by both writing verbs, so its absence and a
      * {@code null} are both {@code ARGUMENT_MISSING}, as on the assistant
@@ -726,6 +780,11 @@ public final class Payloads {
         }
         if (fields.updatedAt() != null) {
             offenders.add("updated_at");
+        }
+        // Written by tag_attach and tag_detach alone, and named rather than
+        // dropped, so that a caller who sent them learns they did nothing.
+        if (fields.tags() != null) {
+            offenders.add("tags");
         }
         return offenders;
     }

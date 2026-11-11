@@ -361,7 +361,7 @@ class QueryIT {
             .as("a filter that is silently dropped answers with the whole set and looks "
                 + "exactly like a correct narrow one; the refusal names the arguments the "
                 + "query takes, and never the one that arrived (DEC-0043 R19)")
-            .containsExactly("type", "text", "after", "sort", "direction", "page_size");
+            .containsExactly("type", "text", "tag", "after", "sort", "direction", "page_size");
         assertThat(answer.asString()).doesNotContain("author");
     }
 

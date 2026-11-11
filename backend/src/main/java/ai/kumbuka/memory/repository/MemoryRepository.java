@@ -94,6 +94,20 @@ public class MemoryRepository {
     /** An entry whose key carries a selector, and can therefore be addressed. */
     private static final String ADDRESSABLE = "m.key IS NOT NULL AND LOCATE('.', m.key) > 1";
 
+    /** The parameter the tag ids of a narrowing are bound to. */
+    private static final String TAGS = "tags";
+
+    /**
+     * An entry that carries at least one of the bound tags (V11): a join over
+     * the assignment, by the entry's durable key.
+     */
+    private static final String CARRIES_ONE_OF = "EXISTS (SELECT t.tagId FROM EntryTag t "
+        + "WHERE t.entryLogicalId = m.logicalId AND t.entryVersion = m.version "
+        + "AND t.tagId IN :" + TAGS + ")";
+
+    /** The parameter the type a tag narrowing carries whole is bound to. */
+    private static final String WHOLE = "whole";
+
     /**
      * The two unique indexes of V1 that hold one entry in force per key: per
      * shared scope, and per private scope and author.
@@ -316,6 +330,11 @@ public class MemoryRepository {
                 .append(LIKE_ESCAPE).append('\'');
             bound.put("text", "%" + likeLiteral(filter.text().toLowerCase(Locale.ROOT)) + "%");
         }
+        UUID tag = filter.tagId();
+        if (tag != null) {
+            where.append(AND).append(CARRIES_ONE_OF);
+            bound.put(TAGS, List.of(tag));
+        }
         if (request.after() != null) {
             where.append(AND).append(keysetAfter(asked.sort(), asked.direction()));
             bound.put("afterKey", request.after().key());
@@ -411,21 +430,52 @@ public class MemoryRepository {
      * The ordering is by type in the digest's order and, inside a type, by the
      * date the entry was laid down — oldest first, because a digest reads as a
      * record of how the estate came to be what it is.
+     *
+     * @param narrowing the entries a digest asked with tags keeps, or null for
+     *                  every entry, which is the digest without tags unchanged
      */
     @Transactional
     public List<Memory> loadForDigest(List<UUID> scopeIds, List<EntryType> types,
-                                      String caller) {
+                                      String caller, @Nullable Tagged narrowing) {
         if (scopeIds.isEmpty() || types.isEmpty()) {
             return List.of();
         }
-        return em.createQuery(
+        var rows = em.createQuery(
                 "SELECT m FROM Memory m WHERE m.scopeId IN :scopes AND m.type IN :types"
-                    + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE
+                    + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE + keptBy(narrowing)
                     + " ORDER BY m.createdAt ASC, m.key ASC", Memory.class)
             .setParameter("scopes", scopeIds)
             .setParameter("types", types.stream().map(EntryType::wire).toList())
-            .setParameter(CALLER, caller)
-            .getResultList();
+            .setParameter(CALLER, caller);
+        bindNarrowing(narrowing).forEach(rows::setParameter);
+        return rows.getResultList();
+    }
+
+    /**
+     * The predicate a tag narrowing adds, or nothing: the type it carries
+     * whole, or an entry that carries one of its tags. Without a tag that
+     * resolved, only the type carried whole is kept, because an empty
+     * {@code IN} is no list a statement can bind.
+     */
+    private static String keptBy(@Nullable Tagged narrowing) {
+        if (narrowing == null) {
+            return "";
+        }
+        return AND + (narrowing.tagIds().isEmpty()
+            ? "m.type = :" + WHOLE
+            : "(m.type = :" + WHOLE + " OR " + CARRIES_ONE_OF + ")");
+    }
+
+    private static Map<String, Object> bindNarrowing(@Nullable Tagged narrowing) {
+        if (narrowing == null) {
+            return Map.of();
+        }
+        Map<String, Object> bound = new java.util.LinkedHashMap<>();
+        bound.put(WHOLE, narrowing.carriedWhole().wire());
+        if (!narrowing.tagIds().isEmpty()) {
+            bound.put(TAGS, narrowing.tagIds());
+        }
+        return bound;
     }
 
     /**
@@ -435,20 +485,26 @@ public class MemoryRepository {
      * lets a digest say "there are eleven open questions here that this digest
      * does not carry". The length is summed in the database rather than over
      * fetched rows, so the summary costs one statement and not the whole table.
+     *
+     * @param narrowing the same narrowing the digest's content is read with,
+     *                  so that the summary describes what the digest carries;
+     *                  null for every entry
      */
     @Transactional
-    public Map<String, TypeTally> tallyByType(List<UUID> scopeIds, String caller) {
+    public Map<String, TypeTally> tallyByType(List<UUID> scopeIds, String caller,
+                                              @Nullable Tagged narrowing) {
         if (scopeIds.isEmpty()) {
             return Map.of();
         }
-        List<Object[]> rows = em.createQuery(
+        var statement = em.createQuery(
                 "SELECT m.type, COUNT(m), COALESCE(SUM(LENGTH(m.content)), 0) "
                     + "FROM Memory m WHERE m.scopeId IN :scopes"
-                    + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE
+                    + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE + keptBy(narrowing)
                     + " GROUP BY m.type", Object[].class)
             .setParameter("scopes", scopeIds)
-            .setParameter(CALLER, caller)
-            .getResultList();
+            .setParameter(CALLER, caller);
+        bindNarrowing(narrowing).forEach(statement::setParameter);
+        List<Object[]> rows = statement.getResultList();
 
         Map<String, TypeTally> tallies = new java.util.LinkedHashMap<>();
         for (Object[] row : rows) {
@@ -478,6 +534,20 @@ public class MemoryRepository {
      */
     public record Keyset(UUID scopeId, @Nullable String selector, String caller,
                          QueryFilter filter, PageRequest page, @Nullable PageCursor after) {
+    }
+
+    /**
+     * What a digest asked with tags keeps: every entry of one type, and of
+     * the others those that carry at least one of the tags.
+     *
+     * @param carriedWhole the type kept whatever its tags
+     * @param tagIds       the tags the tokens resolved to; empty where none did
+     */
+    public record Tagged(EntryType carriedWhole, List<UUID> tagIds) {
+
+        public Tagged {
+            tagIds = List.copyOf(tagIds);
+        }
     }
 
     /** The rows of one page, whether more follows them, and what this surface cannot show. */

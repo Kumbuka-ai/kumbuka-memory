@@ -86,6 +86,7 @@ final class DeclarationTranscript {
         Arg address = new Arg("address", "string", true, null, List.of());
         Arg token = new Arg("conflict_token", "string", true, null, List.of());
         Arg fields = new Arg("fields", "object", true, null, List.of());
+        Arg tag = new Arg("tag", "string", true, null, List.of());
         return List.of(
             new Verb("memory_create", "create", "CREATE", null, false, List.of(fields,
                 scope, new Arg("selector", "string", true, null, SELECTORS),
@@ -121,6 +122,7 @@ final class DeclarationTranscript {
                     new Arg("selector", "string", false, null, SELECTORS),
                     new Arg("type", "string", false, null, TYPES),
                     new Arg("text", "string", false, null, List.of()),
+                    new Arg("tag", "string", false, null, List.of()),
                     new Arg("after", "string", false, null, List.of()),
                     new Arg("sort", "string", false, "id", List.of("id", "created_at")),
                     new Arg("direction", "string", false, "asc", List.of("asc", "desc")),
@@ -130,12 +132,34 @@ final class DeclarationTranscript {
                     "PAGE_SIZE_REJECTED", "CURSOR_MALFORMED", "CURSOR_FOREIGN",
                     "SORT_UNDECLARED")),
             new Verb("memory_digest", "digest", "SCOPE_COMPOUND", null, false,
-                List.of(scope, new Arg("types", "array", false, null, TYPES)),
+                List.of(scope, new Arg("types", "array", false, null, TYPES),
+                    new Arg("tags", "array", false, null, List.of())),
                 "DIGEST_VIEW", List.of("address", "scopes", "selected_types", "summary",
                     "total_entries", "total_token_estimate", "sections", "unaddressable",
                     "truncated"),
-                with("ADDRESS_MALFORMED", "TYPE_UNKNOWN", "PAYLOAD_MALFORMED")));
+                with("ADDRESS_MALFORMED", "TYPE_UNKNOWN", "PAYLOAD_MALFORMED")),
+            // The tag verbs: a write on an addressed entry without a conflict
+            // token, the router's graph class (the order of sprint 210).
+            new Verb("memory_tag_attach", "tag_attach", "GRAPH_ADD_OR_REMOVE", null, false,
+                List.of(address, tag), "ENTRY_TAGS", TAGGED,
+                with("SCOPE_LOCKED", "SCOPE_READ_ONLY", "ADDRESS_MALFORMED", "KEY_MALFORMED",
+                    "SELECTOR_RESERVED", "VALUE_UNDECLARED", "VALUE_WITHDRAWN",
+                    "PAYLOAD_MALFORMED")),
+            new Verb("memory_tag_detach", "tag_detach", "GRAPH_ADD_OR_REMOVE", null, false,
+                List.of(address, tag), "ENTRY_TAGS", TAGGED,
+                with("SCOPE_LOCKED", "SCOPE_READ_ONLY", "ADDRESS_MALFORMED", "KEY_MALFORMED",
+                    "SELECTOR_RESERVED", "VALUE_UNDECLARED", "PAYLOAD_MALFORMED")));
     }
+
+    /** The members of the answer of a tag verb: the address, the tags, the next steps. */
+    private static final List<String> TAGGED = List.of("address", "tags", "next");
+
+    /**
+     * The names under {@code fields} of an answer about one entry, {@code tags}
+     * last (the order of sprint 210: read carries the tags).
+     */
+    static final List<String> ENTRY_FIELDS = List.of("scope", "key", "type", "content",
+        "reference", "state", "private", "created_at", "updated_at", "tags");
 
     /** The page size's bounds, as section 5 of the contract states them. */
     static final Map<String, Integer> PAGE_SIZE_BOUNDS = Map.of("minimum", 1, "maximum", 200);

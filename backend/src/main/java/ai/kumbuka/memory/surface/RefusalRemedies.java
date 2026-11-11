@@ -55,6 +55,10 @@ public interface RefusalRemedies {
 
     @Message String referenceCredentialBearing();
 
+    @Message String valueUndeclared(ArgumentPath path);
+
+    @Message String valueWithdrawn(ArgumentPath path);
+
     @Message String pageSizeRejected(Bound min, Bound max);
 
     @Message String cursorMalformed(VerbName query);
