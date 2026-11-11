@@ -110,10 +110,27 @@ class ServiceRolePrivilegeIT {
     /** What a table without deletion grants the runtime role. */
     private static final Set<String> NO_DELETE_PERMITTED = Set.of("SELECT", "INSERT", "UPDATE");
 
+    /**
+     * The tables the runtime role may read, add to and delete from, but not
+     * change in place.
+     *
+     * <p>{@code entry_tag} (V11) holds which tag an entry carries: a tag is
+     * attached or detached, never changed, so no path of the service updates
+     * a row there, and the missing grant makes that a fact. A literal, for the
+     * reason {@link #READ_ONLY_TABLES} gives.
+     */
+    private static final Set<String> NO_UPDATE_TABLES = Set.of("entry_tag");
+
+    /** What a table without in-place change grants the runtime role. */
+    private static final Set<String> NO_UPDATE_PERMITTED = Set.of("SELECT", "INSERT", "DELETE");
+
     /** What the named table grants the runtime role, and nothing besides. */
     private static Set<String> permittedOn(String table) {
         if (READ_ONLY_TABLES.contains(table)) {
             return READ_ONLY_PERMITTED;
+        }
+        if (NO_UPDATE_TABLES.contains(table)) {
+            return NO_UPDATE_PERMITTED;
         }
         return NO_DELETE_TABLES.contains(table) ? NO_DELETE_PERMITTED : PERMITTED;
     }
@@ -168,7 +185,7 @@ class ServiceRolePrivilegeIT {
             .as("the probe must have had something to check, and both tables of the model "
                 + "must be among what it checked")
             .contains("memory", "content_relation", "digest_preference", "idempotency_key",
-                HISTORY_TABLE);
+                "entry_tag", HISTORY_TABLE);
 
         assertThat(defects)
             .as("the runtime role %s may hold exactly %s on a writable domain table of "
@@ -252,7 +269,7 @@ class ServiceRolePrivilegeIT {
                 SubstrateDatabaseResource.SERVICE_ROLE, SubstrateDatabaseResource.SERVICE_PASSWORD);
              Statement s = c.createStatement()) {
             for (String table : List.of("memory", "content_relation", "digest_preference",
-                    "idempotency_key")) {
+                    "idempotency_key", "entry_tag")) {
                 try (ResultSet rs = s.executeQuery(
                         "SELECT count(*) FROM " + schema() + "." + table)) {
                     rs.next();

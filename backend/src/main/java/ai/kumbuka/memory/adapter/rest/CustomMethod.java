@@ -54,7 +54,13 @@ public enum CustomMethod {
     DIGEST("digest", Depth.SCOPE),
 
     /** Taking one entry out of force, at item depth. */
-    WITHDRAW("withdraw", Depth.ITEM);
+    WITHDRAW("withdraw", Depth.ITEM),
+
+    /** Attaching a tag to one entry, at item depth; the token travels in the body. */
+    TAG_ATTACH("tag_attach", Depth.ITEM),
+
+    /** Detaching a tag from one entry, at item depth; the token travels in the body. */
+    TAG_DETACH("tag_detach", Depth.ITEM);
 
     /**
      * The address depth a verb acts at, with the methods an address of it
@@ -68,7 +74,7 @@ public enum CustomMethod {
         COLLECTION("GET, POST", AssistantVerb.QUERY, AssistantVerb.CREATE),
         /** {@code /api/{scope}/{selector}/{id}} — one entry. */
         ITEM("GET, PATCH, POST", AssistantVerb.READ, AssistantVerb.UPDATE,
-            AssistantVerb.WITHDRAW);
+            AssistantVerb.WITHDRAW, AssistantVerb.TAG_ATTACH, AssistantVerb.TAG_DETACH);
 
         private final String allow;
         private final List<AssistantVerb> carried;

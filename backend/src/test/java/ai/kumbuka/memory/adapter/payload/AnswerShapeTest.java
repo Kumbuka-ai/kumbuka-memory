@@ -38,7 +38,9 @@ class AnswerShapeTest {
             AssistantPayloads.AssistantPagePayload.class),
         AnswerShape.WITHDRAWN, List.of(Payloads.WithdrawnPayload.class,
             AssistantPayloads.AssistantWithdrawnPayload.class),
-        AnswerShape.DIGEST_VIEW, List.of(Payloads.DigestPayload.class));
+        AnswerShape.DIGEST_VIEW, List.of(Payloads.DigestPayload.class),
+        AnswerShape.ENTRY_TAGS, List.of(Payloads.TagsPayload.class,
+            AssistantPayloads.AssistantTagsPayload.class));
 
     @Test
     void every_declared_answer_names_the_members_its_records_carry() {
@@ -48,6 +50,23 @@ class AnswerShapeTest {
             assertThat(shape.members())
                 .as("%s against %s", shape, carrier.getSimpleName())
                 .containsExactlyElementsOf(wireNames(carrier))));
+    }
+
+    /**
+     * The names an answer about one entry declares under {@code fields} are
+     * the names the one projection carries, {@code tags} among them (V11).
+     */
+    @Test
+    void every_answer_about_one_entry_names_the_fields_the_projection_carries() {
+        for (AnswerShape shape : AnswerShape.values()) {
+            List<String> expected = shape.members().contains("fields")
+                ? wireNames(Payloads.EntryFieldsPayload.class) : List.of();
+            assertThat(shape.fields())
+                .as("%s declares the fields of its entry", shape)
+                .containsExactlyElementsOf(expected);
+        }
+        assertThat(AnswerShape.ENTRY.fields()).as("the field a read carries the tags in")
+            .contains("tags");
     }
 
     @Test

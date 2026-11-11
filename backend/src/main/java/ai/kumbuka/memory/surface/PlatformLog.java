@@ -62,6 +62,14 @@ public final class PlatformLog {
         LOG.infof("withdraw %s", address);
     }
 
+    public static void tagAttached(TechnicalAddress address) {
+        LOG.infof("tag_attach %s", address);
+    }
+
+    public static void tagDetached(TechnicalAddress address) {
+        LOG.infof("tag_detach %s", address);
+    }
+
     // ======================================================================
     // Refusals: DEBUG by their code, because a refusal is the surface
     // working and a log a caller can fill by sending broken calls is a log a

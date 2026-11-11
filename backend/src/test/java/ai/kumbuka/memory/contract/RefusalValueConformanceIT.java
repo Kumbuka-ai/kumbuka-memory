@@ -92,6 +92,10 @@ class RefusalValueConformanceIT {
     private static final String WITHDRAW = Contract.toolFor("withdraw");
     private static final String QUERY = Contract.toolFor("query");
     private static final String DIGEST = Contract.toolFor("digest");
+    private static final String TAG_ATTACH = Contract.toolFor("tag_attach");
+
+    /** A tag the probe scope declares and has withdrawn, carrying the mark. */
+    private static final String MARKED_RETIRED_TAG = MARK + "-retired";
 
     /** Raised elsewhere, for the reasons the class comment gives. */
     private static final Set<String> RAISED_ELSEWHERE =
@@ -102,6 +106,8 @@ class RefusalValueConformanceIT {
     @BeforeAll
     static void grantDirectoryAccess() {
         PlatformFixture.grantDirectoryAccess();
+        PlatformFixture.declareTag(SubstrateDatabaseResource.SCOPE_ID, MARKED_RETIRED_TAG,
+            "withdrawn");
     }
 
     @BeforeEach
@@ -190,7 +196,11 @@ class RefusalValueConformanceIT {
             new Case("ARGUMENT_INVALID", () -> Mcp.call(UPDATE, args("address", ADDRESS,
                 "conflict_token", token(ADDRESS), "fields", MARK)), MARK),
             new Case("ARGUMENT_INVALID", () -> Mcp.call(DIGEST, args("scope", SCOPE,
-                "types", List.of("decision", Map.of(MARK, MARK)))), MARK));
+                "types", List.of("decision", Map.of(MARK, MARK)))), MARK),
+            new Case("VALUE_UNDECLARED", () -> Mcp.call(TAG_ATTACH, args("address", ADDRESS,
+                "tag", MARK)), MARK, ADDRESS, KEY),
+            new Case("VALUE_WITHDRAWN", () -> Mcp.call(TAG_ATTACH, args("address", ADDRESS,
+                "tag", MARKED_RETIRED_TAG)), MARK, ADDRESS, KEY));
 
         Set<String> raised = new LinkedHashSet<>(RAISED_ELSEWHERE);
         raised.add("SCOPE_READ_ONLY");
@@ -374,7 +384,12 @@ class RefusalValueConformanceIT {
             new RestCase("VERB_NOT_CARRIED", () -> SurfaceFixture.call()
                 .post(item + ":" + MARK), ADDRESS, KEY),
             new RestCase("PAYLOAD_MALFORMED", () -> SurfaceFixture.call()
-                .body("{\"" + MARK + "\": [}").post(decisions)));
+                .body("{\"" + MARK + "\": [}").post(decisions)),
+            new RestCase("VALUE_UNDECLARED", () -> SurfaceFixture.call()
+                .body("{\"tag\":\"" + MARK + "\"}").post(item + ":tag_attach"), ADDRESS, KEY),
+            new RestCase("VALUE_WITHDRAWN", () -> SurfaceFixture.call()
+                .body("{\"tag\":\"" + MARKED_RETIRED_TAG + "\"}").post(item + ":tag_attach"),
+                ADDRESS, KEY));
 
         List<String> repeated = new ArrayList<>();
         List<String> otherCode = new ArrayList<>();

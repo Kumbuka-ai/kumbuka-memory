@@ -52,7 +52,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The six verbs, as HTTP.
+ * The verbs, as HTTP.
  *
  * <h2>This is a front door, not an inner leg</h2>
  *
@@ -77,6 +77,8 @@ import java.util.UUID;
  *   GET    /api/{scope}/{selector}/{id}     read
  *   PATCH  /api/{scope}/{selector}/{id}     update
  *   POST   /api/{scope}/{selector}/{id}:withdraw   withdraw
+ *   POST   /api/{scope}/{selector}/{id}:tag_attach tag_attach, body {"tag": …}
+ *   POST   /api/{scope}/{selector}/{id}:tag_detach tag_detach, body {"tag": …}
  * </pre>
  *
  * <h2>Expression, not offering</h2>
@@ -218,17 +220,19 @@ public class EntryResource {
 
         return switch (at.known()) {
             case DIGEST -> digest(at, body);
-            case WITHDRAW -> throw new IllegalStateException(
-                "withdraw acts at item depth and cannot arrive here");
+            case WITHDRAW, TAG_ATTACH, TAG_DETACH -> throw new IllegalStateException(
+                at.verb() + " acts at item depth and cannot arrive here");
         };
     }
 
     private Response digest(CustomMethod.Split at, String body) {
         call.is(AssistantVerb.DIGEST);
+        Payloads.DigestRequestPayload request =
+            read(body, Payloads.DigestRequestPayload.class).orElse(null);
         return Response.ok(Payloads.DigestPayload.of(
                 verbs.digest(caller.current(), at.address(),
-                    Payloads.digestTypes(read(body, Payloads.DigestRequestPayload.class).orElse(null))
-                        .orElse(null)))).build();
+                    Payloads.digestTypes(request).orElse(null),
+                    Payloads.digestTags(request).orElse(null)))).build();
     }
 
     // ======================================================================
@@ -350,19 +354,42 @@ public class EntryResource {
     public Response itemPost(@PathParam("scope") String scope,
                              @PathParam("selector") String selector,
                              @PathParam("id") String segment,
-                             @HeaderParam("If-Match") @Nullable String ifMatch) {
-        // An entry carries one verb in colon notation,
-        // 'POST /api/<scope>/<selector>/<id>:withdraw'. Reading it is a GET and
-        // changing it is a PATCH; there is no DELETE, because a withdrawal is an
-        // act of this service whose effect the edition decides and not the
-        // removal of a resource.
+                             @HeaderParam("If-Match") @Nullable String ifMatch,
+                             String body) {
+        // An entry carries three verbs in colon notation,
+        // 'POST /api/<scope>/<selector>/<id>:withdraw', ':tag_attach' and
+        // ':tag_detach'. Reading it is a GET and changing it is a PATCH; there
+        // is no DELETE, because a withdrawal is an act of this service whose
+        // effect the edition decides and not the removal of a resource.
         CustomMethod.Split at = verbAt(segment, CustomMethod.Depth.ITEM);
 
         return switch (at.known()) {
             case WITHDRAW -> withdraw(scope, selector, at, ifMatch);
+            case TAG_ATTACH -> tag(AssistantVerb.TAG_ATTACH, scope, selector, at, body);
+            case TAG_DETACH -> tag(AssistantVerb.TAG_DETACH, scope, selector, at, body);
             case DIGEST -> throw new IllegalStateException(
                 "digest acts at scope depth and cannot arrive here");
         };
+    }
+
+    /**
+     * {@code tag_attach} and {@code tag_detach}: the token in the body as
+     * {@code {"tag": "…"}}, read closed, and no conflict token, because the
+     * entry's own row is not written. Untagged by an {@code ETag} for the
+     * same reason: the answer carries no conflict token to put there.
+     */
+    private Response tag(AssistantVerb verb, String scope, String selector,
+                         CustomMethod.Split at, @Nullable String body) {
+        call.is(verb);
+        call.aimsAt(new EntryAddress(scope, selector, at.address()).canonical());
+        String tag = Payloads.tagOf(verb, readTag(body, verb).orElse(null));
+        AddressParser.Parts parts = new AddressParser.Parts(scope, selector, at.address());
+        VerbSurface.Answer answer = verb == AssistantVerb.TAG_ATTACH
+            ? verbs.tagAttach(caller.current(), parts, tag)
+            : verbs.tagDetach(caller.current(), parts, tag);
+        return Response.ok(call.assistant()
+            ? AssistantPayloads.AssistantTagsPayload.of(answer.entry())
+            : Payloads.TagsPayload.of(answer)).build();
     }
 
     private Response withdraw(String scope, String selector, CustomMethod.Split at,
@@ -516,6 +543,30 @@ public class EntryResource {
             throw MemoryException.undeclared(inFields
                 ? verb.fieldNames().stream().map(ArgumentName::value).toList()
                 : List.of(AssistantVerb.FIELDS));
+        } catch (JsonProcessingException e) {
+            throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED);
+        }
+    }
+
+    /**
+     * The body of a tag call, read closed: a name beside {@code tag} is
+     * refused by name as {@code ARGUMENT_UNKNOWN}, listing {@code tag}, never
+     * read and dropped (DEC-0042).
+     */
+    private Optional<Payloads.TagRequestPayload> readTag(@Nullable String body,
+                                                         AssistantVerb verb) {
+        if (body == null || body.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable(json.readerFor(Payloads.TagRequestPayload.class)
+                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .readValue(body));
+        } catch (UnrecognizedPropertyException unknown) {
+            throw MemoryException.undeclared(verb.topNames().stream()
+                .map(ArgumentName::value)
+                .filter(AssistantVerb.Names.TAG::equals)
+                .toList());
         } catch (JsonProcessingException e) {
             throw new SurfaceException(SurfaceException.Reason.PAYLOAD_MALFORMED);
         }

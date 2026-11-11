@@ -287,7 +287,14 @@ public class McpAdapter {
                 in.top(Names.SCOPE).orElseThrow(), in.top(Names.SELECTOR).orElse(null),
                 Payloads.query(narrowing(in))));
             case DIGEST -> Payloads.DigestPayload.of(verbs.digest(actor,
-                in.top(Names.SCOPE).orElseThrow(), in.list(Names.TYPES).orElse(null)));
+                in.top(Names.SCOPE).orElseThrow(), in.list(Names.TYPES).orElse(null),
+                in.list(Names.TAGS).orElse(null)));
+            case TAG_ATTACH -> AssistantPayloads.AssistantTagsPayload.of(verbs.tagAttach(actor,
+                AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
+                in.top(Names.TAG).orElseThrow()).entry());
+            case TAG_DETACH -> AssistantPayloads.AssistantTagsPayload.of(verbs.tagDetach(actor,
+                AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
+                in.top(Names.TAG).orElseThrow()).entry());
         };
     }
 
@@ -302,6 +309,7 @@ public class McpAdapter {
         Map<String, String> asked = new LinkedHashMap<>();
         in.top(Names.TYPE).ifPresent(value -> asked.put(Names.TYPE, value));
         in.top(Names.TEXT).ifPresent(value -> asked.put(Names.TEXT, value));
+        in.top(Names.TAG).ifPresent(value -> asked.put(Names.TAG, value));
         in.top(Names.AFTER).ifPresent(value -> asked.put(Names.AFTER, value));
         in.top(Names.SORT).ifPresent(value -> asked.put(Names.SORT, value));
         in.top(Names.DIRECTION).ifPresent(value -> asked.put(Names.DIRECTION, value));

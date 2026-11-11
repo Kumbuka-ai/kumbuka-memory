@@ -29,4 +29,8 @@ public interface ToolDescriptions {
     @Message String query();
 
     @Message String digest();
+
+    @Message String tagAttach();
+
+    @Message String tagDetach();
 }

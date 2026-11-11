@@ -22,20 +22,29 @@ each of them hold.
 Since this release it also carries what a **deployment** needs: a container
 image, and a health endpoint for the orchestrator.
 
-**Two caller surfaces, carrying the same six verbs** — create, read, update,
-withdraw, query and digest. An entry stands at `memory://<scope>/<selector>/<id>`
-and has no intermediate state: it is in force from the call that creates it
-until the call that withdraws it.
+**Two caller surfaces, carrying the same eight verbs** — create, read, update,
+withdraw, query and digest, and tag_attach and tag_detach. An entry stands at
+`memory://<scope>/<selector>/<id>` and has no intermediate state: it is in force
+from the call that creates it until the call that withdraws it.
+
+**Tags.** An entry carries tags from the vocabulary its scope declares on the
+platform, read through the view `platform.tag_access`; this service declares
+none. `read` answers them under `fields.tags`, `query` narrows by one with
+`tag`, and `digest` with `tags` carries every constraint and of the other types
+only the entries that carry one of the tags. Attaching or detaching a tag moves
+neither the conflict token nor the change time of the entry.
 
 - **The generic surface (REST)**, under `/api`. An address maps onto the path
   (`/api/<scope>/<selector>/<id>`), the compound verbs are written in colon
-  notation (`:withdraw`, `:digest`), and the conflict token travels as `ETag`
-  and `If-Match`. This is the surface the platform's router calls.
+  notation (`:withdraw`, `:digest`, `:tag_attach`, `:tag_detach`), and the
+  conflict token travels as `ETag` and `If-Match`. This is the surface the
+  platform's router calls.
 - **The assistant surface (MCP)**, at `/mcp`: JSON-RPC 2.0 speaking
-  `initialize`, `tools/list` and `tools/call`, with six tools `memory_create`,
-  `memory_read`, `memory_update`, `memory_withdraw`, `memory_query` and
-  `memory_digest`. It is what lets an installation without the router — the
-  community edition on its own — connect an assistant to its memory at all.
+  `initialize`, `tools/list` and `tools/call`, with eight tools `memory_create`,
+  `memory_read`, `memory_update`, `memory_withdraw`, `memory_query`,
+  `memory_digest`, `memory_tag_attach` and `memory_tag_detach`. It is what lets
+  an installation without the router — the community edition on its own —
+  connect an assistant to its memory at all.
 
 On the assistant surface the tool list, the input schemas, the descriptions,
 the names offered as next steps and the catalogue of refusal reasons all come

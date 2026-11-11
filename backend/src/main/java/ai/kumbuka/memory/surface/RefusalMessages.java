@@ -58,6 +58,10 @@ public interface RefusalMessages {
 
     @Message String referenceCredentialBearing();
 
+    @Message String valueUndeclared(VerbName call, ArgumentPath path);
+
+    @Message String valueWithdrawn(VerbName call, ArgumentPath path);
+
     @Message String pageSizeRejected(VerbName call);
 
     @Message String cursorMalformed(VerbName query);

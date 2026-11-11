@@ -18,16 +18,18 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * The six calls of the assistant surface, and the one place they are declared.
+ * The calls of the assistant surface, and the one place they are declared.
  *
- * <h2>Why the six verbs and nothing else</h2>
+ * <h2>Why these verbs and nothing else</h2>
  *
  * An entry has no intermediate state. It is in force from the call that
  * creates it until the call that withdraws it; there is no draft, no hand-over
  * and nothing that only somebody else can move. So there is no process to
  * name beyond the verbs themselves, and the declaration is the verbs. A
  * service whose objects pass through states carries process verbs on this
- * surface instead; this one has none to carry.
+ * surface instead; this one has none to carry. The two tag verbs attach and
+ * detach a tag of the platform's vocabulary: a relation of the entry, not a
+ * state of it (V11).
  *
  * <h2>What is derived from here</h2>
  *
@@ -94,6 +96,7 @@ public enum AssistantVerb {
             Argument.top(Names.TYPE, Argument.STRING, false, ArgumentDescriptions::queryType,
                 Keywords.TYPE_ENUM),
             Argument.top(Names.TEXT, Argument.STRING, false, ArgumentDescriptions::queryText),
+            Argument.top(Names.TAG, Argument.STRING, false, ArgumentDescriptions::queryTag),
             Argument.top(Names.AFTER, Argument.STRING, false, ArgumentDescriptions::queryAfter),
             Argument.top(Names.SORT, Argument.STRING, false, ArgumentDescriptions::querySort,
                 Map.of("enum", SortKey.wireNames(),
@@ -116,7 +119,22 @@ public enum AssistantVerb {
             Argument.top(Names.TYPES, Argument.ARRAY, false, ArgumentDescriptions::digestTypes,
                 Map.of("items", Map.of("type", Argument.STRING,
                         "enum", EntryType.acceptedNames()),
-                    "minItems", 1))),
+                    "minItems", 1)),
+            // No minItems: an empty list is the digest without tags (V11).
+            Argument.top(Names.TAGS, Argument.ARRAY, false, ArgumentDescriptions::digestTags,
+                Map.of("items", Map.of("type", Argument.STRING)))),
+        List.of()),
+
+    TAG_ATTACH("memory_tag_attach",
+        List.of(
+            Argument.top(Names.ADDRESS, Argument.STRING, true, ArgumentDescriptions::address),
+            Argument.top(Names.TAG, Argument.STRING, true, ArgumentDescriptions::tagAttachTag)),
+        List.of()),
+
+    TAG_DETACH("memory_tag_detach",
+        List.of(
+            Argument.top(Names.ADDRESS, Argument.STRING, true, ArgumentDescriptions::address),
+            Argument.top(Names.TAG, Argument.STRING, true, ArgumentDescriptions::tagDetachTag)),
         List.of());
 
     /** The name of the object that carries everything a call writes (DEC-0040). */
@@ -154,6 +172,8 @@ public enum AssistantVerb {
             case WITHDRAW -> texts.withdraw();
             case QUERY -> texts.query();
             case DIGEST -> texts.digest();
+            case TAG_ATTACH -> texts.tagAttach();
+            case TAG_DETACH -> texts.tagDetach();
         };
     }
 
@@ -167,6 +187,8 @@ public enum AssistantVerb {
             case WITHDRAW -> texts.withdraw();
             case QUERY -> texts.query();
             case DIGEST -> texts.digest();
+            case TAG_ATTACH -> texts.tagAttach();
+            case TAG_DETACH -> texts.tagDetach();
         };
     }
 
@@ -263,6 +285,8 @@ public enum AssistantVerb {
         public static final String PAGE_SIZE = "page_size";
         public static final String TYPES = "types";
         public static final String IDEMPOTENCY_KEY = "idempotency_key";
+        public static final String TAG = "tag";
+        public static final String TAGS = "tags";
 
         private Names() {
         }

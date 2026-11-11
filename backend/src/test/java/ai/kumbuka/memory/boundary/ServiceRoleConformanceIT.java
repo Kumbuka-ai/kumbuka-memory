@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * This service's role holds its own schema, plus {@code SELECT} on exactly
- * one view, and nothing else anywhere.
+ * two views of the platform, and nothing else anywhere.
  *
  * <p>{@link MissingGrantProbeIT} observes one boundary against one
  * neighbouring table. This asks the question the architecture actually poses
@@ -62,10 +62,13 @@ class ServiceRoleConformanceIT {
 
     /**
      * Everything the role may hold OUTSIDE its own schema, named object by
-     * object. One entry: the published read contract.
+     * object. Two entries: the published read contract of the scopes, and
+     * that of the tag vocabulary (V11). The base table of the vocabulary is
+     * not among them.
      */
     private static final Set<String> PERMITTED_FOREIGN_OBJECTS = Set.of(
-        SubstrateDatabaseResource.PLATFORM_SCHEMA + "." + SubstrateDatabaseResource.DIRECTORY_VIEW);
+        SubstrateDatabaseResource.PLATFORM_SCHEMA + "." + SubstrateDatabaseResource.DIRECTORY_VIEW,
+        SubstrateDatabaseResource.PLATFORM_SCHEMA + "." + SubstrateDatabaseResource.TAG_VIEW);
 
     @BeforeAll
     static void grantDirectoryAccess() {
@@ -125,6 +128,14 @@ class ServiceRoleConformanceIT {
             .as("the role must actually hold SELECT on the read contract, and only SELECT "
                 + "— the contract is a question the service asks, never one it answers")
             .containsExactly("SELECT");
+        assertThat(grantsOn(SubstrateDatabaseResource.PLATFORM_SCHEMA,
+                SubstrateDatabaseResource.TAG_VIEW))
+            .as("and SELECT alone on the tag vocabulary's view")
+            .containsExactly("SELECT");
+        assertThat(grantsOn(SubstrateDatabaseResource.PLATFORM_SCHEMA,
+                SubstrateDatabaseResource.TAG_TABLE))
+            .as("and nothing on the vocabulary's base table: the view is the contract")
+            .isEmpty();
     }
 
     /**
@@ -160,6 +171,11 @@ class ServiceRoleConformanceIT {
                 + "relation nobody granted is a refused statement on the first call that "
                 + "touches it, which is why the grant is asserted before any code uses it")
             .containsExactly("INSERT", "SELECT", "UPDATE");
+        assertThat(grantsOn(OWN_SCHEMA, "entry_tag"))
+            .as("and on the tag assignments of V11 the three they need: SELECT to read and "
+                + "filter, INSERT to attach, DELETE to detach. No UPDATE: an assignment is "
+                + "never changed in place")
+            .containsExactly("DELETE", "INSERT", "SELECT");
     }
 
     /**

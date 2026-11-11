@@ -9,6 +9,8 @@ package ai.kumbuka.memory.domain;
 
 import org.jspecify.annotations.Nullable;
 
+import java.util.UUID;
+
 /**
  * What a {@code query} was narrowed to.
  *
@@ -17,8 +19,16 @@ import org.jspecify.annotations.Nullable;
  * edited for each one. How the narrowed listing is walked is
  * {@link PageRequest}'s.
  *
- * @param type the kind of entry, or null for every kind
- * @param text a substring of the content, case-insensitively, or null
+ * @param type  the kind of entry, or null for every kind
+ * @param text  a substring of the content, case-insensitively, or null
+ * @param tagId the tag an entry must carry, resolved in the listed scope from
+ *              the token the caller named, or null for any tags
  */
-public record QueryFilter(@Nullable EntryType type, @Nullable String text) {
+public record QueryFilter(@Nullable EntryType type, @Nullable String text,
+                          @Nullable UUID tagId) {
+
+    /** A filter that names no tag. */
+    public QueryFilter(@Nullable EntryType type, @Nullable String text) {
+        this(type, text, null);
+    }
 }

@@ -82,8 +82,6 @@ class SharedCodeTableTest {
 
     /** The codes of the table this service has no occasion for, and why. */
     static final Map<String, String> NOT_CARRIED = Map.ofEntries(
-        Map.entry("VALUE_UNDECLARED", "no argument takes a value from a scope's vocabulary; "
-            + "whether the entry types become this row is open (TYPE_UNKNOWN, run E)"),
         Map.entry("PREDICATE_UNKNOWN", "the filters are declared arguments, so an undeclared "
             + "one is ARGUMENT_UNKNOWN"),
         Map.entry("SELECTOR_UNDECLARED", "a selector is the prefix of a key and no scope "
@@ -100,12 +98,20 @@ class SharedCodeTableTest {
         Map.entry("ROLE_INSUFFICIENT", "no role is read; whether a token without a subject "
             + "becomes this row is open (ACTOR_UNKNOWN, run E)"));
 
-    /** The codes this service declares beyond the table, with their statuses. */
+    /**
+     * The codes this service declares beyond the table, with their statuses.
+     *
+     * <p>{@code VALUE_WITHDRAWN} is a condition the caller acts on differently
+     * from {@code VALUE_UNDECLARED}: the tag exists and takes no new
+     * assignment, so the remedy is another tag rather than a corrected token.
+     * A 422 like the row it stands beside.
+     */
     static final Map<String, Integer> SERVICE_CODES = Map.of(
         "SELECTOR_RESERVED", 422,
         "SELECTOR_MISMATCHED", 400,
         "UPDATE_EMPTY", 400,
-        "REFERENCE_CREDENTIAL_BEARING", 422);
+        "REFERENCE_CREDENTIAL_BEARING", 422,
+        "VALUE_WITHDRAWN", 422);
 
     /**
      * The codes whose renaming is memory's breaking step, run E: each with

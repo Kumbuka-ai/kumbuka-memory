@@ -152,6 +152,8 @@ class DeclarationEndpointIT {
         Map<String, Object> answer = (Map<String, Object>) call.get("answer");
         same(into, id + ".answer.shape", verb.answer(), answer.get("shape"));
         same(into, id + ".answer.members", verb.members(), answer.get("members"));
+        same(into, id + ".answer.fields", verb.members().contains("fields")
+            ? DeclarationTranscript.ENTRY_FIELDS : null, answer.get("fields"));
         same(into, id + ".refusals", verb.refusals(), call.get("refusals"));
 
         List<Map<String, Object>> arguments = (List<Map<String, Object>>) call.get("arguments");

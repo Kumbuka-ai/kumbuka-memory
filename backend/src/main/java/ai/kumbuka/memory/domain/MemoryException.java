@@ -111,6 +111,10 @@ public class MemoryException extends RuntimeException {
         CONTENT_OVERSIZE,
         /** The provenance pointer carries a credential. */
         REFERENCE_CREDENTIAL_BEARING,
+        /** The value is not in the vocabulary of the entry's scope: a tag no scope declares. */
+        VALUE_UNDECLARED,
+        /** The value is in the vocabulary and withdrawn: a tag that takes no new assignment. */
+        VALUE_WITHDRAWN,
 
         // --- the call --------------------------------------------------------
 

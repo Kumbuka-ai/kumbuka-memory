@@ -51,14 +51,14 @@ class DeclarationConformanceIT {
     // ======================================================================
 
     @Test
-    void the_tool_list_is_exactly_the_six_tools_of_section_5() {
+    void the_tool_list_is_exactly_the_eight_tools_of_section_5() {
         assertThat(toolNames())
             .as("a tool the contract does not name is an addition nobody agreed to, and a "
                 + "tool it names and the surface lacks is an omission no caller can notice")
             .containsExactlyElementsOf(Contract.tools());
         assertThat(Contract.tools())
-            .as("section 5 names six")
-            .hasSize(6);
+            .as("section 5 names eight: the six verbs and the two tag verbs")
+            .hasSize(8);
     }
 
     @Test
