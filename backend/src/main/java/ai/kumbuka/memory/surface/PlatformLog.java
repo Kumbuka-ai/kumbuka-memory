@@ -62,12 +62,12 @@ public final class PlatformLog {
         LOG.infof("withdraw %s", entry);
     }
 
-    public static void tagAttached(TechnicalAddress address) {
-        LOG.infof("tag_attach %s", address);
+    public static void tagAttached(TechnicalAddress entry) {
+        LOG.infof("tag_attach %s", entry);
     }
 
-    public static void tagDetached(TechnicalAddress address) {
-        LOG.infof("tag_detach %s", address);
+    public static void tagDetached(TechnicalAddress entry) {
+        LOG.infof("tag_detach %s", entry);
     }
 
     // ======================================================================
