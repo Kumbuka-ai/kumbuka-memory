@@ -277,25 +277,6 @@ public final class Payloads {
         }
     }
 
-    /**
-     * The answer to {@code tag_attach} and {@code tag_detach}: the entry's
-     * complete address, every tag it carries now, and the steps open on it.
-     *
-     * <p>No {@code fields} and no conflict token: the call wrote no value of
-     * the entry and moved no token, and an answer that handed one out would
-     * suggest it had.
-     */
-    public record TagsPayload(
-        @JsonProperty("address") String address,
-        @JsonProperty("tags") List<String> tags,
-        @JsonProperty("next") List<NextPayload> next) {
-
-        public static TagsPayload of(VerbSurface.Answer answer) {
-            return new TagsPayload(answer.entry().address().canonical(), answer.entry().tags(),
-                NextPayload.of(answer.next()));
-        }
-    }
-
     // ======================================================================
     // The digest
     // ======================================================================

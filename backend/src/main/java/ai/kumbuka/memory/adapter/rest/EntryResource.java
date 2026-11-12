@@ -375,8 +375,9 @@ public class EntryResource {
     /**
      * {@code tag_attach} and {@code tag_detach}: the token in the body as
      * {@code {"tag": "…"}}, read closed, and no conflict token, because the
-     * entry's own row is not written. Untagged by an {@code ETag} for the
-     * same reason: the answer carries no conflict token to put there.
+     * entry's own row is not written. The answer is the entry as read answers
+     * it, its tags among its fields, tagged with its conflict token, which the
+     * call left where it was.
      */
     private Response tag(AssistantVerb verb, String scope, String selector,
                          CustomMethod.Split at, @Nullable String body) {
@@ -384,12 +385,9 @@ public class EntryResource {
         call.aimsAt(new EntryAddress(scope, selector, at.address()).canonical());
         String tag = Payloads.tagOf(verb, readTag(body, verb).orElse(null));
         AddressParser.Parts parts = new AddressParser.Parts(scope, selector, at.address());
-        VerbSurface.Answer answer = verb == AssistantVerb.TAG_ATTACH
+        return answer(verb == AssistantVerb.TAG_ATTACH
             ? verbs.tagAttach(caller.current(), parts, tag)
-            : verbs.tagDetach(caller.current(), parts, tag);
-        return Response.ok(call.assistant()
-            ? AssistantPayloads.AssistantTagsPayload.of(answer.entry())
-            : Payloads.TagsPayload.of(answer)).build();
+            : verbs.tagDetach(caller.current(), parts, tag));
     }
 
     private Response withdraw(String scope, String selector, CustomMethod.Split at,

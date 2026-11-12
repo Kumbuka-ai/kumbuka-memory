@@ -106,8 +106,9 @@ the page is the last. It is bound to the scope -- by its technical identity, so 
 name in another estate is another scope --, the selector, the type, text and tag, the sort and the
 direction it was handed out for, and is refused for any other.
 
-An answer to **`memory_tag_attach` or `memory_tag_detach`** carries `address`, `tags` (every tag the
-entry carries after the call, as in `fields.tags`) and `next`, and no conflict token.
+An answer to **`memory_tag_attach` or `memory_tag_detach`** is an answer about one entry in the shape
+above: `fields.tags` lists every tag the entry carries after the call, and `conflict_token` is the
+entry's token, which the call leaves where it was.
 
 A **withdrawal** answers with `address`, `outcome` (`destroyed` or `tombstoned`),
 `address_released` and `next`.
@@ -287,7 +288,7 @@ without them, or with an empty list, the digest is the one without tags). Callab
 may read the scope.
 
 **`memory_tag_attach`**
-> Attaches a tag of the scope's vocabulary to an entry and answers the entry's tags. A tag already
+> Attaches a tag of the scope's vocabulary to an entry and answers the entry with its tags. A tag already
 > attached stays attached. Leaves the entry and its conflict token unchanged. Callable by anyone
 > who may write to the scope.
 
@@ -295,7 +296,7 @@ Top-level: `address`, `tag`. Result: the entry carries the tag. A tag the scope 
 `VALUE_UNDECLARED`, a withdrawn one `VALUE_WITHDRAWN`.
 
 **`memory_tag_detach`**
-> Detaches a tag from an entry and answers the entry's tags, a withdrawn tag included. A tag the
+> Detaches a tag from an entry and answers the entry with its tags, a withdrawn tag included. A tag the
 > entry lacks stays detached. Leaves the entry and its conflict token unchanged. Callable by anyone
 > who may write to the scope.
 
@@ -385,8 +386,9 @@ that answer would drift from it, and a listed call that is then refused is what 
   of section 6 is unchanged for now; whether the tag verbs join it is open.
 - **The REST form of the tag verbs is colon notation on the item,** `POST
   /api/<scope>/<selector>/<id>:tag_attach` and `:tag_detach` with the body `{"tag": "…"}`, as the
-  service's other item verbs are; the router's catalogue of answer shapes is not read for
-  `ENTRY_TAGS`.
+  service's other item verbs are. The declaration names both as `ITEM_TRANSITION`, the class the
+  router sends in colon notation to the item address, and their answer as `ENTRY`, a shape the
+  router names.
 - **Whether the key or the address of an entry may stand in a log line is not decided.**
 - **A stale conflict token is the one refusal that carries an address the caller sent.** It
   carries the entry as this caller's own read would answer it (DEC-0041), and a read answers with
