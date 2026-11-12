@@ -23,7 +23,13 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Every statement this service runs against {@code memory.entry_tag} (V11).
+ * The statements this service runs against {@code memory.entry_tag} (V11) on
+ * their own: the assignments of given entries read, written and removed.
+ *
+ * <p>Not every read of the table is here. A page and a digest narrowed by
+ * tags read it inside their own statement, through the fragment
+ * {@code CARRIES_ONE_OF} of {@link MemoryRepository}, which {@code page},
+ * {@code loadForDigest} and {@code tallyByType} there append.
  *
  * <p>JPQL throughout. The tokens behind the ids are the platform's and are
  * read through {@link TagAccessRepository}; nothing here joins across the

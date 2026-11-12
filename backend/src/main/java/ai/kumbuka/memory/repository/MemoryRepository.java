@@ -422,14 +422,16 @@ public class MemoryRepository {
     }
 
     /**
-     * Every entry of the named types across the named scopes, in the digest's
-     * order and with no limit whatever.
+     * Every entry of the named types across the named scopes, oldest first and
+     * with no limit whatever.
      *
      * <p>No {@code setMaxResults} and no page: the digest is the one read that
      * must not cut, and a limit here would be a cut that no caller could see.
-     * The ordering is by type in the digest's order and, inside a type, by the
-     * date the entry was laid down — oldest first, because a digest reads as a
-     * record of how the estate came to be what it is.
+     * The statement orders by the date the entry was laid down — oldest first,
+     * because a digest reads as a record of how the estate came to be what it
+     * is — and by key where two dates tie. It does not group by type: the
+     * types are interleaved in the result, and the digest's caller sorts them
+     * into sections in the digest's order.
      *
      * @param narrowing the entries a digest asked with tags keeps, or null for
      *                  every entry, which is the digest without tags unchanged
@@ -528,7 +530,7 @@ public class MemoryRepository {
      * @param scopeId  the resolved scope
      * @param selector the selector, or null for the whole scope
      * @param caller   the subject whose private entries are visible
-     * @param filter   type and text
+     * @param filter   type, text and tag; each one that is set narrows the page
      * @param page     order, direction and page size
      * @param after    the position to continue after, or null for the first page
      */
