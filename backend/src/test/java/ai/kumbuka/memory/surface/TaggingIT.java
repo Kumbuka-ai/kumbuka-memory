@@ -442,6 +442,71 @@ class TaggingIT {
         assertThat(digest.jsonPath().getInt("total_entries")).isEqualTo(4);
     }
 
+    /**
+     * The branch of the narrowing where no token resolved: the statement then
+     * keeps the constraints by their type alone, without the join over the
+     * assignments. Every content below is twelve characters long, so that the
+     * estimate of four characters per token is three per entry.
+     */
+    @Test
+    void a_digest_whose_tags_all_are_unknown_carries_every_constraint_and_no_decision() {
+        SurfaceFixture.clearEntries();
+        for (int i = 1; i <= 3; i++) {
+            SurfaceFixture.plant(SurfaceFixture.Planted.shared(
+                SubstrateDatabaseResource.SCOPE_ID, "constraint.c" + i, "constraint",
+                "constraint " + i));
+        }
+        for (int i = 1; i <= 3; i++) {
+            SurfaceFixture.plant(SurfaceFixture.Planted.shared(
+                SubstrateDatabaseResource.SCOPE_ID, "decision.d" + i, "decision",
+                "decision   " + i));
+        }
+        attachTo(API + "/" + SCOPE + "/decision/d1", COMPONENT);
+        attachTo(API + "/" + SCOPE + "/decision/d2", RELEASE);
+        attachTo(API + "/" + SCOPE + "/constraint/c2", RELEASE);
+
+        Response untagged = call().body("{\"types\":[\"constraint\",\"decision\"]}")
+            .post(API + "/" + SCOPE + ":digest");
+        assertThat(untagged.statusCode()).as(untagged.asString()).isEqualTo(200);
+        assertThat(keysIn(untagged, "decision"))
+            .as("without tags the digest carries the decisions, so leaving them out below "
+                + "is the narrowing's doing")
+            .containsExactly("decision.d1", "decision.d2", "decision.d3");
+
+        Response digest = call()
+            .body("{\"types\":[\"constraint\",\"decision\"],\"tags\":[\"no-such-tag\"]}")
+            .post(API + "/" + SCOPE + ":digest");
+        assertThat(digest.statusCode()).as(digest.asString()).isEqualTo(200);
+
+        assertThat(keysIn(digest, "constraint"))
+            .as("every constraint the digest without tags carries, whatever its tags")
+            .containsExactly("constraint.c1", "constraint.c2", "constraint.c3")
+            .isEqualTo(keysIn(untagged, "constraint"));
+        assertThat(keysIn(digest, "decision"))
+            .as("an unknown token keeps nothing, tagged decisions included, and refuses nothing")
+            .isEmpty();
+
+        Map<String, Object> constraints = tallyOf(digest, "constraint");
+        assertThat(constraints.get("count")).isEqualTo(3);
+        assertThat(constraints.get("token_estimate")).isEqualTo(9);
+        assertThat(constraints.get("carried")).isEqualTo(true);
+        Map<String, Object> decisions = tallyOf(digest, "decision");
+        assertThat(decisions.get("count"))
+            .as("the summary counts what the digest carries, and it carries no decision")
+            .isEqualTo(0);
+        assertThat(decisions.get("token_estimate")).isEqualTo(0);
+        assertThat(decisions.get("carried")).isEqualTo(true);
+        assertThat(digest.jsonPath().getInt("total_entries")).isEqualTo(3);
+        assertThat(digest.jsonPath().getInt("total_token_estimate")).isEqualTo(9);
+
+        Mcp.Result overMcp = Mcp.call("memory_digest", args("scope", SCOPE,
+            "types", List.of("constraint", "decision"), "tags", List.of("no-such-tag")));
+        assertThat(overMcp.isError()).as("%s", overMcp).isFalse();
+        assertThat(overMcp.structured())
+            .as("the assistant surface answers the same digest")
+            .isEqualTo(digest.jsonPath().getMap("$"));
+    }
+
     @Test
     void a_digest_with_an_empty_list_of_tags_is_the_digest_without_tags() {
         attach(COMPONENT);

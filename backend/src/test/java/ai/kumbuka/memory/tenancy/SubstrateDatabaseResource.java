@@ -423,7 +423,7 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
             CREATE TABLE IF NOT EXISTS platform.tag (
                 id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id    uuid NOT NULL,
-                scope_id     uuid NOT NULL REFERENCES public.scope (id),
+                scope_id     uuid NOT NULL REFERENCES public.scope (id) ON DELETE CASCADE,
                 token        text NOT NULL CHECK (token ~ '^[a-z0-9][a-z0-9:-]{0,62}$'),
                 description  text NULL,
                 status       text NOT NULL DEFAULT 'declared'
@@ -431,7 +431,8 @@ public class SubstrateDatabaseResource implements QuarkusTestResourceLifecycleMa
                 created_by   text NOT NULL,
                 created_at   timestamptz NOT NULL DEFAULT now(),
                 withdrawn_at timestamptz NULL,
-                UNIQUE (scope_id, token))
+                UNIQUE (scope_id, token),
+                CONSTRAINT tag_description_length CHECK (char_length(description) <= 500))
             """);
         s.execute("ALTER TABLE platform.tag ENABLE ROW LEVEL SECURITY");
         s.execute("ALTER TABLE platform.tag FORCE  ROW LEVEL SECURITY");
