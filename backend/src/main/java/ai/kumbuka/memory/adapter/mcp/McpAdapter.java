@@ -289,10 +289,10 @@ public class McpAdapter {
             case DIGEST -> Payloads.DigestPayload.of(verbs.digest(actor,
                 in.top(Names.SCOPE).orElseThrow(), in.list(Names.TYPES).orElse(null),
                 in.list(Names.TAGS).orElse(null)));
-            case TAG_ATTACH -> AssistantPayloads.AssistantTagsPayload.of(verbs.tagAttach(actor,
+            case TAG_ATTACH -> AssistantPayloads.AssistantEntryPayload.of(verbs.tagAttach(actor,
                 AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
                 in.top(Names.TAG).orElseThrow()).entry());
-            case TAG_DETACH -> AssistantPayloads.AssistantTagsPayload.of(verbs.tagDetach(actor,
+            case TAG_DETACH -> AssistantPayloads.AssistantEntryPayload.of(verbs.tagDetach(actor,
                 AddressParser.complete(in.top(Names.ADDRESS).orElseThrow()),
                 in.top(Names.TAG).orElseThrow()).entry());
         };

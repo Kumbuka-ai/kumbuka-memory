@@ -83,14 +83,19 @@ class TaggingIT {
     }
 
     @Test
-    void attach_answers_the_address_and_every_tag_and_read_carries_them_sorted() {
+    void attach_answers_the_entry_with_every_tag_and_read_carries_them_sorted() {
         Response first = attach(RELEASE);
         assertThat(first.statusCode()).as(first.asString()).isEqualTo(200);
         assertThat(first.jsonPath().getString("address")).isEqualTo(ADDRESS);
-        assertThat(first.jsonPath().getList("tags", String.class)).containsExactly(RELEASE);
+        assertThat(first.jsonPath().getMap("$").keySet())
+            .as("the answer about one entry, as read answers it")
+            .containsExactly("address", "fields", "conflict_token", "next");
+        assertThat(first.jsonPath().getString("fields.key")).isEqualTo(KEY);
+        assertThat(first.jsonPath().getList("fields.tags", String.class))
+            .containsExactly(RELEASE);
 
         Response second = attach(COMPONENT);
-        assertThat(second.jsonPath().getList("tags", String.class))
+        assertThat(second.jsonPath().getList("fields.tags", String.class))
             .as("the answer carries the complete list, not the one tag attached")
             .containsExactly(COMPONENT, RELEASE);
 
@@ -105,7 +110,12 @@ class TaggingIT {
         String token = before.jsonPath().getString("conflict_token");
         String changed = before.jsonPath().getString("fields.updated_at");
 
-        assertThat(attach(COMPONENT).statusCode()).isEqualTo(200);
+        Response attached = attach(COMPONENT);
+        assertThat(attached.statusCode()).isEqualTo(200);
+        assertThat(attached.jsonPath().getString("conflict_token"))
+            .as("the answer hands out the token the entry still carries")
+            .isEqualTo(token);
+        assertThat(attached.header("ETag")).contains(token);
         assertThat(detach(COMPONENT).statusCode()).isEqualTo(200);
         assertThat(attach(RELEASE).statusCode()).isEqualTo(200);
 
@@ -127,7 +137,8 @@ class TaggingIT {
 
         Response again = attach(COMPONENT);
         assertThat(again.statusCode()).as(again.asString()).isEqualTo(200);
-        assertThat(again.jsonPath().getList("tags", String.class)).containsExactly(COMPONENT);
+        assertThat(again.jsonPath().getList("fields.tags", String.class))
+            .containsExactly(COMPONENT);
         assertThat(assignments()).as("a no-op: one assignment, as before").isEqualTo(rows);
     }
 
@@ -137,7 +148,8 @@ class TaggingIT {
 
         Response detached = detach(COMPONENT);
         assertThat(detached.statusCode()).as(detached.asString()).isEqualTo(200);
-        assertThat(detached.jsonPath().getList("tags", String.class)).containsExactly(RELEASE);
+        assertThat(detached.jsonPath().getList("fields.tags", String.class))
+            .containsExactly(RELEASE);
         assertThat(assignments()).isEqualTo(1);
     }
 
@@ -148,7 +160,8 @@ class TaggingIT {
 
         Response detached = detach(RELEASE);
         assertThat(detached.statusCode()).isEqualTo(200);
-        assertThat(detached.jsonPath().getList("tags", String.class)).containsExactly(COMPONENT);
+        assertThat(detached.jsonPath().getList("fields.tags", String.class))
+            .containsExactly(COMPONENT);
         assertThat(call().get(ITEM).jsonPath().getList("fields.tags", String.class))
             .containsExactly(COMPONENT);
     }
@@ -187,7 +200,7 @@ class TaggingIT {
 
         Response detached = detach(RETIRED);
         assertThat(detached.statusCode()).as(detached.asString()).isEqualTo(200);
-        assertThat(detached.jsonPath().getList("tags", String.class)).isEmpty();
+        assertThat(detached.jsonPath().getList("fields.tags", String.class)).isEmpty();
     }
 
     @Test
@@ -229,14 +242,16 @@ class TaggingIT {
             "tag", COMPONENT));
         assertThat(attached.isError()).as("%s", attached).isFalse();
         assertThat(attached.string("address")).isEqualTo(ADDRESS);
-        assertThat(attached.strings("tags")).containsExactly(COMPONENT);
+        assertThat(attached.strings("fields.tags")).containsExactly(COMPONENT);
+        assertThat(attached.string("conflict_token")).as("the answer about one entry")
+            .isNotBlank();
 
         Mcp.Result read = Mcp.call("memory_read", args("address", ADDRESS));
         assertThat(read.strings("fields.tags")).containsExactly(COMPONENT);
 
         Mcp.Result detached = Mcp.call("memory_tag_detach", args("address", ADDRESS,
             "tag", COMPONENT));
-        assertThat(detached.strings("tags")).isEmpty();
+        assertThat(detached.strings("fields.tags")).isEmpty();
 
         Mcp.Result refused = Mcp.call("memory_tag_attach", args("address", ADDRESS,
             "tag", RETIRED));

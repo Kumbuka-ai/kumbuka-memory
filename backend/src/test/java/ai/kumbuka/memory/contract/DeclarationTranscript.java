@@ -138,21 +138,30 @@ final class DeclarationTranscript {
                     "total_entries", "total_token_estimate", "sections", "unaddressable",
                     "truncated"),
                 with("ADDRESS_MALFORMED", "TYPE_UNKNOWN", "PAYLOAD_MALFORMED")),
-            // The tag verbs: a write on an addressed entry without a conflict
-            // token, the router's graph class (the order of sprint 210).
-            new Verb("memory_tag_attach", "tag_attach", "GRAPH_ADD_OR_REMOVE", null, false,
-                List.of(address, tag), "ENTRY_TAGS", TAGGED,
+            // The tag verbs: custom methods in colon notation on the entry
+            // without a conflict token, the router's item transition, and
+            // answering the entry (the router's EgressClient sends an
+            // ITEM_TRANSITION as POST .../<id>:<verb>; its shapes for memory
+            // hold no answer of the tags alone).
+            new Verb("memory_tag_attach", "tag_attach", "ITEM_TRANSITION", null, false,
+                List.of(address, tag), "ENTRY", ENTRY,
                 with("SCOPE_LOCKED", "SCOPE_READ_ONLY", "ADDRESS_MALFORMED", "KEY_MALFORMED",
                     "SELECTOR_RESERVED", "VALUE_UNDECLARED", "VALUE_WITHDRAWN",
                     "PAYLOAD_MALFORMED")),
-            new Verb("memory_tag_detach", "tag_detach", "GRAPH_ADD_OR_REMOVE", null, false,
-                List.of(address, tag), "ENTRY_TAGS", TAGGED,
+            new Verb("memory_tag_detach", "tag_detach", "ITEM_TRANSITION", null, false,
+                List.of(address, tag), "ENTRY", ENTRY,
                 with("SCOPE_LOCKED", "SCOPE_READ_ONLY", "ADDRESS_MALFORMED", "KEY_MALFORMED",
                     "SELECTOR_RESERVED", "VALUE_UNDECLARED", "PAYLOAD_MALFORMED")));
     }
 
-    /** The members of the answer of a tag verb: the address, the tags, the next steps. */
-    private static final List<String> TAGGED = List.of("address", "tags", "next");
+    /**
+     * The answer shapes the router names for memory
+     * ({@code VerbCatalog.ResponseShape}, {@code Kumbuka-ai/platform} at main,
+     * read 2026-11-12). A shape outside them stops the router's catalogue
+     * from loading.
+     */
+    static final List<String> ROUTER_SHAPES = List.of("ENTRY", "ENTRY_CREATED",
+        "ENTRY_LISTING", "WITHDRAWN", "DIGEST_VIEW");
 
     /**
      * The names under {@code fields} of an answer about one entry, {@code tags}

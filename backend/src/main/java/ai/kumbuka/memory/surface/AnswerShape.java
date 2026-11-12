@@ -21,7 +21,7 @@ import java.util.List;
  */
 public enum AnswerShape {
 
-    /** One entry: the answer of read and update. */
+    /** One entry: the answer of read, update, tag_attach and tag_detach. */
     ENTRY(Members.ENTRY, Members.FIELDS),
 
     /** One entry at 201 with Location: the answer of create. */
@@ -35,10 +35,7 @@ public enum AnswerShape {
 
     /** Everything in force in a scope, grouped by type. */
     DIGEST_VIEW(List.of(Members.ADDRESS, "scopes", "selected_types", "summary", "total_entries",
-        "total_token_estimate", "sections", "unaddressable", "truncated"), List.of()),
-
-    /** The tags an entry carries after one was attached or detached: tag_attach, tag_detach. */
-    ENTRY_TAGS(List.of(Members.ADDRESS, Members.TAGS, Members.NEXT), List.of());
+        "total_token_estimate", "sections", "unaddressable", "truncated"), List.of());
 
     private final List<String> members;
     private final List<String> fields;
@@ -48,10 +45,9 @@ public enum AnswerShape {
 
         static final String ADDRESS = "address";
         static final String NEXT = "next";
-        static final String TAGS = "tags";
         static final List<String> ENTRY = List.of(ADDRESS, "fields", "conflict_token", NEXT);
         static final List<String> FIELDS = List.of("scope", "key", "type", "content",
-            "reference", "state", "private", "created_at", "updated_at", TAGS);
+            "reference", "state", "private", "created_at", "updated_at", "tags");
 
         private Members() {
         }

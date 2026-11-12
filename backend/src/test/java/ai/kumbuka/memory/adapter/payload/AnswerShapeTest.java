@@ -38,9 +38,7 @@ class AnswerShapeTest {
             AssistantPayloads.AssistantPagePayload.class),
         AnswerShape.WITHDRAWN, List.of(Payloads.WithdrawnPayload.class,
             AssistantPayloads.AssistantWithdrawnPayload.class),
-        AnswerShape.DIGEST_VIEW, List.of(Payloads.DigestPayload.class),
-        AnswerShape.ENTRY_TAGS, List.of(Payloads.TagsPayload.class,
-            AssistantPayloads.AssistantTagsPayload.class));
+        AnswerShape.DIGEST_VIEW, List.of(Payloads.DigestPayload.class));
 
     @Test
     void every_declared_answer_names_the_members_its_records_carry() {

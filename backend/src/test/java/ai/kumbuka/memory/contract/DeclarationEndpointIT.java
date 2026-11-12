@@ -72,6 +72,21 @@ class DeclarationEndpointIT {
 
     @Test
     @SuppressWarnings("unchecked")
+    void every_served_answer_is_a_shape_the_router_names() {
+        List<String> unknown = new ArrayList<>();
+        for (Map<String, Object> call : fetch(PATH).<Map<String, Object>>getList("calls")) {
+            Object shape = ((Map<String, Object>) call.get("answer")).get("shape");
+            if (!DeclarationTranscript.ROUTER_SHAPES.contains(shape)) {
+                unknown.add(call.get("identity") + " answers " + shape);
+            }
+        }
+        assertThat(unknown)
+            .as("a shape the router does not name stops its catalogue from loading")
+            .isEmpty();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void every_verb_carries_its_texts() {
         JsonPath declaration = fetch(PATH);
         Map<String, String> descriptions = Contract.descriptions();

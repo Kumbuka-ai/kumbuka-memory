@@ -384,14 +384,17 @@ public final class SurfaceDeclaration {
             case DIGEST -> new Form(EffectClass.SCOPE_COMPOUND, null, false,
                 AnswerShape.DIGEST_VIEW, refusals(List.of(Reason.ADDRESS_MALFORMED, Reason.TYPE_UNKNOWN),
                     BODY));
-            // A write on an addressed entry that asks for no conflict token:
-            // an assignment is a relation added or removed, which is the
-            // router's graph class, and the entry's own row is not written.
-            case TAG_ATTACH -> new Form(EffectClass.GRAPH_ADD_OR_REMOVE, null, false,
-                AnswerShape.ENTRY_TAGS, refusals(WRITE, ADDRESSED,
+            // A custom method on the entry that asks for no conflict token,
+            // 'POST .../<id>:tag_attach': the router's item transition, which
+            // it sends in colon notation to the item address. The graph class
+            // would be a POST or DELETE on a sub-collection, which this
+            // service does not serve. The answer is the entry, its tags among
+            // its fields.
+            case TAG_ATTACH -> new Form(EffectClass.ITEM_TRANSITION, null, false,
+                AnswerShape.ENTRY, refusals(WRITE, ADDRESSED,
                     List.of(Reason.VALUE_UNDECLARED, Reason.VALUE_WITHDRAWN), BODY));
-            case TAG_DETACH -> new Form(EffectClass.GRAPH_ADD_OR_REMOVE, null, false,
-                AnswerShape.ENTRY_TAGS, refusals(WRITE, ADDRESSED,
+            case TAG_DETACH -> new Form(EffectClass.ITEM_TRANSITION, null, false,
+                AnswerShape.ENTRY, refusals(WRITE, ADDRESSED,
                     List.of(Reason.VALUE_UNDECLARED), BODY));
         };
     }

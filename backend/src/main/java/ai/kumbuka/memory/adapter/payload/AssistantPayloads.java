@@ -69,18 +69,6 @@ public final class AssistantPayloads {
         }
     }
 
-    /** The answer to a tag call: the entry's address, its tags, and the calls open on it. */
-    public record AssistantTagsPayload(
-        @JsonProperty("address") String address,
-        @JsonProperty("tags") List<String> tags,
-        @JsonProperty("next") List<Payloads.NextPayload> next) {
-
-        public static AssistantTagsPayload of(EntryView entry) {
-            return new AssistantTagsPayload(entry.address().canonical(), entry.tags(),
-                Payloads.NextPayload.of(SurfaceDeclaration.nextFor(entry)));
-        }
-    }
-
     /** The answer to a withdrawal: what happened, and whether the address is free. */
     public record AssistantWithdrawnPayload(
         @JsonProperty("address") String address,
