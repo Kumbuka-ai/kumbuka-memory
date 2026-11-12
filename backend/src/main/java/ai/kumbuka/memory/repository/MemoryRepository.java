@@ -463,9 +463,9 @@ public class MemoryRepository {
         if (narrowing == null) {
             return "";
         }
-        return AND + (narrowing.tagIds().isEmpty()
-            ? "m.type = :" + WHOLE
-            : "(m.type = :" + WHOLE + " OR " + CARRIES_ONE_OF + ")");
+        return narrowing.tagIds().isEmpty()
+            ? ""
+            : AND + "(m.type = :" + WHOLE + " OR " + CARRIES_ONE_OF + ")";
     }
 
     private static Map<String, Object> bindNarrowing(@Nullable Tagged narrowing) {
