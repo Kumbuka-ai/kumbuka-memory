@@ -464,7 +464,7 @@ public class MemoryRepository {
             return "";
         }
         return AND + (narrowing.tagIds().isEmpty()
-            ? "(m.type = :" + WHOLE + " OR m.type <> :" + WHOLE + ")"
+            ? "m.type = :" + WHOLE
             : "(m.type = :" + WHOLE + " OR " + CARRIES_ONE_OF + ")");
     }
 
