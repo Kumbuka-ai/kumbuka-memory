@@ -45,6 +45,9 @@ class AssistantSurfaceIT {
     private static final String SCOPE = SubstrateDatabaseResource.PROBE_SCOPE_SLUG;
     private static final String LOCKED = SubstrateDatabaseResource.LOCKED_SCOPE_SLUG;
     private static final String KEY = "convention.branch-names";
+
+    /** The one path that serves the declaration (C5.1). */
+    private static final String DECLARATION = "/api/declaration";
     private static final String ADDRESS = "memory://" + SCOPE + "/convention/branch-names";
 
     /**
@@ -104,7 +107,7 @@ class AssistantSurfaceIT {
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void the_declaration_is_served_and_carries_the_calls_and_the_reasons() {
-        JsonPath declaration = given().get(Mcp.PATH + "/declaration").then()
+        JsonPath declaration = given().get(DECLARATION).then()
             .statusCode(200).extract().jsonPath();
         assertThat(declaration.getList("calls.call", String.class))
             .containsExactlyElementsOf(Contract.tools());
@@ -173,7 +176,7 @@ class AssistantSurfaceIT {
 
     @Test
     void the_declaration_is_authenticated_as_the_rest_of_the_surface_is() {
-        assertThat(given().get(Mcp.PATH + "/declaration").statusCode())
+        assertThat(given().get(DECLARATION).statusCode())
             .as("no token, no declaration: the surface is authenticated on every route")
             .isEqualTo(401);
     }

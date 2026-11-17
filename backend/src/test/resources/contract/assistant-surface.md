@@ -42,8 +42,8 @@ lowercase letter followed by at most fifteen lowercase letters, digits, undersco
 `system` is reserved for entries the service lays down itself.
 
 An entry has a **type**, one of `constraint`, `decision`, `convention`, `glossary`, `status` and
-`open_question`, the last written also `open-question` (C7.6) and answered under its stored name
-until the breaking step, and optionally a **reference**: a provenance URL that is stored and never fetched,
+`open-question`, the last taken in its earlier spelling `open_question` as well until the next
+release and answered in its vocabulary form alone (C7.6), and optionally a **reference**: a provenance URL that is stored and never fetched,
 and that carries no credential.
 
 An entry has no intermediate state. It is in force from the call that creates it until the call
@@ -322,7 +322,7 @@ that answer would drift from it, and a listed call that is then refused is what 
 ## 7. What this contract requires of the service
 
 - One declaration from which the tool list, the input schemas, the descriptions, the names in
-  `next` and the reason catalogue are derived, served at `/mcp/declaration`.
+  `next` and the reason catalogue are derived, served at `/api/declaration` and nowhere else (C5.1).
 - An adapter at `/mcp` that speaks `initialize`, `tools/list` and `tools/call`, authenticated the
   way the generic surface is on every route it has, and that answers a refusal of a tool call as a
   tool result marked as an error, carrying the envelope of section 4.1.
