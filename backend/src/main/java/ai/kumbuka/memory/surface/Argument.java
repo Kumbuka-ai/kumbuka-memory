@@ -16,7 +16,7 @@ import java.util.function.Function;
  *
  * <p>The input schema, the check that refuses an undeclared argument, the
  * refusal for a missing one and the declaration served at
- * {@code /mcp/declaration} are all read off this record. That is the point of
+ * {@code /api/declaration} are all read off this record. That is the point of
  * it: a schema assembled in one place and a check written in another would
  * describe two surfaces, and the caller would only ever see one of them.
  *

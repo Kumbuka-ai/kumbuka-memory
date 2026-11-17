@@ -35,7 +35,7 @@ import java.util.Optional;
  *
  * The tool list, every input schema, every description, the names that appear
  * in {@code next}, the argument check and the declaration served at
- * {@code /mcp/declaration} and on the generic surface. The texts themselves are
+ * {@code /api/declaration}. The texts themselves are
  * in the message bundles ({@link ToolDescriptions}, {@link NextStepTexts},
  * {@link ArgumentDescriptions}); this enum names which text belongs where. A
  * probe compares the descriptions with the contract and never with the bundle.

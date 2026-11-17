@@ -323,7 +323,7 @@ public class MemoryRepository {
         }
         if (filter.type() != null) {
             where.append(AND).append("m.type = :type");
-            bound.put("type", filter.type().wire());
+            bound.put("type", filter.type().stored());
         }
         if (filter.text() != null) {
             where.append(AND).append("LOWER(m.content) LIKE :text ESCAPE '")
@@ -447,7 +447,7 @@ public class MemoryRepository {
                     + AND + IN_FORCE_AND_VISIBLE + AND + ADDRESSABLE + keptBy(narrowing)
                     + " ORDER BY m.createdAt ASC, m.key ASC", Memory.class)
             .setParameter("scopes", scopeIds)
-            .setParameter("types", types.stream().map(EntryType::wire).toList())
+            .setParameter("types", types.stream().map(EntryType::stored).toList())
             .setParameter(CALLER, caller);
         bindNarrowing(narrowing).forEach(rows::setParameter);
         return rows.getResultList();
@@ -473,7 +473,7 @@ public class MemoryRepository {
             return Map.of();
         }
         Map<String, Object> bound = new java.util.LinkedHashMap<>();
-        bound.put(WHOLE, narrowing.carriedWhole().wire());
+        bound.put(WHOLE, narrowing.carriedWhole().stored());
         if (!narrowing.tagIds().isEmpty()) {
             bound.put(TAGS, narrowing.tagIds());
         }
@@ -491,6 +491,7 @@ public class MemoryRepository {
      * @param narrowing the same narrowing the digest's content is read with,
      *                  so that the summary describes what the digest carries;
      *                  null for every entry
+     * @return the tallies keyed by the type's stored name ({@link EntryType#stored()})
      */
     @Transactional
     public Map<String, TypeTally> tallyByType(List<UUID> scopeIds, String caller,

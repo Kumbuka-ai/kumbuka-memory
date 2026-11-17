@@ -45,30 +45,42 @@ public enum EntryType {
     CONVENTION("convention"),
     GLOSSARY("glossary"),
     STATUS("status"),
-    OPEN_QUESTION("open_question");
+    OPEN_QUESTION("open-question", "open_question");
 
-    /** The name on the wire and in the database. Never the enum constant's own. */
+    /** The name on the wire, in the vocabulary form of C7.6. Never the enum constant's own. */
     private final String wire;
 
+    /** The name in the column {@code type} and in the arrays of V4. */
+    private final String stored;
+
     EntryType(String wire) {
-        this.wire = wire;
+        this(wire, wire);
     }
 
+    EntryType(String wire, String stored) {
+        this.wire = wire;
+        this.stored = stored;
+    }
+
+    /**
+     * The name every answer writes, lowercase words joined by a hyphen (C7.6).
+     * It is also the selector entries of this type stand under, which the
+     * declaration fixes as the values of an argument that carries one; the
+     * address grammar admits other selectors as well and does not yet tie a
+     * selector to a type.
+     */
     public String wire() {
         return wire;
     }
 
     /**
-     * The selector entries of this type stand under: the type's word in hyphen
-     * form, never with an underscore, so {@code open-question} for
-     * {@code open_question}.
-     *
-     * <p>Declared as the fixed values of an argument that carries a selector.
-     * The address grammar admits other selectors as well and does not yet tie
-     * a selector to a type.
+     * The name the database holds: what every write lays down and every
+     * statement filters by. {@code open_question} for {@link #OPEN_QUESTION},
+     * as the CHECK of V1 and the arrays of V4 hold it; a migration would have
+     * to rewrite them, and migrations here are additive.
      */
-    public String selector() {
-        return wire.replace('_', '-');
+    public String stored() {
+        return stored;
     }
 
     /** The six, in the digest's order. */
@@ -83,16 +95,17 @@ public enum EntryType {
 
     /**
      * Every name a caller may write a type as: the six wire names, and beside
-     * each one written with an underscore its hyphen form, the vocabulary form
-     * of C7.6. {@code open_question} stays accepted until the
-     * breaking step; an answer still writes the wire name.
+     * {@code open-question} its earlier spelling {@code open_question}. The
+     * earlier spelling is a transition: callers still write it, so the input
+     * takes it in this release, and the next release removes it. No answer
+     * writes it.
      */
     public static List<String> acceptedNames() {
         List<String> accepted = new ArrayList<>();
         for (EntryType type : values()) {
             accepted.add(type.wire);
-            if (!type.selector().equals(type.wire)) {
-                accepted.add(type.selector());
+            if (!type.stored.equals(type.wire)) {
+                accepted.add(type.stored);
             }
         }
         return List.copyOf(accepted);
@@ -100,6 +113,8 @@ public enum EntryType {
 
     /**
      * The type a name denotes, in either of its accepted spellings, or empty.
+     * The earlier spelling is also the stored name, so a value read from the
+     * table resolves here as well.
      *
      * <p>Empty rather than a refusal: whether an unknown type is a malformed
      * call or a malformed row is not this class's to decide, and the two get
@@ -107,7 +122,7 @@ public enum EntryType {
      */
     public static Optional<EntryType> of(@Nullable String name) {
         return Arrays.stream(values())
-            .filter(t -> t.wire.equals(name) || t.selector().equals(name))
+            .filter(t -> t.wire.equals(name) || t.stored.equals(name))
             .findFirst();
     }
 }

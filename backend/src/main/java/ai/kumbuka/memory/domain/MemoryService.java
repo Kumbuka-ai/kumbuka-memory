@@ -533,8 +533,9 @@ public class MemoryService {
         }
     }
 
+    /** The type a caller wrote, as the table stores it ({@link EntryType#stored()}). */
     private static String requireKnownType(@Nullable String type) {
-        return knownType(type).wire();
+        return knownType(type).stored();
     }
 
     private static EntryType knownType(@Nullable String type) {

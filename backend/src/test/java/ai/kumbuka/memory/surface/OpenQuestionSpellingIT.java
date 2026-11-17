@@ -18,6 +18,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
@@ -159,6 +164,48 @@ class OpenQuestionSpellingIT {
         assertThat(digest.strings("sections.type")).containsExactly(VOCABULARY_FORM);
     }
 
+    /**
+     * A cursor binds the type filter by the type's stored name, as it did
+     * before the wire name took the vocabulary form: a cursor handed out by the
+     * release before continues its listing, and a listing filtered in one
+     * spelling continues in the other. The earlier cursor is built here by hand
+     * in the form version 1 states.
+     */
+    @Test
+    void a_listing_filtered_to_open_questions_continues_across_the_release_and_both_spellings() {
+        for (String key : List.of("open-question.a", "open-question.b", "open-question.c")) {
+            SurfaceFixture.call()
+                .body(SurfaceFixture.fields("key", key, "type", VOCABULARY_FORM,
+                    "content", "Which engine?"))
+                .post(COLLECTION);
+        }
+        String scope = SurfaceFixture.API + "/" + SCOPE;
+
+        Response first = SurfaceFixture.call().queryParam("type", VOCABULARY_FORM)
+            .queryParam("page_size", 1).get(scope);
+        String cursor = first.jsonPath().getString("next_cursor");
+        assertThat(cursor).as(first.asString()).isNotNull();
+        Response second = SurfaceFixture.call().queryParam("type", EARLIER_SPELLING)
+            .queryParam("page_size", 1).queryParam("after", cursor).get(scope);
+        assertThat(second.statusCode()).as(second.asString()).isEqualTo(200);
+        assertThat(second.jsonPath().getList("objects.fields.key", String.class))
+            .as("one filter in two spellings is one query, and its cursor continues it")
+            .containsExactly("open-question.b");
+
+        String handedOutBefore = "v1\n" + digest("scope=" + SubstrateDatabaseResource.SCOPE_ID)
+            + "\n\n" + digest("type=open_question\ntext=") + "\nid\nasc\n0\nopen-question.a";
+        Response continued = SurfaceFixture.call().queryParam("type", VOCABULARY_FORM)
+            .queryParam("after", Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(handedOutBefore.getBytes(StandardCharsets.UTF_8)))
+            .get(scope);
+        assertThat(continued.statusCode())
+            .as("a cursor handed out before the release is read, never refused: %s",
+                continued.asString())
+            .isEqualTo(200);
+        assertThat(continued.jsonPath().getList("objects.fields.key", String.class))
+            .containsExactly("open-question.b", "open-question.c");
+    }
+
     @Test
     void the_old_spelling_stays_accepted() {
         Mcp.Result created = Mcp.call("memory_create", args("scope", SCOPE,
@@ -213,6 +260,16 @@ class OpenQuestionSpellingIT {
             assertThat(AddressParser.parse(SCOPE, selector, "x").selector())
                 .as("the selector grammar takes every declared selector value")
                 .isEqualTo(selector);
+        }
+    }
+
+    /** The first sixteen hexadecimal digits of SHA-256, as version 1 of the cursor states its digests. */
+    private static String digest(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
+        } catch (NoSuchAlgorithmException absent) {
+            throw new IllegalStateException(absent);
         }
     }
 }

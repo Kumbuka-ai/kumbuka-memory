@@ -34,7 +34,6 @@ import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.CallerActor;
 import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
-import ai.kumbuka.memory.surface.SurfaceDeclaration;
 import ai.kumbuka.memory.surface.Texts;
 import ai.kumbuka.memory.surface.UnexpectedFailures;
 import ai.kumbuka.memory.surface.VerbSurface;
@@ -44,7 +43,6 @@ import io.quarkus.arc.properties.IfBuildProperty;
 import io.quarkus.security.Authenticated;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -158,18 +156,6 @@ public class McpAdapter {
             // repeated; the answer names the methods there are (DEC-0043 R19).
             default -> error(id, METHOD_NOT_FOUND, Texts.protocol().methods());
         };
-    }
-
-    /**
-     * The declaration every tool, schema, description and reason is derived
-     * from: the transitional exception of C5.1, beside {@code GET /api}, which
-     * goes in memory's breaking step. The declaration's own path is
-     * {@code /api/declaration}.
-     */
-    @GET
-    @Path("/declaration")
-    public Map<String, Object> declaration() {
-        return SurfaceDeclaration.asMap();
     }
 
     private InitializePayload initialize() {

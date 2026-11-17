@@ -143,14 +143,14 @@ public class DigestService {
     }
 
     // ------------------------------------------------------------------
-    // The summary: all six, always
+    // The summary: all six, always, each named by its wire name
     // ------------------------------------------------------------------
 
     private static List<DigestView.TypeTally> summaryOf(
             Map<String, MemoryRepository.TypeTally> tallies, List<EntryType> carried) {
         List<DigestView.TypeTally> summary = new ArrayList<>();
         for (EntryType type : EntryType.inDigestOrder()) {
-            MemoryRepository.TypeTally tally = tallies.getOrDefault(type.wire(),
+            MemoryRepository.TypeTally tally = tallies.getOrDefault(type.stored(),
                 MemoryRepository.TypeTally.NONE);
             summary.add(new DigestView.TypeTally(type.wire(), tally.count(),
                 DigestView.tokensFor(tally.characters()), carried.contains(type)));
@@ -182,8 +182,10 @@ public class DigestService {
         Map<UUID, String> slugs = new LinkedHashMap<>();
         covered.forEach(scope -> slugs.put(scope.id(), scope.slug()));
 
+        // Keyed by the stored name, which is what each row carries; the
+        // sections are named by the wire name (C7.6).
         Map<String, List<DigestView.Entry>> byType = new LinkedHashMap<>();
-        carried.forEach(type -> byType.put(type.wire(), new ArrayList<>()));
+        carried.forEach(type -> byType.put(type.stored(), new ArrayList<>()));
 
         for (Memory entry : entries.loadForDigest(reading.scopeIds(), carried, actor.subject(),
                 reading.narrowing())) {
@@ -195,7 +197,7 @@ public class DigestService {
 
         return EntryType.inDigestOrder().stream()
             .filter(carried::contains)
-            .map(type -> new DigestView.Section(type.wire(), loaded(byType, type.wire())))
+            .map(type -> new DigestView.Section(type.wire(), loaded(byType, type.stored())))
             .toList();
     }
 

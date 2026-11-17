@@ -68,7 +68,7 @@ import java.util.UUID;
  * depths, and each one offers exactly what the verb set has at it:
  *
  * <pre>
- *   GET    /api                             the service's declaration
+ *   GET    /api/declaration                 the service's declaration
  *   GET    /api/{scope}                     query, over every selector
  *   GET    /api/{uuid}                      read, by technical address
  *   POST   /api/{scope}:digest              digest
@@ -136,7 +136,8 @@ public class EntryResource {
     /**
      * GET at the declaration's own path: the service's declaration (C5.1,
      * ADR-0039), with its version as the {@code ETag}, so that a reader can
-     * ask whether it changed without reading it.
+     * ask whether it changed without reading it. The one path that serves it;
+     * {@code /api} itself carries no route.
      *
      * <p>Every verb with its identity, effect class, arguments, answer,
      * refusals and texts, and the version they carry together -- the statement
@@ -155,19 +156,6 @@ public class EntryResource {
         return Response.ok(declaration)
             .tag(new EntityTag(String.valueOf(declaration.get("version"))))
             .build();
-    }
-
-    /**
-     * GET at the scheme's own address: the same declaration, where the router
-     * reads it today.
-     *
-     * <p>The transitional exception of C5.1, beside {@code /mcp/declaration}:
-     * it stands until the router binds the declaration from
-     * {@code /api/declaration}, and goes in memory's breaking step.
-     */
-    @GET
-    public Map<String, Object> schemeDeclaration() {
-        return SurfaceDeclaration.asMap();
     }
 
     // ======================================================================
