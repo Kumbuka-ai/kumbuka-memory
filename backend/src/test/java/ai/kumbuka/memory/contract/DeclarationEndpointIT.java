@@ -14,6 +14,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 import io.restassured.path.json.JsonPath;
+import io.restassured.response.Response;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -51,6 +52,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DeclarationEndpointIT {
 
     private static final String PATH = "/api/declaration";
+
+    /** The two paths that served the declaration beside its own until the breaking step. */
+    private static final List<String> RETIRED = List.of("/api", "/mcp/declaration");
+
+    /** A path no route of the service carries. */
+    private static final String UNKNOWN_PATH = "/api/probe-scope/decision/storage-engine/more";
 
     @Test
     void every_verb_carries_what_the_transcription_says() {
@@ -137,18 +144,26 @@ class DeclarationEndpointIT {
     }
 
     @Test
-    void the_declaration_is_versioned_and_one_on_every_path_that_serves_it() {
+    void the_declaration_is_versioned_and_served_at_its_path_alone() {
         JsonPath served = fetch(PATH);
         String version = served.getString("version");
         assertThat(version).as("a version over the content").startsWith("sha256:")
             .hasSize("sha256:".length() + 64);
         assertThat(fetch(PATH).getString("version"))
             .as("an unchanged declaration keeps its version").isEqualTo(version);
-        for (String transitional : List.of("/api", "/mcp/declaration")) {
-            assertThat(fetch(transitional).getMap("$"))
-                .as("%s serves the declaration of %s until the router binds it there (C5.1)",
-                    transitional, PATH)
-                .isEqualTo(served.getMap("$"));
+
+        Response unknown = given().accept(ContentType.JSON).get(UNKNOWN_PATH);
+        assertThat(unknown.statusCode()).isEqualTo(404);
+        for (String retired : RETIRED) {
+            Response answer = given().accept(ContentType.JSON).get(retired);
+            assertThat(answer.statusCode())
+                .as("%s served the declaration until the router bound it at %s, and is "
+                    + "retired in memory's breaking step (C5.1): %s", retired, PATH,
+                    answer.asString())
+                .isEqualTo(404);
+            assertThat(answer.asString())
+                .as("%s answers what every unknown path answers, byte for byte", retired)
+                .isEqualTo(unknown.asString());
         }
     }
 

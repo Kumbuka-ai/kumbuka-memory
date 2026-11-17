@@ -178,7 +178,7 @@ class SurfaceHeaderIT {
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
     void the_root_of_the_rest_surface_reads_the_header_too() {
         headerInvalid(call().header(HEADER, "bogus").get(API),
-            "the root itself: the declaration at GET /api");
+            "the root itself, where no route is served");
     }
 
     @Test

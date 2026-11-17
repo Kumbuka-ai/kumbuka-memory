@@ -50,9 +50,12 @@ class DigestIT {
     private static final String SCOPE = SubstrateDatabaseResource.PROBE_SCOPE_SLUG;
     private static final int PER_TYPE = 25;
 
-    /** The order the contract fixes, restated here and taken from it. */
+    /**
+     * The order the contract fixes, restated here and taken from it, each type
+     * in its vocabulary form (C7.6).
+     */
     private static final List<String> DIGEST_ORDER = List.of(
-        "constraint", "decision", "convention", "glossary", "status", "open_question");
+        "constraint", "decision", "convention", "glossary", "status", "open-question");
 
     /** The estate's default: every type but the unsettled one. */
     private static final List<String> DEFAULT_SELECTION = List.of(
@@ -76,6 +79,7 @@ class DigestIT {
             "glossary", "glossary", PER_TYPE);
         SurfaceFixture.plantMany(SubstrateDatabaseResource.SCOPE_ID,
             "status", "status", PER_TYPE);
+        // Planted in the table, so under the name the table stores (V1).
         SurfaceFixture.plantMany(SubstrateDatabaseResource.SCOPE_ID,
             "openquestion", "open_question", PER_TYPE);
         SurfaceFixture.plantMany(SubstrateDatabaseResource.GLOBAL_SCOPE_ID,
@@ -110,9 +114,9 @@ class DigestIT {
                 + "which this digest does not carry, and can ask for them", PER_TYPE)
             .isEqualTo(DIGEST_ORDER);
 
-        assertThat(tallyOf(digest, "open_question").get("count"))
+        assertThat(tallyOf(digest, "open-question").get("count"))
             .isEqualTo(PER_TYPE);
-        assertThat(tallyOf(digest, "open_question").get("carried"))
+        assertThat(tallyOf(digest, "open-question").get("carried"))
             .as("counted in the summary and not carried in the content: a digest is what "
                 + "is IN FORCE, and an open question is the opposite of that")
             .isEqualTo(false);
@@ -166,13 +170,17 @@ class DigestIT {
 
     @Test
     void a_passed_type_selection_overrides_the_estates_one_for_that_answer() {
+        // Asked in the earlier spelling, which the input still takes until the
+        // next release; answered in the vocabulary form (C7.6).
         Response digest = call().body("{\"types\":[\"open_question\"]}")
             .post(API + "/" + SCOPE + ":digest");
 
         assertThat(digest.statusCode()).isEqualTo(200);
+        assertThat(digest.jsonPath().getList("selected_types", String.class))
+            .containsExactly("open-question");
         assertThat(digest.jsonPath().getList("sections.type", String.class))
-            .containsExactly("open_question");
-        assertThat(entriesOf(digest, "open_question")).hasSize(PER_TYPE);
+            .containsExactly("open-question");
+        assertThat(entriesOf(digest, "open-question")).hasSize(PER_TYPE);
 
         assertThat(call().post(API + "/" + SCOPE + ":digest")
                 .jsonPath().getList("selected_types", String.class))

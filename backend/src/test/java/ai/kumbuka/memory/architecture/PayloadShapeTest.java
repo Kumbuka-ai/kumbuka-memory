@@ -18,7 +18,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -34,11 +33,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * a map as the shape of the answer itself.
  *
  * <p>The declaration is the one answer C7.1 admits as a map: its version is a
- * hash over its canonical form (ADR-0039). Its own path answers it inside a
- * response that carries the version as the entity tag; the two transitional
- * paths of C5.1 serve it as a map, and those two methods are named here by
- * hand rather than recognised by their shape, so that a third map cannot pass
- * as a declaration.
+ * hash over its canonical form (ADR-0039). Its one path, {@code /api/declaration}
+ * (C5.1), answers it inside a response that carries the version as the entity
+ * tag, so no adapter method hands it out as a map and this check names no
+ * exception.
  *
  * <p>Synthetic methods are skipped: a lambda's body is compiled into one, and
  * its signature is the compiler's choice rather than the author's. So is a
@@ -48,11 +46,6 @@ class PayloadShapeTest {
 
     private static final String ADAPTER = "adapter";
 
-    /** The two methods that serve the declaration as a map, the one map C7.1 admits. */
-    private static final Set<String> DECLARATION = Set.of(
-        SourceTree.BASE + ".adapter.rest.EntryResource.schemeDeclaration",
-        SourceTree.BASE + ".adapter.mcp.McpAdapter.declaration");
-
     @Test
     void no_method_of_an_adapter_returns_a_map() {
         assertThat(offenders(adapterClasses()))
@@ -60,22 +53,6 @@ class PayloadShapeTest {
                 + "and disappear with the code that fills it, and null travels as a member. "
                 + "Return a record from adapter.payload with explicit snake_case names (C7.1)")
             .isEmpty();
-    }
-
-    @Test
-    void the_declaration_is_served_as_a_map_where_it_is_named() {
-        List<String> maps = new ArrayList<>();
-        for (Class<?> type : adapterClasses()) {
-            for (Method method : type.getDeclaredMethods()) {
-                if (isMapOrListOfMaps(method.getGenericReturnType())) {
-                    maps.add(type.getName() + "." + method.getName());
-                }
-            }
-        }
-        assertThat(maps)
-            .as("the named exception must name methods that exist, or it exempts nothing "
-                + "and hides a rename")
-            .containsAll(DECLARATION);
     }
 
     /** The red state, observed on every build. */
@@ -120,7 +97,7 @@ class PayloadShapeTest {
             for (Method method : type.getDeclaredMethods()) {
                 String name = type.getName() + "." + method.getName();
                 if (method.isSynthetic() || method.isBridge() || isAccessor(type, method)
-                        || !handsOut(method) || DECLARATION.contains(name)) {
+                        || !handsOut(method)) {
                     continue;
                 }
                 if (isMapOrListOfMaps(method.getGenericReturnType())) {
