@@ -48,9 +48,8 @@ neither the conflict token nor the change time of the entry.
 
 On the assistant surface the tool list, the input schemas, the descriptions,
 the names offered as next steps and the catalogue of refusal reasons all come
-from **one declaration**, served at `GET /api/declaration` with its version as
-the `ETag` (and, until the router reads it from there, also at `GET /api` and
-`GET /mcp/declaration`): every verb with its identity, its effect class in the
+from **one declaration**, served at `GET /api/declaration` and nowhere else,
+with its version as the `ETag`: every verb with its identity, its effect class in the
 router's names, its arguments, the shape of its answer, the reasons it can be
 refused with and its texts, under a version that is a hash over the whole. Each
 release publishes it beside the jar as
