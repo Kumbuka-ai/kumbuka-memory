@@ -39,7 +39,11 @@ import static io.restassured.RestAssured.given;
  */
 public final class SurfaceFixture {
 
-    /** The published prefix of the verb surface. */
+    /**
+     * The published prefix of the verb surface. No route is served at the
+     * prefix itself: the declaration stands at {@code /api/declaration} alone
+     * (C5.1).
+     */
     public static final String API = "/api";
 
     private SurfaceFixture() {

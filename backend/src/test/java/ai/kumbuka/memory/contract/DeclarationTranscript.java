@@ -60,11 +60,12 @@ final class DeclarationTranscript {
 
     /**
      * The values of the type an entry carries, as the service takes them
-     * today: the six, and {@code open_question} in its hyphen form beside it
-     * (C7.6).
+     * today: the six in their vocabulary form (C7.6), and beside
+     * {@code open-question} its earlier spelling {@code open_question}, the
+     * input tolerance that falls with the next release.
      */
     static final List<String> TYPES = List.of("constraint", "decision", "convention",
-        "glossary", "status", "open_question", "open-question");
+        "glossary", "status", "open-question", "open_question");
 
     /**
      * The selectors, fixed by the service: the word of each type, with hyphens

@@ -26,12 +26,10 @@ import java.util.TreeSet;
  * The service as one declaration: its calls, its reasons, and the next steps
  * an answer offers (ADR-0039), in the shape of contract section 5.
  *
- * <p>Served at {@code GET /api/declaration}, with its version as the
- * {@code ETag}, which is where the router reads it (C5.1). Until the router
- * binds it from there, the same declaration is also served at {@code GET /api}
- * and {@code GET /mcp/declaration}, the one exception C5.1 names; both go in
- * memory's breaking step. {@link DeclarationGuard} checks it at start, so that
- * a declaration nobody could serve is never served (C5.6).
+ * <p>Served at {@code GET /api/declaration} and nowhere else, with its version
+ * as the {@code ETag}, which is where the router reads it (C5.1).
+ * {@link DeclarationGuard} checks it at start, so that a declaration nobody
+ * could serve is never served (C5.6).
  *
  * <h2>What it carries per verb</h2>
  *
@@ -46,8 +44,8 @@ import java.util.TreeSet;
  *
  * <h2>The selectors are fixed values</h2>
  *
- * A selector of this service is the word of an entry type in hyphen form
- * ({@link EntryType#selector()}), so the arguments that carry one declare the
+ * A selector of this service is the wire name of an entry type
+ * ({@link EntryType#wire()}), so the arguments that carry one declare the
  * six as their fixed values (C5.4). They are declared here and nowhere else:
  * the input schema of the assistant surface and the address grammar do not
  * hold a selector to them yet.
@@ -264,7 +262,7 @@ public final class SurfaceDeclaration {
     private static List<Value> valuesOf(Argument argument) {
         if (AssistantVerb.Names.SELECTOR.equals(argument.name())) {
             return EntryType.inDigestOrder().stream()
-                .map(type -> new Value(type.selector(), typeDescription(type)))
+                .map(type -> new Value(type.wire(), typeDescription(type)))
                 .toList();
         }
         Object values = argument.keywords().get("enum");
@@ -287,10 +285,25 @@ public final class SurfaceDeclaration {
             case "sort=created_at" -> texts.sortCreatedAt();
             case "direction=asc" -> texts.directionAsc();
             case "direction=desc" -> texts.directionDesc();
-            default -> EntryType.of(value).map(SurfaceDeclaration::typeDescription)
+            default -> EntryType.of(value)
+                .map(type -> type.wire().equals(value)
+                    ? typeDescription(type) : earlierSpellingDescription(type))
                 .orElseThrow(() -> new IllegalStateException(argument + " declares a value "
                     + "that has no description in the value bundle"));
         };
+    }
+
+    /**
+     * What the earlier spelling of a type means: a transition the input takes
+     * in this release and the next release removes ({@link EntryType#acceptedNames()}).
+     * The open question's is the one there is.
+     */
+    private static String earlierSpellingDescription(EntryType type) {
+        if (type != EntryType.OPEN_QUESTION) {
+            throw new IllegalStateException(type + " declares an earlier spelling that has "
+                + "no description in the value bundle");
+        }
+        return Texts.values().typeOpenQuestionEarlierSpelling();
     }
 
     /** What an entry type means; its selector means the same. */

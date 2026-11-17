@@ -103,9 +103,15 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
      * searched for has no business travelling in a token that is handed
      * around, and a digest keeps the cursor the same length whatever was
      * searched.
+     *
+     * <p>The type enters by its stored name ({@link EntryType#stored()}), which
+     * is the name it entered by before the wire name took the vocabulary form
+     * (C7.6). A cursor handed out before that release therefore still
+     * continues its listing; and whichever spelling a caller filters by, the
+     * fingerprint is the same.
      */
     public static String fingerprint(@Nullable EntryType type, @Nullable String text) {
-        return digestOf("type=" + (type == null ? "" : type.wire())
+        return digestOf("type=" + (type == null ? "" : type.stored())
             + SEPARATOR + "text=" + (text == null ? "" : text));
     }
 
@@ -119,7 +125,7 @@ public record PageCursor(Binding binding, String key, Instant createdAt) {
         if (tag == null) {
             return fingerprint(type, text);
         }
-        return digestOf("type=" + (type == null ? "" : type.wire())
+        return digestOf("type=" + (type == null ? "" : type.stored())
             + SEPARATOR + "text=" + (text == null ? "" : text)
             + SEPARATOR + "tag=" + tag);
     }

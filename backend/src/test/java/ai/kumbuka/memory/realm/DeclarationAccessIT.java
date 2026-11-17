@@ -32,8 +32,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * token: the realm's user holds the realm's {@code member} role and nothing of
  * this service, so a token of it is a valid platform token with no role here.
  * That token reads the declaration; no token reads nothing but the protocol's
- * challenge; and the declaration is served at {@code /api/declaration} and at
- * the two transitional paths C5.1 names, and nowhere else.
+ * challenge; and the declaration is served at {@code /api/declaration} and
+ * nowhere else. The two paths that served it beside its own until the router
+ * bound it there, {@code /api} and {@code /mcp/declaration}, answer what every
+ * unknown path answers.
  *
  * <p>The shape of what is served is checked against the schema in the test
  * tree, through {@link DeclarationShapeTest#violations}: the declaration
@@ -48,8 +50,14 @@ class DeclarationAccessIT {
 
     private static final String DECLARATION = "/api/declaration";
 
-    /** The paths C5.1 lets serve the declaration while the router has not moved. */
-    private static final List<String> TRANSITIONAL = List.of("/api", "/mcp/declaration");
+    /**
+     * The paths that served the declaration beside its own until the router
+     * bound it at {@link #DECLARATION}; retired in memory's breaking step (C5.1).
+     */
+    private static final List<String> RETIRED = List.of("/api", "/mcp/declaration");
+
+    /** A path no route of the service carries. */
+    private static final String UNKNOWN_PATH = "/api/probe-scope/decision/storage-engine/more";
 
     /** The deeper routes resolve a scope, which reads the platform's directory. */
     @BeforeAll
@@ -87,14 +95,21 @@ class DeclarationAccessIT {
     }
 
     @Test
-    void the_declaration_is_served_at_its_path_and_the_transitional_ones_only() {
+    void the_declaration_is_served_at_its_path_only() {
         String token = memberToken();
-        Map<String, Object> served = read(token, DECLARATION).jsonPath().getMap("$");
-        for (String path : TRANSITIONAL) {
-            assertThat(read(token, path).jsonPath().getMap("$"))
-                .as("%s serves the declaration of %s until the router binds it (C5.1)",
-                    path, DECLARATION)
-                .isEqualTo(served);
+        assertThat(read(token, DECLARATION).jsonPath().getMap("$")).isNotEmpty();
+        Response unknown = get(token, UNKNOWN_PATH);
+        assertThat(unknown.statusCode()).as(unknown.asString()).isEqualTo(404);
+        for (String path : RETIRED) {
+            Response retired = get(token, path);
+            assertThat(retired.statusCode())
+                .as("%s served the declaration until the router bound it at %s, and is "
+                    + "retired in memory's breaking step (C5.1): %s", path, DECLARATION,
+                    retired.asString())
+                .isEqualTo(404);
+            assertThat(retired.asString())
+                .as("%s answers what every unknown path answers, byte for byte", path)
+                .isEqualTo(unknown.asString());
         }
         for (String path : List.of("/declaration", "/mcp/api/declaration",
                 "/api/declaration/decision", "/api/declaration/decision/decision.x")) {
@@ -134,12 +149,16 @@ class DeclarationAccessIT {
     }
 
     private static Response read(String token, String path) {
-        Response read = given()
+        Response read = get(token, path);
+        assertThat(read.statusCode()).as("%s: %s", path, read.asString()).isEqualTo(200);
+        return read;
+    }
+
+    private static Response get(String token, String path) {
+        return given()
             .header("Authorization", "Bearer " + token)
             .accept(ContentType.JSON)
             .when().get(path);
-        assertThat(read.statusCode()).as("%s: %s", path, read.asString()).isEqualTo(200);
-        return read;
     }
 
     /**

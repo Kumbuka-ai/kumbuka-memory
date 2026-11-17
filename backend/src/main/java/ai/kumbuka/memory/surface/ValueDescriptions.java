@@ -11,7 +11,8 @@ import io.quarkus.qute.i18n.Message;
 import io.quarkus.qute.i18n.MessageBundle;
 
 /**
- * What each value of a fixed set means: the six entry types, the two orders
+ * What each value of a fixed set means: the six entry types, the earlier
+ * spelling of one of them for as long as the input takes it, the two orders
  * and the two directions. The texts are in {@code messages/value.properties},
  * phrased positively (DEC-0043 R21), and published with the declaration.
  */
@@ -29,6 +30,8 @@ public interface ValueDescriptions {
     @Message String typeStatus();
 
     @Message String typeOpenQuestion();
+
+    @Message String typeOpenQuestionEarlierSpelling();
 
     @Message String sortId();
 

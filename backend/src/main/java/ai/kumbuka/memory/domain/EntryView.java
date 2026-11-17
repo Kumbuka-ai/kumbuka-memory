@@ -24,7 +24,8 @@ import java.util.List;
  * <h2>No uuid, anywhere</h2>
  *
  * Not one field here carries a generated identifier. The address is speaking,
- * the scope is a slug, the type and the state are names, and the row's
+ * the scope is a slug, the type (its wire name, {@link EntryType#wire()}) and
+ * the state are names, and the row's
  * {@code logical_id} does not appear. The entity is where the uuids live and
  * the entity does not leave the transaction.
  *
@@ -75,7 +76,9 @@ public record EntryView(
             EntryAddress.ofKey(scopeSlug, entry.key),
             scopeSlug,
             entry.key,
-            entry.type,
+            // The column holds the stored name, which the CHECK of V1 keeps to
+            // the six; an answer writes the wire name (C7.6).
+            EntryType.of(entry.type).orElseThrow().wire(),
             entry.content,
             entry.reference,
             entry.state,
