@@ -92,8 +92,9 @@ class PermissionCheckIT {
         String token = read.jsonPath().getString("conflict_token");
 
         long before = SurfaceFixture.countRows(COUNT);
+        // RED PROBE a: expectation turned round, a reader's create is admitted.
         assertRefused(call().body(fields("key", "decision.another", "type", "decision",
-            "content", "x")).post(API + "/" + SCOPE + "/decision"), 403, "SCOPE_READ_ONLY");
+            "content", "x")).post(API + "/" + SCOPE + "/decision"), 201, null);
         assertRefused(call().header("If-Match", token).body(fields("content", "x"))
             .patch(ITEM), 403, "SCOPE_READ_ONLY");
         assertRefused(call().header("If-Match", token).post(ITEM + ":withdraw"),
@@ -130,8 +131,9 @@ class PermissionCheckIT {
             .containsExactly("read " + ADDRESS);
         String token = read.jsonPath().getString("conflict_token");
 
+        // RED PROBE b: expectation turned round, the agent's update is admitted.
         assertRefused(call().header("If-Match", token).body(fields("content", "x"))
-            .patch(ITEM), 403, "SCOPE_READ_ONLY");
+            .patch(ITEM), 200, null);
         assertRefused(call().header("If-Match", token).post(ITEM + ":withdraw"),
             403, "SCOPE_READ_ONLY");
 
@@ -189,6 +191,8 @@ class PermissionCheckIT {
             Response outside = call().get(API + "/" + OUTSIDE + "/decision/storage-engine");
             Response unknown = call().get(API + "/no-such-scope/decision/storage-engine");
             Response absent = call().get(API + "/" + SCOPE + "/decision/nothing-here");
+            // RED PROBE c: expectation turned round, the scope outside the set is read.
+            assertRefused(outside, 200, null);
 
             for (Response answer : List.of(outside, unknown, absent)) {
                 assertThat(answer.statusCode()).as(answer.asString()).isEqualTo(404);
@@ -225,7 +229,8 @@ class PermissionCheckIT {
             .hasSize(5);
 
         long before = SurfaceFixture.countRows(COUNT);
-        assertRefused(call().get(ITEM), 404, "NOT_FOUND");
+        // RED PROBE d: expectation turned round, empty scope set and still read.
+        assertRefused(call().get(ITEM), 200, null);
         assertRefused(call().body(fields("key", "decision.another", "type", "decision",
             "content", "x")).post(API + "/" + SCOPE + "/decision"), 404, "NOT_FOUND");
         assertThat(Mcp.call("memory_digest", args("scope", SCOPE)).reason())
@@ -241,8 +246,8 @@ class PermissionCheckIT {
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-author")
     void an_author_in_a_locked_scope_is_refused_by_the_lock_after_the_permission() {
         String body = fields("key", "decision.another", "type", "decision", "content", "x");
-        assertRefused(call().body(body).post(API + "/" + LOCKED + "/decision"),
-            409, "SCOPE_LOCKED");
+        // RED PROBE g: expectation turned round, the author creates in a locked scope.
+        assertRefused(call().body(body).post(API + "/" + LOCKED + "/decision"), 201, null);
         Mcp.Result overMcp = Mcp.call("memory_create", args("scope", LOCKED,
             "selector", "decision", "fields", Map.of("key", "decision.another",
                 "type", "decision", "content", "x")));
