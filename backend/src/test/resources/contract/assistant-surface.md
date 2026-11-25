@@ -193,7 +193,7 @@ is the cause (DEC-0042).
 |---|---|---|
 | `NOT_FOUND` | 4.3 | Check the address, and that you are a member of the scope it names. |
 | `SCOPE_LOCKED` | `<call> is refused: the scope is locked, and a locked scope takes writes from nobody. Read the scope with <read>, <query> or <digest>, and write to it once it is unlocked.` | Read the scope with `<read>`, `<query>` or `<digest>`, and write to it once it is unlocked. |
-| `SCOPE_READ_ONLY` | `<call> is refused: your right in this scope is to read it. Read the scope with <read>, <query> or <digest>, and ask the scope's owner for the write right to change it.` | Read the scope with `<read>`, `<query>` or `<digest>`, and ask the scope's owner for the write right to change it. |
+| `SCOPE_READ_ONLY` | `<call> is refused: the one permission you hold in this scope is memory.entry.read. Read the scope with <read>, <query> or <digest>, and ask the administrator of your organisation for a role that carries the permission this call declares, such as memory-author, which carries memory.entry.create, memory.entry.update and memory.entry.tag.` | Read the scope with `<read>`, `<query>` or `<digest>`, and ask the administrator of your organisation for a role that carries the permission this call declares, such as memory-author, which carries memory.entry.create, memory.entry.update and memory.entry.tag. |
 | `ROLE_INSUFFICIENT` | `<call> is refused: the roles of your account grant other acts on entries than this one. Make the calls your roles grant, such as <read>, <query> or <digest> where they grant reading, and ask the administrator of your organisation for the role that grants this one.` | Make the calls your roles grant, such as `<read>`, `<query>` or `<digest>` where they grant reading, and ask the administrator of your organisation for the role that grants this one. |
 | `ADDRESS_MALFORMED` | `<call> was given an address or a scope in a form this service does not carry. Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens, by a name other than declaration and whoami.` | Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens, by a name other than declaration and whoami. |
 | `KEY_MALFORMED` | `<call> was given a key or a selector in a form this service does not store. Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters.` | Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters. |
@@ -245,7 +245,7 @@ everything the call writes is under `fields`.
 **`memory_create`**
 > Lays down a new entry at a free address. The address is the scope and the key; the key begins
 > with the selector. Refused if an entry already stands there: change it with memory_update.
-> Callable by anyone who may write to the scope.
+> Callable by a caller who holds memory.entry.create in the scope.
 
 Top-level: `scope`, `selector`, optional `idempotency_key`. Under `fields`: `key`, `type`,
 `content`, optional `reference`. Result: the entry is in force. Under an idempotency key, a repeat
@@ -261,7 +261,7 @@ Top-level: `address`. Callable by anyone who may read the scope.
 **`memory_update`**
 > Changes the content, the type or the reference of an entry; its address is fixed for its life.
 > Needs the conflict token of the latest read and is refused if the entry changed since. Callable
-> by anyone who may write to the scope.
+> by a caller who holds memory.entry.update in the scope.
 
 Top-level: `address`, `conflict_token`. Under `fields`: at least one of `content`, `type`,
 `reference`. Result: the entry stays in force and carries a new conflict token.
@@ -295,16 +295,16 @@ may read the scope.
 
 **`memory_tag_attach`**
 > Attaches a tag of the scope's vocabulary to an entry and answers the entry with its tags. A tag already
-> attached stays attached. Leaves the entry and its conflict token unchanged. Callable by anyone
-> who may write to the scope.
+> attached stays attached. Leaves the entry and its conflict token unchanged. Callable by a caller
+> who holds memory.entry.tag in the scope.
 
 Top-level: `address`, `tag`. Result: the entry carries the tag. A tag the scope does not declare is
 `VALUE_UNDECLARED`, a withdrawn one `VALUE_WITHDRAWN`.
 
 **`memory_tag_detach`**
 > Detaches a tag from an entry and answers the entry with its tags, a withdrawn tag included. A tag the
-> entry lacks stays detached. Leaves the entry and its conflict token unchanged. Callable by anyone
-> who may write to the scope.
+> entry lacks stays detached. Leaves the entry and its conflict token unchanged. Callable by a caller
+> who holds memory.entry.tag in the scope.
 
 Top-level: `address`, `tag`. Result: the entry no longer carries the tag. A tag the scope does not
 declare is `VALUE_UNDECLARED`.
