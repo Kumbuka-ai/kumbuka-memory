@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.repository;
 
 import ai.kumbuka.memory.tenancy.TenantBound;
@@ -36,9 +43,9 @@ public class ScopeAccessRepository {
      * The seven columns, in the order the view publishes them (V24), and the
      * one statement they are read through.
      *
-     * <p>The whole prefix rather than the column list alone: the three reads
+     * <p>The whole prefix rather than the column list alone: the four reads
      * below differ only in their predicate, and a shared prefix is what makes
-     * that visible at a glance. A column added to the view reaches all three
+     * that visible at a glance. A column added to the view reaches all four
      * by one edit here, which is the arrangement that kept this file to one
      * change when the contract grew from four columns to seven.
      */
@@ -94,6 +101,22 @@ public class ScopeAccessRepository {
         List<Object[]> rows = em.createNativeQuery(
                 SELECT_ACCESS + " WHERE kind = :kind ORDER BY slug")
             .setParameter("kind", kind)
+            .getResultList();
+        return rows.stream().map(ScopeAccessRepository::rowOf).toList();
+    }
+
+    /**
+     * Every scope the bound subject may enter, of every kind.
+     *
+     * <p>Read for the facts of a call: the set of scopes the call may address,
+     * which the permission check holds an addressed scope against. The view
+     * answers for the bound tenant and subject only, so the set is the
+     * subject's and nobody else's.
+     */
+    @Transactional
+    public List<ScopeAccessRow> findAll() {
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = em.createNativeQuery(SELECT_ACCESS + " ORDER BY slug")
             .getResultList();
         return rows.stream().map(ScopeAccessRepository::rowOf).toList();
     }
@@ -158,7 +181,9 @@ public class ScopeAccessRepository {
      * content lock, published beside {@code archived} because the two are
      * different refusals: archived is retired, locked is frozen.
      * {@code canWrite} is the calling subject's write right OVER A SERVICE
-     * CHANNEL, which is the only channel this service is.
+     * CHANNEL, as the view publishes it. It is read with the other six and
+     * decides nothing in this service: whether a call may write is the
+     * permission its method declares.
      */
     public record ScopeAccessRow(UUID scopeId, UUID tenantId, String slug, boolean archived,
                                  String kind, boolean locked, boolean canWrite) {

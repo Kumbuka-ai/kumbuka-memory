@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
-@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class IdempotencyIT {
 
     /** The marked value: a key no answer may repeat. */

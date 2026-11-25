@@ -30,9 +30,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>Why two codes and not one</h2>
  *
  * A lock is the scope's own state: it is lifted where it was set, and the same
- * caller with the same token gets through once it is. A missing write right is
- * about this caller, and no state change lifts it — the remedy is the
- * membership, which somebody else administers. A caller told the wrong one of
+ * caller with the same token gets through once it is. A missing write
+ * permission is about this caller, and no state change lifts it — the remedy
+ * is a role, which somebody else administers. A caller told the wrong one of
  * those goes to the wrong person, which is worse than being told nothing.
  *
  * <p>The codes are the ones 187.4 and 187.5 declare in the worklist and the
@@ -68,16 +68,22 @@ class ScopeRightsIT {
     }
 
     // ==================================================================
-    // The write right
+    // The write permission
     // ==================================================================
 
+    /**
+     * A subject whose roles grant reading alone. Before the permission check
+     * this was the muted member, refused through the view's {@code can_write};
+     * the subject here is unmuted and holds {@code memory-reader}, so the
+     * refusal comes from the permission the write declares.
+     */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.MUTED_SUBJECT)
-    void a_caller_without_the_write_right_reads_the_scope_and_writes_nothing_in_it() {
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-reader")
+    void a_caller_without_the_write_permission_reads_the_scope_and_writes_nothing_in_it() {
         Response read = call().get(API + "/" + OPEN + "/decision/storage-engine");
         assertThat(read.statusCode())
-            .as("the write right is not about seeing the scope: the directory answered "
-                + "for it, so this caller already has it")
+            .as("the write permission is not about seeing the scope: the scope is in "
+                + "this caller's set, and reading is the permission it holds")
             .isEqualTo(200);
         assertThat(read.jsonPath().getList("next.call", String.class))
             .as("and the answer offers only what this caller may actually do — a listed "
@@ -102,7 +108,7 @@ class ScopeRightsIT {
     // ==================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_locked_scope_reads_and_refuses_every_write_as_locked() {
         Response read = call().get(API + "/" + LOCKED + "/decision/storage-engine");
         assertThat(read.statusCode())
@@ -125,16 +131,15 @@ class ScopeRightsIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
-    void the_lock_is_answered_before_the_write_right_so_both_codes_are_reachable() {
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
+    void a_caller_holding_the_permission_is_refused_by_the_lock_of_a_locked_scope() {
         Response locked = call().body(fields("key", "decision.another", "type", "decision",
                 "content", "x")).post(API + "/" + LOCKED + "/decision");
 
         assertThat(locked.jsonPath().getString("reason"))
-            .as("the view derives can_write as NOT locked AND …, so a locked scope always "
-                + "arrives with the write right already false. Checking the write right "
-                + "first would answer every locked scope with SCOPE_READ_ONLY and leave "
-                + "SCOPE_LOCKED a code that exists and can never be produced")
+            .as("the view derives can_write as NOT locked AND …, and can_write decides "
+                + "nothing any more: a caller holding the permission is refused by the "
+                + "lock, so SCOPE_LOCKED stays a code that is produced")
             .isEqualTo("SCOPE_LOCKED");
         assertThat(locked.jsonPath().getString("message"))
             .as("and the message sends the caller to the lock, not to the membership")

@@ -49,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
-@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class IdempotencyRaceIT {
 
     private static final UUID TENANT = UUID.fromString(SubstrateDatabaseResource.TENANT_ID);
@@ -82,7 +82,7 @@ class IdempotencyRaceIT {
             try (AutoCloseable ignored = tenantContext.bind(TENANT)) {
                 QuarkusTransaction.begin();
                 try {
-                    first = memory.create(PROBE, EntryAddress.ofKey(SCOPE, KEY),
+                    first = memory.create(PROBE, SCOPE, KEY,
                         new Draft("decision", "the one text", null),
                         IdempotencyKey.of(IDEMPOTENCY_KEY)).answer();
                     int holder = LockWaits.sessionOf(em);

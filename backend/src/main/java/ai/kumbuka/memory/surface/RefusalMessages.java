@@ -34,6 +34,8 @@ public interface RefusalMessages {
 
     @Message String scopeReadOnly(VerbName call);
 
+    @Message String roleInsufficient(VerbName call);
+
     @Message String addressMalformed(VerbName call);
 
     @Message String keyMalformed(VerbName call);

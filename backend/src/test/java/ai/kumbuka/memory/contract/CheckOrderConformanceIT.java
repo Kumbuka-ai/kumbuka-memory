@@ -44,9 +44,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * beside them: an address out of the grammar and an argument the call does not
  * declare are refused as such, which says nothing about any scope.
  *
- * <p>Of two write refusals the lock is decided first: a locked scope refuses
- * a muted member with {@code SCOPE_LOCKED}, never {@code SCOPE_READ_ONLY}, so
- * that the order never leaves the code unreachable (C8.7).
+ * <p>Of the two write refusals the permission is decided first, by the
+ * permission check before the method runs, and the lock after it, as an object
+ * rule of the scope: a locked scope refuses a caller that holds the write
+ * permission with {@code SCOPE_LOCKED}, and a caller whose roles grant reading
+ * alone with {@code SCOPE_READ_ONLY}. Both codes stay reachable. Until the
+ * permission check the order was the reverse -- the lock before the write right
+ * the view publishes -- and the muted member was the case; the order of the
+ * permission check sets the permission first.
  *
  * <p>RED STATE, observed 2026-10-29, one planted violation per run: with the
  * type checked before the scope was resolved, the query on an invisible scope
@@ -79,7 +84,7 @@ class CheckOrderConformanceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void an_invisible_scope_answers_not_found_whatever_else_the_call_gets_wrong() {
         Map<String, Map<String, Object>> overMcp = new LinkedHashMap<>();
         overMcp.put("memory_create a type outside the entry types", args("scope", INVISIBLE,
@@ -131,7 +136,7 @@ class CheckOrderConformanceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void grammar_is_decided_before_the_scope_and_says_nothing_about_it() {
         Mcp.Result invisible = Mcp.call("memory_read",
             args("address", "memory://" + INVISIBLE + "/decision"));
@@ -163,7 +168,7 @@ class CheckOrderConformanceIT {
      * there or not.
      */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_form_fault_on_an_invisible_scope_is_decided_before_the_scope() {
         Response overRest = call().get(API + "/" + INVISIBLE + "/decision?bogus=x");
         assertThat(overRest.statusCode()).as(overRest.asString()).isEqualTo(400);
@@ -183,13 +188,14 @@ class CheckOrderConformanceIT {
     }
 
     /**
-     * The lock is a state of the scope and holds for every caller; the
-     * read-only right is a property of the caller. A member without the write
-     * right, writing to a locked scope, is told the scope is locked (C8.7).
+     * The lock is a state of the scope and holds for every caller that may
+     * write at all; the permission is a property of the caller and is decided
+     * first. A caller holding the write permission, writing to a locked scope,
+     * is told the scope is locked.
      */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.MUTED_SUBJECT)
-    void a_locked_scope_and_a_muted_member_at_once_answer_scope_locked() {
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-author")
+    void a_locked_scope_refuses_a_caller_holding_the_write_permission_as_locked() {
         Response overRest = call().body(fields("key", "decision.another", "type", "decision",
             "content", "x")).post(API + "/" + LOCKED + "/decision");
         assertThat(List.of(overRest.statusCode(), overRest.jsonPath().getString("reason")))
@@ -199,11 +205,26 @@ class CheckOrderConformanceIT {
             "selector", "decision", "fields", Map.of("key", "decision.another",
                 "type", "decision", "content", "x")));
         assertThat(overMcp.string("reason")).isEqualTo("SCOPE_LOCKED");
+    }
+
+    /**
+     * A caller whose roles grant reading alone is refused the write by the
+     * permission, before the lock is looked at, in a locked scope as in an open
+     * one. Before the permission check this was the muted member, and the lock
+     * came first; the subject here is unmuted and holds {@code memory-reader}.
+     */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-reader")
+    void a_reader_writing_to_a_locked_scope_is_refused_by_the_permission_first() {
+        Response overRest = call().body(fields("key", "decision.another", "type", "decision",
+            "content", "x")).post(API + "/" + LOCKED + "/decision");
+        assertThat(List.of(overRest.statusCode(), overRest.jsonPath().getString("reason")))
+            .as(overRest.asString()).isEqualTo(List.of(403, "SCOPE_READ_ONLY"));
 
         Response readOnly = call().body(fields("key", "decision.another", "type", "decision",
             "content", "x")).post(API + "/" + VISIBLE + "/decision");
         assertThat(readOnly.jsonPath().getString("reason"))
-            .as("and the same member in an open scope is told about its right")
+            .as("and the same caller in an open scope is told about its right")
             .isEqualTo("SCOPE_READ_ONLY");
     }
 
@@ -213,7 +234,7 @@ class CheckOrderConformanceIT {
      * {@code VERB_NOT_CARRIED} with {@code Allow} and {@code data.accepts}.
      */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_route_the_framework_does_not_carry_answers_in_the_envelope() {
         Response nothing = call().get(API + "/" + VISIBLE + "/decision/storage-engine/more");
         assertThat(nothing.statusCode()).as(nothing.asString()).isEqualTo(404);

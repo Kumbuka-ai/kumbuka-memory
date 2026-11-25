@@ -17,10 +17,10 @@ package ai.kumbuka.memory.domain;
  * mistake is an authorship record with the wrong name on it.
  *
  * <p>There is no capacity here and no role. ADR-0034 has each recipient derive
- * the acting identity from its own validated security identity, and this
- * service's permissions come from the platform's read contract rather than
- * from a claim in the token — so a role would be a second answer to a question
- * the contract already answers.
+ * the acting identity from its own validated security identity, and what this
+ * actor may do is decided by the permission check before a method of the
+ * domain runs — so a role carried here would be a second answer to a question
+ * the check already answers.
  */
 public record Actor(String subject) {
 

@@ -15,12 +15,16 @@ import ai.kumbuka.memory.surface.AddressParser;
 import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.CallerActor;
+import ai.kumbuka.memory.surface.PermissionRefusal;
 import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.SurfaceException;
 import ai.kumbuka.memory.surface.UnexpectedFailures;
 import ai.kumbuka.memory.surface.VerbSurface;
+import ai.kumbuka.security.quarkus.CurrentCallFacts;
+import io.quarkus.security.ForbiddenException;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -66,7 +70,7 @@ import java.util.Optional;
  * SCOPE_READ_ONLY} <strong>403</strong>, and the split is the same one the
  * sibling services make. A lock is the scope's own state: the same caller with
  * the same token gets through once it is lifted, which is what 409 means. A
- * missing write right is about this caller and no state change lifts it, which
+ * missing permission is about this caller and no state change lifts it, which
  * is what 403 means. A caller told the wrong one of those goes to the wrong
  * person.
  */
@@ -155,6 +159,10 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
             // The read's own refusal: the caller may not see the entry, or
             // there is none.
             return Optional.empty();
+        } catch (ForbiddenException | NotFoundException unreadable) {
+            // The permission check refused the read: the caller does not hold
+            // the read permission, or the scope is not one it may address.
+            return Optional.empty();
         } catch (RuntimeException failure) {
             // Not an answer about visibility but a failure nobody foresaw. It
             // is logged as one; the caller still gets the refusal of the call,
@@ -197,6 +205,12 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
 
         @Override
         public Response toResponse(MemoryException e) {
+            return refusal(e, call, verbs, caller);
+        }
+
+        /** A refusal of the domain, or one the permission check made, as its envelope. */
+        static Response refusal(MemoryException e, RestCall call, VerbSurface verbs,
+                                CallerActor caller) {
             PlatformLog.RefusalCode code = PlatformLog.RefusalCode.of(e.reason());
             PlatformLog.refused(code);
             if (e.reason() == MemoryException.Reason.SESSION_NOT_BOUND) {
@@ -248,7 +262,11 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
                 // so saying "you may not write here" reveals nothing a 404
                 // would withhold, and a 404 would send somebody looking for a
                 // typo in an address that is correct.
-                case SCOPE_READ_ONLY, ACTOR_UNKNOWN -> 403;
+                // ROLE_INSUFFICIENT is the permission the method declares and
+                // the call does not hold; the permission check decided it, and
+                // a caller that holds no permission of this service at all is
+                // answered NOT_FOUND instead (PermissionRefusal).
+                case SCOPE_READ_ONLY, ROLE_INSUFFICIENT, ACTOR_UNKNOWN -> 403;
 
                 // Nothing there — or nothing this subject may know is there.
                 // One status for the two, as they carry one code and one
@@ -285,6 +303,33 @@ public class RefusalMapper implements ExceptionMapper<SurfaceException> {
                 // and no retry of theirs will fix it.
                 case SESSION_NOT_BOUND -> 500;
             };
+        }
+    }
+
+    /**
+     * A call the permission check refused: the method declares a permission
+     * the call does not hold, or the call may address no scope. The check has
+     * decided; the answer is the service's own code for it, chosen once for
+     * both surfaces by {@link PermissionRefusal} from the facts the check read,
+     * in the envelope and with the status every domain refusal has. It is not
+     * the security layer's bare 403: that is the answer to a call nobody
+     * authenticated, and this one was authenticated and refused.
+     *
+     * <p>A scope outside the call's set is not answered here. The check answers
+     * it with the framework's not-found, which {@link Unexpected} turns into
+     * the one {@code NOT_FOUND} every absent or invisible object has.
+     */
+    @Provider
+    public static class Denied implements ExceptionMapper<ForbiddenException> {
+
+        @Inject RestCall call;
+        @Inject VerbSurface verbs;
+        @Inject CallerActor caller;
+        @Inject CurrentCallFacts facts;
+
+        @Override
+        public Response toResponse(ForbiddenException refused) {
+            return Domain.refusal(PermissionRefusal.of(facts.find()), call, verbs, caller);
         }
     }
 

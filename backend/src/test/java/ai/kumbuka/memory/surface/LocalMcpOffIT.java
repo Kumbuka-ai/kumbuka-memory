@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
 @TestProfile(LocalMcpOffIT.Off.class)
-@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class LocalMcpOffIT {
 
     private static final String COLLECTION = SurfaceFixture.API + "/"

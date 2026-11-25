@@ -13,16 +13,23 @@ import ai.kumbuka.memory.platform.TagDirectory;
 import ai.kumbuka.memory.repository.DigestPreferenceRepository;
 import ai.kumbuka.memory.repository.MemoryRepository;
 import ai.kumbuka.memory.tenancy.TenantBound;
+import ai.kumbuka.security.contract.ScopeGrant;
+import ai.kumbuka.security.quarkus.CurrentCallFacts;
+import ai.kumbuka.security.quarkus.ScopePermission;
+import io.quarkus.security.PermissionsAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * The digest: everything in force in a scope, whole.
@@ -58,9 +65,15 @@ public class DigestService {
     @Inject TagDirectory vocabulary;
     @Inject MemoryRepository entries;
     @Inject DigestPreferenceRepository preferences;
+    @Inject CurrentCallFacts call;
 
     /**
      * The digest of a scope.
+     *
+     * <p>It declares the read permission on the scope it names, which the
+     * permission check decides before it runs. The global scopes it reads
+     * along come only from the scope set of the call's facts: of the scopes
+     * the call may address, those of the global kind.
      *
      * <p>Without tags, or with an empty list, it is the digest the estate's
      * selection or the override names, exactly. With tags it carries every constraint it would carry anyway, whatever
@@ -70,19 +83,20 @@ public class DigestService {
      * still carries it. The summary and the totals count what the narrowing
      * keeps, so that they describe the digest the caller holds.
      *
-     * @param actor     who is asking; private entries of others are not here
-     * @param scopeSlug the scope to read
-     * @param override  the types to carry content for, or null to use the
-     *                  estate's selection
-     * @param tags      the tokens to narrow to, or null or empty for no narrowing
+     * @param actor    who is asking; private entries of others are not here
+     * @param scope    the scope to read, as the caller named it
+     * @param override the types to carry content for, or null to use the
+     *                 estate's selection
+     * @param tags     the tokens to narrow to, or null or empty for no narrowing
      */
     @Transactional
-    public DigestView digest(Actor actor, String scopeSlug, @Nullable List<String> override,
+    @PermissionsAllowed(value = MemoryPermission.READ, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public DigestView digest(Actor actor, String scope, @Nullable List<String> override,
                              @Nullable List<String> tags) {
-        ScopeDirectory.ScopeAccess scope =
-            scopes.resolve(actor.subject(), scopeSlug, Access.READ);
+        ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.READ);
 
-        DigestPreferenceRepository.Selection selection = preferences.forScope(scope.scopeId())
+        DigestPreferenceRepository.Selection selection = preferences.forScope(resolved.scopeId())
             .orElseThrow(DigestService::selectionMissing);
 
         List<EntryType> carried = override == null
@@ -90,7 +104,7 @@ public class DigestService {
             : chosen(override);
         List<String> asked = tags == null ? List.of() : named(tags);
 
-        List<ScopeAndSlug> covered = coveredScopes(actor, scope, selection.includeGlobal());
+        List<ScopeAndSlug> covered = coveredScopes(actor, resolved, selection.includeGlobal());
         List<UUID> scopeIds = covered.stream().map(ScopeAndSlug::id).toList();
 
         // The tokens are resolved in every covered scope, of any status: a
@@ -106,7 +120,7 @@ public class DigestService {
             entries.tallyByType(scopeIds, actor.subject(), narrowing);
 
         return new DigestView(
-            scope.slug(),
+            resolved.slug(),
             covered.stream().map(ScopeAndSlug::slug).toList(),
             carried.stream().map(EntryType::wire).toList(),
             summaryOf(tallies, carried),
@@ -124,6 +138,12 @@ public class DigestService {
     /**
      * The named scope, and the tenant's global scope where the estate says so.
      *
+     * <p>The global scopes come from the scope set of the call's facts, the
+     * scopes the call may address, and only from there; the directory says
+     * which of them are of the global kind, since a grant carries no kind. A
+     * global scope outside the set is not read along, whatever the directory
+     * holds.
+     *
      * <p>A global scope is not added to a digest OF the global scope: the
      * result would carry every entry twice, and deduplicating afterwards would
      * be repairing something that need not happen.
@@ -134,10 +154,14 @@ public class DigestService {
         covered.add(new ScopeAndSlug(scope.scopeId(), scope.slug()));
 
         if (includeGlobal && !ScopeDirectory.KIND_GLOBAL.equals(scope.kind())) {
-            scopes.globalScopes(actor.subject()).stream()
-                .filter(global -> !global.scopeId().equals(scope.scopeId()))
-                .forEach(global -> covered.add(
-                    new ScopeAndSlug(global.scopeId(), global.slug())));
+            Set<UUID> global = scopes.globalScopes(actor.subject()).stream()
+                .map(ScopeDirectory.ScopeAccess::scopeId)
+                .collect(Collectors.toSet());
+            call.facts().scopes().stream()
+                .filter(grant -> global.contains(grant.id()))
+                .filter(grant -> !grant.id().equals(scope.scopeId()))
+                .sorted(Comparator.comparing(ScopeGrant::slug))
+                .forEach(grant -> covered.add(new ScopeAndSlug(grant.id(), grant.slug())));
         }
         return covered;
     }

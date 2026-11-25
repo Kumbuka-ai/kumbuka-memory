@@ -85,7 +85,7 @@ class SurfaceHeaderIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void with_the_header_rest_answers_what_the_assistant_surface_answers() {
         Response read = assistant().get(ITEM);
         assertThat(read.statusCode()).isEqualTo(200);
@@ -136,7 +136,7 @@ class SurfaceHeaderIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void an_unknown_value_is_header_invalid_and_writes_nothing() {
         for (String value : List.of("mcp", "Assistant", "rest", "")) {
             long before = SurfaceFixture.countRows(COUNT);
@@ -157,7 +157,7 @@ class SurfaceHeaderIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void the_header_is_decided_before_anything_else() {
         headerInvalid(wrong().post(ITEM + ":invented"),
             "before the route: a verb not carried");
@@ -175,14 +175,14 @@ class SurfaceHeaderIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void the_root_of_the_rest_surface_reads_the_header_too() {
         headerInvalid(call().header(HEADER, "bogus").get(API),
             "the root itself, where no route is served");
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void the_mcp_adapter_does_not_read_the_header() {
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("jsonrpc", "2.0");
@@ -200,8 +200,13 @@ class SurfaceHeaderIT {
         }
     }
 
+    /**
+     * The refusal of a subject whose roles grant reading alone, on both
+     * surfaces. Before the permission check this was the muted member; the
+     * subject here is unmuted and holds {@code memory-reader}.
+     */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.MUTED_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-reader")
     void the_header_decides_nothing_but_the_names() {
         long before = SurfaceFixture.countRows(COUNT);
         String body = fields("key", "decision.another", "type", "decision", "content", "x");

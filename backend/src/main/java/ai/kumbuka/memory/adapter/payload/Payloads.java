@@ -417,7 +417,7 @@ public final class Payloads {
          * that is not this caller's to see, and — folded into the first by the
          * statement that produced it — another author's private entry. A
          * reason describing a scope the caller CAN see is not in here: a lock
-         * and a missing write right reveal nothing a caller could not already
+         * and a missing permission reveal nothing a caller could not already
          * learn by having the scope answer at all, and collapsing them would
          * take away the one thing a refusal is for.
          */

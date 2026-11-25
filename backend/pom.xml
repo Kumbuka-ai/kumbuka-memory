@@ -56,6 +56,14 @@
         conformance probe — which is why the tenancy classes below are written
         here rather than imported. Copying a template is the price of that rule
         and it is paid deliberately.
+
+        ONE PUBLISHED LIBRARY IS THE EXCEPTION: the permission check. Every
+        service checks the permission each method declares through the same
+        open contract and its Quarkus binding, which kumbuka-server publishes
+        as two libraries (kumbuka-security-contract, kumbuka-security-quarkus).
+        They carry no service code: an interface for the facts of a call, the
+        one check, and the guard a service runs in its tests. The facts
+        themselves are this service's own (platform.CommunityCallFacts).
     -->
 
     <groupId>ai.kumbuka</groupId>
@@ -106,6 +114,8 @@
         <errorprone.version>2.50.0</errorprone.version>
         <nullaway.version>0.14.2</nullaway.version>
         <jspecify.version>1.0.0</jspecify.version>
+        <!-- The permission check: contract and Quarkus binding, released together. -->
+        <kumbuka-security.version>0.13.0</kumbuka-security.version>
     </properties>
 
     <dependencyManagement>
@@ -172,6 +182,25 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-oidc</artifactId>
+        </dependency>
+
+        <!--
+            The permission check. Every method of the domain services declares
+            its permission, and the binding decides it against the facts of
+            the call, at one place, before the method body runs. The contract
+            is plain Java; the binding brings the augmentor, the check and the
+            facade conformance guard the tests run. Resolved from GitHub
+            Packages, see <repositories> below.
+        -->
+        <dependency>
+            <groupId>ai.kumbuka</groupId>
+            <artifactId>kumbuka-security-contract</artifactId>
+            <version>${kumbuka-security.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ai.kumbuka</groupId>
+            <artifactId>kumbuka-security-quarkus</artifactId>
+            <version>${kumbuka-security.version}</version>
         </dependency>
 
         <!--
@@ -470,6 +499,43 @@
             </plugin>
         </plugins>
     </build>
+
+    <!--
+        Where the permission check comes from: GitHub Packages of
+        Kumbuka-ai/kumbuka-server, which publishes kumbuka-security-contract and
+        kumbuka-security-quarkus.
+
+        CENTRAL FIRST, AND WITH THE ID `central`. A repository declared in a POM
+        is consulted before the one the super-POM contributes, so without this
+        entry every artefact not yet in the local repository would be asked of
+        GitHub Packages first and answered 401 before it comes from Central. The
+        id stays `central`, the one a mirror of Central is configured for
+        (the arrangement of ee-memory's memory-app/pom.xml).
+
+        THE PACKAGES REPOSITORY CARRIES THE ID `github`, the id
+        distributionManagement below names. GitHub Packages authenticates even
+        a read of a public package, and both workflows authenticate exactly
+        this id with the job's own token through actions/setup-java: CI with
+        packages: read, the release with packages: write. One id, so the
+        release resolves the check with the credentials it already has for
+        the deploy, and no secret is named here.
+    -->
+    <repositories>
+        <repository>
+            <id>central</id>
+            <name>Maven Central</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <releases><enabled>true</enabled></releases>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages — Kumbuka-ai/kumbuka-server</name>
+            <url>https://maven.pkg.github.com/Kumbuka-ai/kumbuka-server</url>
+            <releases><enabled>true</enabled></releases>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+    </repositories>
 
     <!--
         Where the library jar goes. The release workflow deploys here beside the

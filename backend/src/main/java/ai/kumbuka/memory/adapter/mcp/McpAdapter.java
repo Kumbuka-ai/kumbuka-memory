@@ -32,17 +32,21 @@ import ai.kumbuka.memory.surface.AssistantVerb;
 import ai.kumbuka.memory.surface.AssistantVerb.Names;
 import ai.kumbuka.memory.surface.CallException;
 import ai.kumbuka.memory.surface.CallerActor;
+import ai.kumbuka.memory.surface.PermissionRefusal;
 import ai.kumbuka.memory.surface.PlatformLog;
 import ai.kumbuka.memory.surface.ReasonCatalogue;
 import ai.kumbuka.memory.surface.Texts;
 import ai.kumbuka.memory.surface.UnexpectedFailures;
 import ai.kumbuka.memory.surface.VerbSurface;
+import ai.kumbuka.security.quarkus.CurrentCallFacts;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.arc.properties.IfBuildProperty;
 import io.quarkus.security.Authenticated;
+import io.quarkus.security.ForbiddenException;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -117,6 +121,7 @@ public class McpAdapter {
     @Inject CallerActor caller;
     @Inject ObjectMapper json;
     @Inject ToolTransaction transaction;
+    @Inject CurrentCallFacts facts;
 
     @Inject
     @ConfigProperty(name = "quarkus.application.version", defaultValue = "unknown")
@@ -215,23 +220,39 @@ public class McpAdapter {
         } catch (CallException e) {
             PlatformLog.assistantRefused(PlatformLog.RefusalCode.of(e.reason()));
             return refused(AssistantRefusals.of(verb, e, seen(verb, args, Optional.empty())));
+        } catch (ForbiddenException e) {
+            // The permission check refused the call before the method ran;
+            // its code is chosen once, for both surfaces, from the facts.
+            return domainRefusal(verb, args, PermissionRefusal.of(facts.find()));
+        } catch (NotFoundException e) {
+            // The permission check answered a scope outside the call's set as
+            // a scope that does not exist, and logged the reason; the caller
+            // reads the one not-found.
+            return domainRefusal(verb, args,
+                new MemoryException(MemoryException.Reason.SCOPE_UNRESOLVED));
         } catch (MemoryException e) {
-            if (!foreseen(e)) {
-                // A reason of the generic surface arriving here — a session
-                // the read contract could not be bound for, above all — is a
-                // failure this surface did not foresee, and is answered as one.
-                // The unbound session is a statement about the deployment and
-                // is named at WARN by its code before the failure's line.
-                if (e.reason() == MemoryException.Reason.SESSION_NOT_BOUND) {
-                    PlatformLog.sessionNotBound(PlatformLog.RefusalCode.of(e.reason()));
-                }
-                return refused(AssistantRefusals.unexpected(verb,
-                    UnexpectedFailures.logged(verb.verbName(), e)));
-            }
-            PlatformLog.assistantRefused(PlatformLog.RefusalCode.of(e.reason()));
-            return refused(AssistantRefusals.of(verb, e, reasonOf(e),
-                seen(verb, args, Optional.of(e))));
+            return domainRefusal(verb, args, e);
         }
+    }
+
+    /** A refusal of the domain, or one the permission check made, as a tool result. */
+    private ToolResultPayload domainRefusal(AssistantVerb verb, Map<String, Object> args,
+                                            MemoryException e) {
+        if (!foreseen(e)) {
+            // A reason of the generic surface arriving here — a session the
+            // read contract could not be bound for, above all — is a failure
+            // this surface did not foresee, and is answered as one. The
+            // unbound session is a statement about the deployment and is named
+            // at WARN by its code before the failure's line.
+            if (e.reason() == MemoryException.Reason.SESSION_NOT_BOUND) {
+                PlatformLog.sessionNotBound(PlatformLog.RefusalCode.of(e.reason()));
+            }
+            return refused(AssistantRefusals.unexpected(verb,
+                UnexpectedFailures.logged(verb.verbName(), e)));
+        }
+        PlatformLog.assistantRefused(PlatformLog.RefusalCode.of(e.reason()));
+        return refused(AssistantRefusals.of(verb, e, reasonOf(e),
+            seen(verb, args, Optional.of(e))));
     }
 
     /** Whether a refusal of the domain is one this surface answers as a refusal. */
@@ -320,18 +341,13 @@ public class McpAdapter {
                 return carried;
             }
         }
-        @Nullable Object address = null;
-        if (AssistantRefusals.takesAddress(verb)) {
-            address = args.get(Names.ADDRESS);
-        } else if (verb == AssistantVerb.CREATE) {
-            address = targetOfCreate(args).orElse(null);
-        }
-        if (!(address instanceof String complete)) {
+        Optional<String> address = addressOf(verb, args);
+        if (address.isEmpty()) {
             return Optional.empty();
         }
         try {
-            return Optional.of(verbs.read(caller.current(), AddressParser.complete(complete))
-                .entry());
+            return Optional.of(verbs.read(caller.current(),
+                AddressParser.complete(address.get())).entry());
         } catch (MemoryException refused) {
             if (!foreseen(refused)) {
                 if (refused.reason() == MemoryException.Reason.SESSION_NOT_BOUND) {
@@ -342,6 +358,10 @@ public class McpAdapter {
             // Otherwise the read's own refusal: the caller may not see the
             // entry, or there is none.
             return Optional.empty();
+        } catch (ForbiddenException | NotFoundException unreadable) {
+            // The permission check refused the read: the caller does not hold
+            // the read permission, or the scope is not one it may address.
+            return Optional.empty();
         } catch (RuntimeException failure) {
             // Not an answer about visibility but a failure nobody foresaw. It
             // is logged as one; the caller still gets the refusal of the call,
@@ -349,6 +369,18 @@ public class McpAdapter {
             UnexpectedFailures.logged(verb.verbName(), failure);
             return Optional.empty();
         }
+    }
+
+    /**
+     * The complete address a call names: its address argument, or for a
+     * create the address its scope and key aim at; empty where it names none.
+     */
+    private static Optional<String> addressOf(AssistantVerb verb, Map<String, Object> args) {
+        if (AssistantRefusals.takesAddress(verb)) {
+            return args.get(Names.ADDRESS) instanceof String complete
+                ? Optional.of(complete) : Optional.empty();
+        }
+        return verb == AssistantVerb.CREATE ? targetOfCreate(args) : Optional.empty();
     }
 
     /**

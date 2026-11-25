@@ -15,6 +15,7 @@ import io.quarkus.arc.Arc;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.security.TestSecurity;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeAll;
@@ -51,9 +52,15 @@ import static org.assertj.core.api.Assertions.catchThrowable;
  * first writer only at their own statement, after the comparison had already
  * passed. A {@code withdraw} first and an {@code update} second ended in an
  * unexpected failure of the persistence layer instead of the not-found.
+ *
+ * <p>The domain is called directly, on two threads, and every method of it
+ * declares its permission, so both writers are a subject holding the {@code
+ * owner} role; the test's identity serves the second thread's request context
+ * as it serves the first.
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class ConcurrentWriteIT {
 
     private static final UUID TENANT = UUID.fromString(SubstrateDatabaseResource.TENANT_ID);
@@ -80,8 +87,8 @@ class ConcurrentWriteIT {
         String token = created();
 
         Throwable second = whileTheFirstHoldsItsWrite(
-            () -> memory.update(PROBE, CONTESTED, token, content("first writer")),
-            () -> memory.update(PROBE, CONTESTED, token, content("second writer")));
+            () -> update(token, "first writer"),
+            () -> update(token, "second writer"));
 
         assertRefused(second, MemoryException.Reason.CONFLICT_TOKEN_STALE);
         assertThat(current().content())
@@ -93,8 +100,8 @@ class ConcurrentWriteIT {
         String token = created();
 
         Throwable second = whileTheFirstHoldsItsWrite(
-            () -> memory.update(PROBE, CONTESTED, token, content("first writer")),
-            () -> memory.withdraw(PROBE, CONTESTED, token));
+            () -> update(token, "first writer"),
+            () -> withdraw(token));
 
         assertRefused(second, MemoryException.Reason.CONFLICT_TOKEN_STALE);
         assertThat(current().content())
@@ -112,8 +119,8 @@ class ConcurrentWriteIT {
         String token = created();
 
         Throwable second = whileTheFirstHoldsItsWrite(
-            () -> memory.withdraw(PROBE, CONTESTED, token),
-            () -> memory.update(PROBE, CONTESTED, token, content("too late")));
+            () -> withdraw(token),
+            () -> update(token, "too late"));
 
         assertRefused(second, MemoryException.Reason.ENTRY_ABSENT);
     }
@@ -122,15 +129,23 @@ class ConcurrentWriteIT {
 
     private String created() throws Exception {
         try (AutoCloseable ignored = tenantContext.bind(TENANT)) {
-            return memory.create(PROBE, CONTESTED, new Draft("decision", "as laid down", null))
-                .answer().conflictToken();
+            return memory.create(PROBE, CONTESTED.scope(), CONTESTED.key(),
+                new Draft("decision", "as laid down", null)).answer().conflictToken();
         }
     }
 
     private EntryView current() throws Exception {
         try (AutoCloseable ignored = tenantContext.bind(TENANT)) {
-            return memory.read(PROBE, CONTESTED);
+            return memory.read(PROBE, CONTESTED.scope(), CONTESTED.key());
         }
+    }
+
+    private MemoryService.Written<EntryView> update(String token, String content) {
+        return memory.update(PROBE, CONTESTED.scope(), CONTESTED.key(), token, content(content));
+    }
+
+    private MemoryService.Written<MemoryService.Withdrawn> withdraw(String token) {
+        return memory.withdraw(PROBE, CONTESTED.scope(), CONTESTED.key(), token);
     }
 
     private static Patch content(String content) {

@@ -231,6 +231,9 @@ public final class ReasonCatalogue {
         put(declared, "SCOPE_READ_ONLY", f -> m().scopeReadOnly(f.call()),
             f -> r().scopeReadOnly(read, query, digest),
             AssistantVerb.READ, AssistantVerb.QUERY, AssistantVerb.DIGEST);
+        put(declared, "ROLE_INSUFFICIENT", f -> m().roleInsufficient(f.call()),
+            f -> r().roleInsufficient(read, query, digest),
+            AssistantVerb.READ, AssistantVerb.QUERY, AssistantVerb.DIGEST);
         // A path below a reserved name is refused before the route is matched
         // (C3.2), and so has no call to name.
         declared.put("ADDRESS_MALFORMED", new Reason("ADDRESS_MALFORMED", List.of(), true,

@@ -24,9 +24,11 @@ import jakarta.inject.Inject;
  * forged one would be a way to read another person's memory.
  *
  * <p>There is no capacity and no role here, and the absence is deliberate.
- * What this caller may do comes from the platform's read contract, per scope,
- * for this subject. A role in the token would be a second answer to a question
- * the contract already answers, and the two would eventually disagree.
+ * What this caller may do is decided once, by the permission check, from the
+ * facts of the call: the permissions its roles grant and the scopes it may
+ * address ({@code platform.CommunityCallFacts}). A role read here would be a
+ * second answer to a question the check already answers, and the two would
+ * eventually disagree.
  */
 @RequestScoped
 public class CallerActor {

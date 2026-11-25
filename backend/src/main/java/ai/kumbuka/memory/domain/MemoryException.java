@@ -63,7 +63,10 @@ public class MemoryException extends RuntimeException {
         SCOPE_UNRESOLVED,
         /** The scope is frozen: no write over a service channel, whatever the caller. */
         SCOPE_LOCKED,
-        /** This caller may read the scope but not write to it over a service channel. */
+        /**
+         * The call was refused a write, and the one permission it holds of this
+         * service is to read: its right is to read the scope.
+         */
         SCOPE_READ_ONLY,
         /** The session settings the read contract needs were not bound. */
         SESSION_NOT_BOUND,
@@ -137,7 +140,12 @@ public class MemoryException extends RuntimeException {
         // --- the caller ------------------------------------------------------
 
         /** The token authenticated but names no subject to act as. */
-        ACTOR_UNKNOWN
+        ACTOR_UNKNOWN,
+        /**
+         * The permissions the call holds do not include the one the method
+         * declares, and the call holds more than the right to read.
+         */
+        ROLE_INSUFFICIENT
     }
 
     /**

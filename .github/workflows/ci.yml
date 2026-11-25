@@ -37,6 +37,12 @@ jobs:
     # Own branches run on apollo, fork pull requests on a hosted runner.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'apollo' || 'ubuntu-latest' }}
     timeout-minutes: 45
+    # packages: read, for the permission check the build resolves from
+    # kumbuka-server's GitHub Packages with this job's own token (pom.xml,
+    # <repositories>). contents: read for the checkout.
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -53,6 +59,12 @@ jobs:
           # No GitHub cache on apollo: up- and downloading it over the runner's uplink costs
           # minutes, more than fetching the dependencies fresh (organisation rule, see
           # Kumbuka-ai/workflows reusable-security-image.yml).
+          # setup-java writes a settings.xml that authenticates the `github`
+          # repository id, the one pom.xml resolves the permission check from,
+          # with the job's token below. No secret beyond GITHUB_TOKEN.
+          server-id: github
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
 
       - name: Print versions
         run: |
@@ -63,6 +75,9 @@ jobs:
       - name: mvn verify
         id: verify
         working-directory: backend
+        env:
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: mvn -B -ntp verify
 
       - name: Upload test reports on failure

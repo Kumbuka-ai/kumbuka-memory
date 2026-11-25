@@ -52,7 +52,10 @@ import java.util.function.Consumer;
  * Here: which verbs exist, what they take, what a caller may write as an
  * address, which predicates a query carries, and which calls an answer offers
  * next. Not here: whether a particular caller may make one — that is the
- * platform's read contract, asked by the domain — and nothing about HTTP.
+ * permission each method of the domain declares, decided by the permission
+ * check before the method runs — and nothing about HTTP. The grammar runs
+ * here first, before that check: it is decidable without knowing a scope, so
+ * a malformed address is answered as such whatever scope it names (C1.3).
  */
 @ApplicationScoped
 @TenantBound
@@ -87,15 +90,16 @@ public class VerbSurface {
         AddressParser.requireAgreement(selectorOf(selector), address);
         AddressParser.requireWritableSelector(address);
 
-        return answerFor(logged(memory.create(actor,
-            address, new Draft(values.type(), values.content(), values.reference(),
-                values.fixed()), key), PlatformLog::created));
+        return answerFor(logged(memory.create(actor, address.scope(), address.key(),
+            new Draft(values.type(), values.content(), values.reference(), values.fixed()),
+            key), PlatformLog::created));
     }
 
     /** The entry at a canonical address. */
     @Transactional
     public Answer read(Actor actor, AddressParser.Parts parts) {
-        return answerFor(memory.read(actor, AddressParser.parse(parts)));
+        EntryAddress address = AddressParser.parse(parts);
+        return answerFor(memory.read(actor, address.scope(), address.key()));
     }
 
     /**
@@ -116,8 +120,8 @@ public class VerbSurface {
                          Patch patch) {
         EntryAddress address = AddressParser.parse(parts);
         AddressParser.requireWritableSelector(address);
-        return answerFor(logged(memory.update(actor, address, conflictToken, patch),
-            PlatformLog::updated));
+        return answerFor(logged(memory.update(actor, address.scope(), address.key(),
+            conflictToken, patch), PlatformLog::updated));
     }
 
     /** Takes an entry out of force, by whatever means this edition withdraws. */
@@ -126,7 +130,8 @@ public class VerbSurface {
                                             @Nullable String conflictToken) {
         EntryAddress address = AddressParser.parse(parts);
         AddressParser.requireWritableSelector(address);
-        return logged(memory.withdraw(actor, address, conflictToken), PlatformLog::withdrawn);
+        return logged(memory.withdraw(actor, address.scope(), address.key(), conflictToken),
+            PlatformLog::withdrawn);
     }
 
     /**
@@ -182,7 +187,8 @@ public class VerbSurface {
     public Answer tagAttach(Actor actor, AddressParser.Parts parts, String tag) {
         EntryAddress address = AddressParser.parse(parts);
         AddressParser.requireWritableSelector(address);
-        return answerFor(logged(memory.tagAttach(actor, address, tag), PlatformLog::tagAttached));
+        return answerFor(logged(memory.tagAttach(actor, address.scope(), address.key(), tag),
+            PlatformLog::tagAttached));
     }
 
     /** Detaches a tag from the entry at an address. */
@@ -190,7 +196,8 @@ public class VerbSurface {
     public Answer tagDetach(Actor actor, AddressParser.Parts parts, String tag) {
         EntryAddress address = AddressParser.parse(parts);
         AddressParser.requireWritableSelector(address);
-        return answerFor(logged(memory.tagDetach(actor, address, tag), PlatformLog::tagDetached));
+        return answerFor(logged(memory.tagDetach(actor, address.scope(), address.key(), tag),
+            PlatformLog::tagDetached));
     }
 
     // ======================================================================
@@ -200,26 +207,30 @@ public class VerbSurface {
     /**
      * The calls this caller may make on this entry, from the state it is in.
      *
-     * <p>Computed from the same answer that permits and refuses them: the
-     * write right the platform's read contract gave for the entry's scope,
-     * carried on the projection. A second table would drift from the one that
-     * decides what succeeds, and a listed call that is then refused is exactly
-     * what the rule forbids (DEC-0040).
+     * <p>Computed from the same facts that permit and refuse them, carried on
+     * the projection: the permissions the call holds, and whether the
+     * entry's scope is locked ({@link SurfaceDeclaration#openOn}). A second
+     * table would drift from the one that decides what succeeds, and a listed
+     * call that is then refused is exactly what the rule forbids (DEC-0040).
      *
-     * <p>{@code read} is always here, because an answer about an entry is
-     * proof that this caller may read it. So the list is never empty, and
-     * {@code waiting_for} — the member for an answer with no next step and no
-     * finished object — never arises in this service: an entry waits for
-     * nothing and is never in a state that only somebody else can move.
+     * <p>{@code read} is here for every caller that holds the read
+     * permission, which every role that reads an entry holds, so for them the
+     * list is never empty. {@code waiting_for} — the member for an answer with
+     * no next step and no finished object — does not arise in this service:
+     * an entry waits for nothing and is never in a state that only somebody
+     * else can move.
      */
     public static List<NextStep> nextFor(EntryView entry) {
         String address = entry.address().canonical();
         List<NextStep> next = new ArrayList<>();
         NextStepTexts texts = Texts.next();
-        next.add(new NextStep("read " + address, texts.genericRead()));
-
-        if (entry.writable()) {
+        if (SurfaceDeclaration.openOn(AssistantVerb.READ, entry)) {
+            next.add(new NextStep("read " + address, texts.genericRead()));
+        }
+        if (SurfaceDeclaration.openOn(AssistantVerb.UPDATE, entry)) {
             next.add(new NextStep("update " + address, texts.genericUpdate()));
+        }
+        if (SurfaceDeclaration.openOn(AssistantVerb.WITHDRAW, entry)) {
             next.add(new NextStep("withdraw " + address, texts.genericWithdraw()));
         }
         return List.copyOf(next);

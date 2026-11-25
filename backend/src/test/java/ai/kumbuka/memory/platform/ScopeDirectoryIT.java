@@ -189,29 +189,57 @@ class ScopeDirectoryIT {
         assertThatThrownBy(() -> directory.resolve(SubstrateDatabaseResource.PROBE_SUBJECT,
             SubstrateDatabaseResource.LOCKED_SCOPE_SLUG, Access.WRITE))
             .isInstanceOfSatisfying(MemoryException.class, e -> assertThat(e.reason())
-                .as("the lock is checked BEFORE the write right, and the order is "
-                    + "load-bearing: the view derives can_write as NOT locked AND …, so "
-                    + "checking the write right first would make SCOPE_LOCKED a code "
-                    + "that exists and can never be produced")
+                .as("the lock is an object rule of the scope, and the directory keeps it: "
+                    + "a caller the permission check admitted to the write is refused by "
+                    + "the lock")
                 .isEqualTo(MemoryException.Reason.SCOPE_LOCKED));
     }
 
+    /**
+     * The write right the view publishes decides nothing: whether a call may
+     * write is the permission its method declares. Before the permission
+     * check the directory refused the muted member's write as read-only; it
+     * now resolves it, and the view still publishes the write right as it is.
+     */
     @Test
-    void a_muted_member_reads_and_is_refused_the_shared_write_as_read_only() {
+    void a_muted_member_is_resolved_for_a_write_while_the_view_still_publishes_no_write_right() {
         assertThat(directory.resolve(SubstrateDatabaseResource.MUTED_SUBJECT,
                 SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ).canWrite())
-            .as("a muted member keeps the scope and loses the write right in it")
+            .as("a muted member keeps the scope, and the view publishes no write right for "
+                + "it, unchanged")
             .isFalse();
 
-        assertThatThrownBy(() -> directory.resolve(SubstrateDatabaseResource.MUTED_SUBJECT,
-            SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.WRITE))
-            .isInstanceOfSatisfying(MemoryException.class, e ->
-                assertThat(e.reason()).isEqualTo(MemoryException.Reason.SCOPE_READ_ONLY));
+        assertThat(directory.resolve(SubstrateDatabaseResource.MUTED_SUBJECT,
+                SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.WRITE).slug())
+            .as("and the directory resolves the write all the same: can_write is no "
+                + "second permission check")
+            .isEqualTo(SubstrateDatabaseResource.PROBE_SCOPE_SLUG);
 
         assertThat(directory.resolve(SubstrateDatabaseResource.MUTED_SUBJECT,
                 SubstrateDatabaseResource.PRIVATE_SCOPE_SLUG, Access.WRITE).canWrite())
             .as("and the mute does not reach the member's own private scope, which is "
                 + "what MemberWritePolicy says and what the view's derivation carries")
             .isTrue();
+    }
+
+    /**
+     * The scope set of a call's facts: every scope of the view under the
+     * subject's binding, of every kind, and for a subject that is a member of
+     * none, nothing -- an answer, not a refusal.
+     */
+    @Test
+    void the_visible_scopes_are_the_subject_s_and_none_for_a_stranger() {
+        assertThat(directory.visibleScopes(SubstrateDatabaseResource.PROBE_SUBJECT).stream()
+                .map(ScopeDirectory.ScopeAccess::slug).toList())
+            .as("the four scopes the substrate stages for the tenant under test, and not "
+                + "the other tenant's")
+            .containsExactlyInAnyOrder(SubstrateDatabaseResource.PROBE_SCOPE_SLUG,
+                SubstrateDatabaseResource.LOCKED_SCOPE_SLUG,
+                SubstrateDatabaseResource.PRIVATE_SCOPE_SLUG,
+                SubstrateDatabaseResource.GLOBAL_SCOPE_SLUG);
+
+        assertThat(directory.visibleScopes("a-subject-who-is-not-a-member"))
+            .as("a subject of no scope may address none")
+            .isEmpty();
     }
 }

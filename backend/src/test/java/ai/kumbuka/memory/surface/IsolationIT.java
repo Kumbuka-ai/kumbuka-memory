@@ -99,7 +99,7 @@ class IsolationIT {
     // ==================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_foreign_tenants_entry_is_not_found_on_both_address_forms_byte_for_byte() {
         UUID foreign = SurfaceFixture.plant(new SurfaceFixture.Planted(
             SubstrateDatabaseResource.OTHER_TENANT_ID,
@@ -141,7 +141,7 @@ class IsolationIT {
     // ==================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_private_entry_is_readable_by_its_author() {
         plantPrivateEntryOfTheProbeSubject();
 
@@ -156,7 +156,7 @@ class IsolationIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.SECOND_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.SECOND_SUBJECT, roles = "owner")
     void another_authors_private_entry_is_not_found_on_both_address_forms_byte_for_byte() {
         UUID hers = plantPrivateEntryOfTheProbeSubject();
 
@@ -186,7 +186,7 @@ class IsolationIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.SECOND_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.SECOND_SUBJECT, roles = "owner")
     void the_same_address_carries_each_callers_own_entry_in_a_private_scope() {
         plantPrivateEntryOfTheProbeSubject();
         SurfaceFixture.plant(new SurfaceFixture.Planted(

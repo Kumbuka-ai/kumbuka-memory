@@ -53,7 +53,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
-@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class NotFoundIdentityIT {
 
     /** A scope of another tenant: it exists, and this caller's directory does not show it. */

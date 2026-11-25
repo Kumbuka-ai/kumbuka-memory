@@ -12,18 +12,30 @@ import ai.kumbuka.memory.domain.EntryView;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 /** Projections of an entry for probes that need one without a database. */
 final class Views {
 
+    /** The permissions of the {@code owner} role, as the catalogue names them. */
+    private static final Set<String> OWNER = Set.of("memory.entry.read", "memory.entry.create",
+        "memory.entry.update", "memory.entry.withdraw", "memory.entry.tag");
+
+    /** The permission of the {@code memory-reader} role. */
+    private static final Set<String> READER = Set.of("memory.entry.read");
+
     private Views() {
     }
 
-    /** An entry in force, projected for a caller who may or may not write. */
-    static EntryView entry(boolean writable) {
+    /**
+     * An entry in force in an open scope, projected for a caller who may
+     * write -- one holding every permission of the service -- or who may only
+     * read.
+     */
+    static EntryView entry(boolean mayWrite) {
         Instant at = Instant.parse("2026-10-06T00:00:00Z");
         return new EntryView(new EntryAddress("kumbuka", "convention", "branch-names"),
             "kumbuka", "convention.branch-names", "convention", "a text", null, "published",
-            false, at, at, at.toString(), writable, List.of());
+            false, at, at, at.toString(), true, mayWrite ? OWNER : READER, List.of());
     }
 }

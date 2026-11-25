@@ -16,6 +16,10 @@ import ai.kumbuka.memory.repository.MemoryRepository;
 import ai.kumbuka.memory.repository.StoredInstant;
 import ai.kumbuka.memory.tenancy.TenantBound;
 import ai.kumbuka.memory.tenancy.TenantContext;
+import ai.kumbuka.security.quarkus.CurrentCallFacts;
+import ai.kumbuka.security.quarkus.ScopePermission;
+import ai.kumbuka.security.quarkus.ScopelessPermission;
+import io.quarkus.security.PermissionsAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -27,11 +31,29 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
  * The verbs that act on an entry, and the order they check in.
+ *
+ * <h2>Every method declares its permission, and is checked before it runs</h2>
+ *
+ * Each public method carries the permission it needs and the argument that
+ * names the scope it addresses ({@code @PermissionsAllowed} with
+ * {@link ScopePermission}). The permission check of the binding decides both
+ * against the facts of the call before the method body runs: the call holds
+ * the permission, and the scope is in the set it may address. A scope outside
+ * the set is answered as a scope that does not exist. Nothing in this class
+ * decides a permission a second time; what it decides after the check are
+ * the object rules -- a lock, a private entry, a conflict token.
+ *
+ * <p>This class, and {@link DigestService} for the digest, are where the
+ * declarations stand because they are the one way into the domain: both
+ * adapters reach a verb only through the verb surface, the verb surface only
+ * through these methods, and no adapter calls them past it. The verb surface
+ * itself declares nothing, because it holds the grammar, which runs first.
  *
  * <h2>The check order, and why it is written once</h2>
  *
@@ -39,11 +61,13 @@ import java.util.regex.Pattern;
  *   <li><b>Grammar</b> — already done, at the surface. It is decidable without
  *       knowing a scope, which is the only reason it is allowed to run before
  *       the scope is resolved.</li>
+ *   <li><b>The permission, and the scope in the set</b> — decided by the
+ *       binding before the method runs.</li>
  *   <li><b>The scope</b> — resolved against the platform's read contract, for
- *       the access the call is about to make. A scope this caller cannot see
- *       is the single not-found; a scope it can see but not write to is the
- *       lock or the missing write right, which reveal nothing because the
- *       caller already has the scope.</li>
+ *       the access the call is about to make. A scope that cannot be resolved
+ *       is the single not-found; a scope it can see and that is locked refuses
+ *       a write, which reveals nothing because the caller already has the
+ *       scope.</li>
  *   <li><b>Visibility of the entry</b> — a private entry belongs to its author
  *       and is the single not-found for anybody else. Decided BEFORE the
  *       conflict token (DEC-0041), so that a token refusal can never tell a
@@ -98,6 +122,14 @@ public class MemoryService {
     @Inject TenantContext tenants;
     @Inject Withdrawal withdrawal;
     @Inject Clock clock;
+    @Inject CurrentCallFacts call;
+
+    /**
+     * This service again, through its proxy: the read by technical address
+     * reads its entry by {@link #read}, so that the permission check decides
+     * the scope it found as it decides one a caller named.
+     */
+    @Inject MemoryService self;
 
     // ======================================================================
     // create
@@ -123,15 +155,26 @@ public class MemoryService {
      * type are one value.
      */
     @Transactional
-    public Written<EntryView> create(Actor actor, EntryAddress address, Draft draft) {
-        return create(actor, address, draft, IdempotencyKey.NONE);
+    @PermissionsAllowed(value = MemoryPermission.CREATE, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public Written<EntryView> create(Actor actor, String scope, String entryKey, Draft draft) {
+        return create(actor, scope, entryKey, draft, IdempotencyKey.NONE);
     }
 
-    /** {@link #create(Actor, EntryAddress, Draft)}, under the key the call carried. */
+    /**
+     * {@link #create(Actor, String, String, Draft)}, under the idempotency key
+     * the call carried.
+     *
+     * @param scope    the scope the entry is laid down in, as the caller named it
+     * @param entryKey the entry's key, its grammar checked at the surface
+     */
     @Transactional
-    public Written<EntryView> create(Actor actor, EntryAddress address, Draft draft,
+    @PermissionsAllowed(value = MemoryPermission.CREATE, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public Written<EntryView> create(Actor actor, String scope, String entryKey, Draft draft,
                                      IdempotencyKey key) {
-        ScopeDirectory.ScopeAccess scope =
+        EntryAddress address = EntryAddress.ofKey(scope, entryKey);
+        ScopeDirectory.ScopeAccess resolved =
             scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
         refuseFixed(draft.fixed());
 
@@ -141,15 +184,15 @@ public class MemoryService {
 
         String digest = IdempotencyService.digestOf(
             Arrays.asList(address.key(), type, content, draft.reference()));
-        Optional<UUID> first = firstAnswerFor(scope.scopeId(), actor, key, digest);
+        Optional<UUID> first = firstAnswerFor(resolved.scopeId(), actor, key, digest);
         if (first.isPresent()) {
             Memory standing = entries.findByLogicalId(first.get(), actor.subject())
-                .filter(entry -> entry.scopeId.equals(scope.scopeId()))
+                .filter(entry -> entry.scopeId.equals(resolved.scopeId()))
                 .orElseThrow(MemoryService::keyReused);
-            return Written.unchanged(view(standing, scope.slug(), true));
+            return Written.unchanged(view(standing, resolved.slug(), true));
         }
 
-        entries.findOccupant(scope.scopeId(), address.key(), scope.isPrivate(),
+        entries.findOccupant(resolved.scopeId(), address.key(), resolved.isPrivate(),
                 actor.subject())
             .ifPresent(occupant -> {
                 throw occupied();
@@ -159,8 +202,8 @@ public class MemoryService {
         entry.logicalId = UUID.randomUUID();
         entry.version = 1;
         entry.tenantId = tenants.current().toString();
-        entry.scopeId = scope.scopeId();
-        entry.isPrivate = scope.isPrivate();
+        entry.scopeId = resolved.scopeId();
+        entry.isPrivate = resolved.isPrivate();
         entry.ownerSubject = actor.subject();
         entry.type = type;
         entry.key = address.key();
@@ -174,22 +217,29 @@ public class MemoryService {
         // index at the insert instead; the repository reports that as an
         // absent insert, and it is the same occupied address.
         Memory laidDown = entries.insert(entry).orElseThrow(MemoryService::occupied);
-        remember(scope.scopeId(), actor, key, digest, laidDown);
-        return new Written<>(EntryView.of(laidDown, scope.slug(), true, List.of()), laidDown);
+        remember(resolved.scopeId(), actor, key, digest, laidDown);
+        return new Written<>(EntryView.of(laidDown, resolved.slug(), true, held(), List.of()),
+            laidDown);
     }
 
     // ======================================================================
     // read
     // ======================================================================
 
-    /** The entry at a canonical address, or the single not-found. */
+    /**
+     * The entry at a canonical address, or the single not-found.
+     *
+     * @param scope    the scope the entry stands in, as the caller named it
+     * @param entryKey the entry's key, its grammar checked at the surface
+     */
     @Transactional
-    public EntryView read(Actor actor, EntryAddress address) {
-        ScopeDirectory.ScopeAccess scope =
-            scopes.resolve(actor.subject(), address.scope(), Access.READ);
-        Memory entry = entries.findInScope(scope.scopeId(), address.key(), actor.subject())
+    @PermissionsAllowed(value = MemoryPermission.READ, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public EntryView read(Actor actor, String scope, String entryKey) {
+        ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.READ);
+        Memory entry = entries.findInScope(resolved.scopeId(), entryKey, actor.subject())
             .orElseThrow(MemoryService::absent);
-        return view(entry, scope.slug(), writable(scope));
+        return view(entry, resolved.slug(), writable(resolved));
     }
 
     /**
@@ -202,15 +252,29 @@ public class MemoryService {
      * of another author is filtered by the statement; and a row in a scope
      * this caller cannot enter is found and then refused, with the same bytes
      * as the other two.
+     *
+     * <h2>Why it declares the tenant, and then reads through {@link #read}</h2>
+     *
+     * The call names no scope, so the declaration can bind none: it declares
+     * the permission and addresses the tenant, within which the row is
+     * looked up. Once the row is found its scope is known, and the entry is
+     * then read through this service's proxy by {@link #read}, which declares
+     * the scope -- so the permission check decides whether the scope the row
+     * stands in is one this call may address, exactly as it decides a scope a
+     * caller named. A scope outside the set is answered as one that does not
+     * exist, which is the same not-found the other causes answer. No second
+     * check is made here: the scope is only found, and the one check decides.
      */
     @Transactional
+    @PermissionsAllowed(value = MemoryPermission.READ + MemoryPermission.ON_THE_TENANT,
+        permission = ScopelessPermission.class)
     public EntryView readByLogicalId(Actor actor, UUID logicalId) {
         Memory entry = entries.findByLogicalId(logicalId, actor.subject())
             .orElseThrow(MemoryService::absent);
-        ScopeDirectory.ScopeAccess scope =
+        ScopeDirectory.ScopeAccess resolved =
             scopes.visibleScopeOf(actor.subject(), entry.scopeId)
                 .orElseThrow(MemoryService::absent);
-        return view(entry, scope.slug(), writable(scope));
+        return self.read(actor, resolved.slug(), entry.key);
     }
 
     // ======================================================================
@@ -232,15 +296,16 @@ public class MemoryService {
      * waits at the read and then compares against what the first wrote.
      */
     @Transactional
-    public Written<EntryView> update(Actor actor, EntryAddress address,
+    @PermissionsAllowed(value = MemoryPermission.UPDATE, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public Written<EntryView> update(Actor actor, String scope, String entryKey,
                                      @Nullable String conflictToken, Patch patch) {
-        ScopeDirectory.ScopeAccess scope =
-            scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
+        ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.WRITE);
         refuseFixed(patch.fixed());
-        Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
+        Memory entry = entries.lockInScope(resolved.scopeId(), entryKey, actor.subject())
             .orElseThrow(MemoryService::absent);
 
-        requireCurrentToken(conflictToken, entry, scope);
+        requireCurrentToken(conflictToken, entry, resolved);
         requireSomethingToDo(patch);
 
         String type = patch.type().map(MemoryService::requireKnownType).orElse(entry.type);
@@ -255,7 +320,7 @@ public class MemoryService {
             || !java.util.Objects.equals(reference, entry.reference);
 
         if (!changed) {
-            return Written.unchanged(view(entry, scope.slug(), true));
+            return Written.unchanged(view(entry, resolved.slug(), true));
         }
 
         entry.type = type;
@@ -267,7 +332,7 @@ public class MemoryService {
 
         Memory updated = entries.update(entry);
         // The tags are a relation of the entry, and update leaves them alone.
-        return new Written<>(view(updated, scope.slug(), true), updated);
+        return new Written<>(view(updated, resolved.slug(), true), updated);
     }
 
     // ======================================================================
@@ -278,23 +343,26 @@ public class MemoryService {
      * Takes an entry out of force, by whatever means this edition withdraws.
      *
      * <p>The act itself is not decided here. What is decided here is
-     * everything around it — that the scope permits a write, that the entry is
+     * everything around it — that the scope is not locked, that the entry is
      * this caller's to see, that the token is current — and the edition's
-     * implementation is handed an entry that has passed all of it.
+     * implementation is handed an entry that has passed all of it, and a call
+     * that held the permission to withdraw.
      *
      * <p>Read under {@code PESSIMISTIC_WRITE} and refreshed under the lock,
      * as {@code update} is, so that a withdrawal never removes an entry that
      * changed after its caller read the token.
      */
     @Transactional
-    public Written<Withdrawn> withdraw(Actor actor, EntryAddress address,
+    @PermissionsAllowed(value = MemoryPermission.WITHDRAW, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public Written<Withdrawn> withdraw(Actor actor, String scope, String entryKey,
                                        @Nullable String conflictToken) {
-        ScopeDirectory.ScopeAccess scope =
-            scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
-        Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
+        EntryAddress address = EntryAddress.ofKey(scope, entryKey);
+        ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.WRITE);
+        Memory entry = entries.lockInScope(resolved.scopeId(), entryKey, actor.subject())
             .orElseThrow(MemoryService::absent);
 
-        requireCurrentToken(conflictToken, entry, scope);
+        requireCurrentToken(conflictToken, entry, resolved);
 
         Withdrawal.Outcome outcome = withdrawal.withdraw(entry);
 
@@ -304,7 +372,7 @@ public class MemoryService {
         // an address is free afterwards is the edition's business, not this
         // method's to predict from an enum constant.
         boolean released = entries
-            .findOccupant(scope.scopeId(), address.key(), scope.isPrivate(),
+            .findOccupant(resolved.scopeId(), address.key(), resolved.isPrivate(),
                 actor.subject())
             .isEmpty();
 
@@ -318,8 +386,9 @@ public class MemoryService {
     /**
      * Attaches a tag of the scope's vocabulary to an entry.
      *
-     * <p>The check order is the one every write has: the scope and its write
-     * right, then the entry, then the value. The token is resolved in the
+     * <p>The check order is the one every write has: the permission and the
+     * scope in the set, then the scope and its lock, then the entry, then the
+     * value. The token is resolved in the
      * scope of the entry and nowhere else, so a tag of another scope, or of a
      * scope this caller cannot see, is not in the vocabulary here. A
      * withdrawn tag takes no new assignment.
@@ -334,13 +403,15 @@ public class MemoryService {
      * first's row instead of meeting the primary key.
      */
     @Transactional
-    public Written<EntryView> tagAttach(Actor actor, EntryAddress address, String token) {
-        ScopeDirectory.ScopeAccess scope =
-            scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
-        Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
+    @PermissionsAllowed(value = MemoryPermission.TAG, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public Written<EntryView> tagAttach(Actor actor, String scope, String entryKey,
+                                        String token) {
+        ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.WRITE);
+        Memory entry = entries.lockInScope(resolved.scopeId(), entryKey, actor.subject())
             .orElseThrow(MemoryService::absent);
 
-        TagDirectory.Tag tag = vocabulary.inScope(scope.scopeId(), token)
+        TagDirectory.Tag tag = vocabulary.inScope(resolved.scopeId(), token)
             .orElseThrow(MemoryService::tagUndeclared);
         if (tag.isRetired()) {
             throw MemoryException.offending(MemoryException.Reason.VALUE_WITHDRAWN, List.of(TAG));
@@ -355,9 +426,9 @@ public class MemoryService {
             assignment.attachedBy = actor.subject();
             assignment.attachedAt = StoredInstant.asStored(clock.instant());
             assignments.insert(assignment);
-            return new Written<>(view(entry, scope.slug(), true), entry);
+            return new Written<>(view(entry, resolved.slug(), true), entry);
         }
-        return Written.unchanged(view(entry, scope.slug(), true));
+        return Written.unchanged(view(entry, resolved.slug(), true));
     }
 
     /**
@@ -370,18 +441,20 @@ public class MemoryService {
      * call succeeds without writing anything.
      */
     @Transactional
-    public Written<EntryView> tagDetach(Actor actor, EntryAddress address, String token) {
-        ScopeDirectory.ScopeAccess scope =
-            scopes.resolve(actor.subject(), address.scope(), Access.WRITE);
-        Memory entry = entries.lockInScope(scope.scopeId(), address.key(), actor.subject())
+    @PermissionsAllowed(value = MemoryPermission.TAG, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public Written<EntryView> tagDetach(Actor actor, String scope, String entryKey,
+                                        String token) {
+        ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.WRITE);
+        Memory entry = entries.lockInScope(resolved.scopeId(), entryKey, actor.subject())
             .orElseThrow(MemoryService::absent);
 
-        TagDirectory.Tag tag = vocabulary.inScope(scope.scopeId(), token)
+        TagDirectory.Tag tag = vocabulary.inScope(resolved.scopeId(), token)
             .orElseThrow(MemoryService::tagUndeclared);
         if (assignments.delete(entry, tag.id()) > 0) {
-            return new Written<>(view(entry, scope.slug(), true), entry);
+            return new Written<>(view(entry, resolved.slug(), true), entry);
         }
-        return Written.unchanged(view(entry, scope.slug(), true));
+        return Written.unchanged(view(entry, resolved.slug(), true));
     }
 
     // ======================================================================
@@ -410,10 +483,11 @@ public class MemoryService {
      * it.
      */
     @Transactional
-    public Page query(Actor actor, String scopeSlug, @Nullable String selector,
+    @PermissionsAllowed(value = MemoryPermission.READ, permission = ScopePermission.class,
+        params = MemoryPermission.SCOPE_ARGUMENT)
+    public Page query(Actor actor, String scope, @Nullable String selector,
                       Narrowing narrowing, PageRequest request) {
-        ScopeDirectory.ScopeAccess scope =
-            scopes.resolve(actor.subject(), scopeSlug, Access.READ);
+        ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.READ);
         // The type is the service's vocabulary, so it is checked once the
         // scope is known to be visible: an invisible scope answers NOT_FOUND
         // whatever type was asked for, as C1.3 orders the checks.
@@ -422,14 +496,14 @@ public class MemoryService {
         @Nullable String tag = narrowing.tag();
         @Nullable String token = tag == null || tag.isBlank() ? null : tag;
         Optional<TagDirectory.Tag> named = token == null ? Optional.empty()
-            : vocabulary.inScope(scope.scopeId(), token);
+            : vocabulary.inScope(resolved.scopeId(), token);
         QueryFilter filter = new QueryFilter(
             type == null || type.isBlank() ? null : knownType(type),
             text == null || text.isBlank() ? null : text,
             named.map(TagDirectory.Tag::id).orElse(null));
 
-        PageCursor.Binding binding = new PageCursor.Binding(PageCursor.mark(scope.scopeId()), selector,
-            PageCursor.fingerprint(filter.type(), filter.text(), token), request.sort(),
+        PageCursor.Binding binding = new PageCursor.Binding(PageCursor.mark(resolved.scopeId()),
+            selector, PageCursor.fingerprint(filter.type(), filter.text(), token), request.sort(),
             request.direction());
         String asked = request.after();
         @Nullable PageCursor after = asked == null ? null : PageCursor.decode(asked);
@@ -439,16 +513,17 @@ public class MemoryService {
 
         if (token != null && named.isEmpty()) {
             return new Page(List.of(), null,
-                entries.unaddressableIn(scope.scopeId(), actor.subject()));
+                entries.unaddressableIn(resolved.scopeId(), actor.subject()));
         }
 
         MemoryRepository.Rows page = entries.page(new MemoryRepository.Keyset(
-            scope.scopeId(), selector, actor.subject(), filter, request, after));
+            resolved.scopeId(), selector, actor.subject(), filter, request, after));
 
-        boolean writable = writable(scope);
+        boolean writable = writable(resolved);
+        Set<String> permissions = held();
         Map<UUID, List<String>> tagsOf = tokensOf(page.entries());
         List<EntryView> views = page.entries().stream()
-            .map(entry -> EntryView.of(entry, scope.slug(), writable,
+            .map(entry -> EntryView.of(entry, resolved.slug(), writable, permissions,
                 tagsOf.getOrDefault(entry.logicalId, List.of())))
             .toList();
 
@@ -618,9 +693,22 @@ public class MemoryService {
         return new MemoryException(MemoryException.Reason.ENTRY_ABSENT);
     }
 
-    /** Whether this caller may write in a scope, which is what decides `next`. */
+    /**
+     * Whether the scope's own state admits a write: it is not locked. With the
+     * permissions the call holds, what decides `next`; whether a write
+     * succeeds is the permission check and the lock, never this.
+     */
     private static boolean writable(ScopeDirectory.ScopeAccess scope) {
-        return !scope.locked() && scope.canWrite();
+        return !scope.locked();
+    }
+
+    /**
+     * The permissions the call holds, as its facts state them, carried on the
+     * projection for the calls an answer offers next. Read only inside a
+     * method the permission check admitted, which always has facts.
+     */
+    private Set<String> held() {
+        return call.facts().permissions();
     }
 
     /**
@@ -630,7 +718,7 @@ public class MemoryService {
      */
     private EntryView view(Memory entry, String scopeSlug, boolean writable) {
         Map<UUID, String> tokens = vocabulary.tokensOf(assignments.tagIdsOf(entry));
-        return EntryView.of(entry, scopeSlug, writable, tokens.values());
+        return EntryView.of(entry, scopeSlug, writable, held(), tokens.values());
     }
 
     /** The tokens each entry of a page carries, by logical id, in two statements for the page. */

@@ -25,7 +25,11 @@ import java.util.UUID;
  * platform's base tables. It holds {@code SELECT} on exactly one view and
  * nothing else, and the view answers one question — may this subject enter
  * this scope — without publishing the membership that produces the answer.
- * Existence in the result IS the permission.
+ * The scopes in its answer are the set a call may address, and that set is
+ * one half of the facts the permission check decides on
+ * ({@link CommunityCallFacts}); the other half is the permission. Neither is
+ * decided here: the directory resolves a scope a call was admitted to and
+ * keeps the object rules of a scope, the lock first.
  *
  * <h2>The session contract</h2>
  *
@@ -130,29 +134,40 @@ public class ScopeDirectory {
         return scopes.findByKind(KIND_GLOBAL).stream().map(ScopeDirectory::accessOf).toList();
     }
 
+    /**
+     * Every scope this caller may enter, of every kind: the scope set of the
+     * facts of its call.
+     *
+     * <p>Under the same tenant and subject binding as every other read here,
+     * so the set is this subject's in this tenant and nobody else's. An empty
+     * list is an answer, not a refusal: a subject that is a member of no scope
+     * may address none, and the permission check refuses every call of it
+     * that names a scope.
+     */
+    @Transactional
+    public List<ScopeAccess> visibleScopes(String subject) {
+        bindSubject(subject);
+        requireSessionBound();
+        return scopes.findAll().stream().map(ScopeDirectory::accessOf).toList();
+    }
+
     private static ScopeAccess accessOf(ScopeAccessRepository.ScopeAccessRow row) {
         return new ScopeAccess(row.scopeId(), row.tenantId(), row.slug(), row.archived(),
             row.kind(), row.locked(), row.canWrite());
     }
 
     /**
-     * Refuses a write the platform does not permit, and keeps the two reasons
-     * for that apart.
+     * Refuses a write the scope's own state does not admit: the lock.
      *
-     * <p><strong>The lock is checked first, and the order is load-bearing.</strong>
-     * The view derives {@code can_write} as {@code NOT locked AND …}, so a
-     * locked scope always arrives with the write right already false. Checking
-     * the write right first would therefore answer every locked scope with
-     * {@code SCOPE_READ_ONLY} and leave {@code SCOPE_LOCKED} unreachable — a
-     * code that exists, is declared, and can never be produced. The two are
-     * different things to a caller: a lock is lifted by whoever locked the
-     * scope, a missing write right is lifted by whoever administers the
-     * membership, and telling somebody to go to the wrong one of those is
-     * worse than telling them nothing.
+     * <p>An object rule of the scope, and nothing about the caller. Whether
+     * the caller may write at all is the permission its method declares, and
+     * the permission check has decided it before this runs; the write right
+     * the view publishes ({@code can_write}) decides nothing here. So a
+     * caller that holds the permission is told the scope is locked, and a
+     * caller that does not hold it never reaches this.
      *
-     * <p>Reading stays permitted in both cases. Neither condition is about
-     * seeing the scope — visibility is the directory's answer, and this
-     * caller already has it.
+     * <p>Reading stays permitted: a lock freezes writing and leaves reading
+     * alone.
      */
     private void requireWritable(ScopeAccess scope, Access access) {
         if (access != Access.WRITE) {
@@ -161,10 +176,6 @@ public class ScopeDirectory {
 
         if (scope.locked()) {
             throw new MemoryException(MemoryException.Reason.SCOPE_LOCKED);
-        }
-
-        if (!scope.canWrite()) {
-            throw new MemoryException(MemoryException.Reason.SCOPE_READ_ONLY);
         }
     }
 
@@ -225,6 +236,10 @@ public class ScopeDirectory {
      * write into a retired scope must be refusable with a specific error
      * rather than with "not found", and a directory that hid archived scopes
      * could not tell the two apart. No verb of this service refuses on it yet.
+     *
+     * <p>{@code canWrite} is published by the view and carried here so that
+     * what the platform publishes stays observable; no decision of this
+     * service reads it.
      */
     public record ScopeAccess(UUID scopeId, UUID tenantId, String slug, boolean archived,
                               String kind, boolean locked, boolean canWrite) {

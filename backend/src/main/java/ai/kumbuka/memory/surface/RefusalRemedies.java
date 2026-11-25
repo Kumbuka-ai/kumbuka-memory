@@ -31,6 +31,8 @@ public interface RefusalRemedies {
 
     @Message String scopeReadOnly(VerbName read, VerbName query, VerbName digest);
 
+    @Message String roleInsufficient(VerbName read, VerbName query, VerbName digest);
+
     @Message String addressMalformed();
 
     @Message String keyMalformed();
