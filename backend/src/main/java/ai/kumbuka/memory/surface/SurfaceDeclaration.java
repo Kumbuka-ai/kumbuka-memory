@@ -10,6 +10,7 @@ package ai.kumbuka.memory.surface;
 import ai.kumbuka.memory.domain.EntryType;
 import ai.kumbuka.memory.domain.EntryView;
 import ai.kumbuka.memory.domain.MemoryException.Reason;
+import ai.kumbuka.memory.domain.MemoryPermission;
 import ai.kumbuka.memory.domain.NextStep;
 import org.jspecify.annotations.Nullable;
 
@@ -91,18 +92,18 @@ public final class SurfaceDeclaration {
      * The calls this caller can make successfully on this entry (contract
      * section 6).
      *
-     * <p>Read off the write right the platform's read contract gave for the
-     * entry's scope at the moment of the answer, carried on the projection —
-     * the same answer that permits and refuses the calls. {@code memory_read}
-     * is always here, because an answer about an entry is proof that this
-     * caller may read it.
+     * <p>Read off the facts of the call at the moment of the answer, carried
+     * on the projection — the permissions the call holds and whether the
+     * entry's scope is locked, the same facts that permit and refuse the
+     * calls ({@link #openOn}).
      */
     public static List<NextStep> nextFor(EntryView entry) {
         List<NextStep> next = new ArrayList<>();
-        next.add(step(AssistantVerb.READ));
-        if (entry.writable()) {
-            next.add(step(AssistantVerb.UPDATE));
-            next.add(step(AssistantVerb.WITHDRAW));
+        for (AssistantVerb verb : List.of(AssistantVerb.READ, AssistantVerb.UPDATE,
+                AssistantVerb.WITHDRAW)) {
+            if (openOn(verb, entry)) {
+                next.add(step(verb));
+            }
         }
         return List.copyOf(next);
     }
@@ -120,16 +121,27 @@ public final class SurfaceDeclaration {
     }
 
     /**
-     * Whether a call would succeed for the caller an entry was projected for,
-     * judged from the same write right {@link #nextFor} reads.
+     * Whether a call would succeed for the caller an entry was projected for:
+     * the call holds the permission the call's method declares, and for a
+     * write the entry's scope is not locked. The scope is in the call's set,
+     * because the entry was read there.
+     *
+     * <p>This decides what an answer offers, never what a call may do: that
+     * is the permission check, before the method runs, and the lock, after.
      */
     public static boolean openOn(AssistantVerb verb, EntryView entry) {
         return switch (verb) {
-            case READ, QUERY, DIGEST -> true;
-            case UPDATE, WITHDRAW, TAG_ATTACH, TAG_DETACH -> entry.writable();
+            case READ, QUERY, DIGEST -> entry.permissions().contains(MemoryPermission.READ);
+            case UPDATE -> writableWith(entry, MemoryPermission.UPDATE);
+            case WITHDRAW -> writableWith(entry, MemoryPermission.WITHDRAW);
+            case TAG_ATTACH, TAG_DETACH -> writableWith(entry, MemoryPermission.TAG);
             // The entry stands, so its address is taken.
             case CREATE -> false;
         };
+    }
+
+    private static boolean writableWith(EntryView entry, String permission) {
+        return entry.writable() && entry.permissions().contains(permission);
     }
 
     /** The name a call carries on REST: its verb, without the service prefix (C3.4). */
@@ -357,10 +369,15 @@ public final class SurfaceDeclaration {
     // The form of each verb
     // ======================================================================
 
-    /** The reasons every call can be refused with, whatever it does. */
+    /**
+     * The reasons every call can be refused with, whatever it does. {@code
+     * ROLE_INSUFFICIENT} among them: every call declares a permission, and a
+     * caller can lack any of them.
+     */
     private static final List<String> EVERY_CALL = List.of("NOT_FOUND", "ACTOR_UNKNOWN",
-        "ARGUMENT_UNKNOWN", "ARGUMENT_MISSING", "ARGUMENT_INVALID", "UNEXPECTED_FAILURE",
-        "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED", "HEADER_INVALID");
+        "ROLE_INSUFFICIENT", "ARGUMENT_UNKNOWN", "ARGUMENT_MISSING", "ARGUMENT_INVALID",
+        "UNEXPECTED_FAILURE", "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED",
+        "HEADER_INVALID");
 
     /**
      * What the router needs of a verb beside its arguments: its effect class,

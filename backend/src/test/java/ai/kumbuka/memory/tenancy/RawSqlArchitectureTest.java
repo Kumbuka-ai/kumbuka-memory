@@ -114,10 +114,11 @@ class RawSqlArchitectureTest {
      * and a statement prepared on it — and is counted as written.
      */
     private static final Map<Class<?>, Reasoned> NATIVE_SQL_REASONS = Map.of(
-        ScopeAccessRepository.class, new Reasoned(6,
+        ScopeAccessRepository.class, new Reasoned(7,
             "reads platform.scope_access, a view of the platform's read contract "
                 + "that deliberately has no entity here (an entity would make it look "
-                + "like a table this service maps and could write), and binds and "
+                + "like a table this service maps and could write), by slug, by id, by "
+                + "kind and whole for the scope set of a call's facts, and binds and "
                 + "reads the session settings through set_config and current_setting, "
                 + "which have no JPQL expression"),
         TagAccessRepository.class, new Reasoned(3,

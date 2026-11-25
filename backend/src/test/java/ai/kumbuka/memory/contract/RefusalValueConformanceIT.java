@@ -129,7 +129,7 @@ class RefusalValueConformanceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void no_refusal_repeats_a_value_the_caller_sent() {
         String locked = "memory://" + LOCKED + "/convention/branch-names";
         String cursor = foreignCursor();
@@ -203,7 +203,9 @@ class RefusalValueConformanceIT {
                 "tag", MARKED_RETIRED_TAG)), MARK, ADDRESS, KEY));
 
         Set<String> raised = new LinkedHashSet<>(RAISED_ELSEWHERE);
+        // Raised by the two methods below, each under roles of its own.
         raised.add("SCOPE_READ_ONLY");
+        raised.add("ROLE_INSUFFICIENT");
         List<String> repeated = new ArrayList<>();
         for (Case c : cases) {
             Mcp.Result refusal = c.call().get();
@@ -221,11 +223,33 @@ class RefusalValueConformanceIT {
             .containsExactlyInAnyOrderElementsOf(Contract.surfaceReasons());
     }
 
+    /**
+     * A subject whose roles grant reading alone. Before the permission check
+     * this was the muted member; the subject here is unmuted and holds
+     * {@code memory-reader}.
+     */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.MUTED_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-reader")
     void the_refusal_of_a_reader_repeats_neither_the_address_nor_the_scope() {
         Case c = new Case("SCOPE_READ_ONLY", () -> Mcp.call(WITHDRAW, args("address", ADDRESS,
             "conflict_token", token(ADDRESS))), ADDRESS, KEY);
+        Mcp.Result refusal = c.call().get();
+
+        assertThat(refusal.reason()).as("%s", refusal).isEqualTo(c.code());
+        assertThat(repeatedIn(c, refusal)).isEmpty();
+    }
+
+    /**
+     * A subject whose roles grant writing and not withdrawing, refused a
+     * withdrawal: the permission the method declares is not among those it
+     * holds. The conflict token carries the mark; the permission check refuses
+     * the call before any token is read.
+     */
+    @Test
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-author")
+    void the_refusal_of_a_missing_permission_repeats_neither_the_address_nor_the_token() {
+        Case c = new Case("ROLE_INSUFFICIENT", () -> Mcp.call(WITHDRAW, args("address", ADDRESS,
+            "conflict_token", MARK + "-token")), MARK, ADDRESS, KEY);
         Mcp.Result refusal = c.call().get();
 
         assertThat(refusal.reason()).as("%s", refusal).isEqualTo(c.code());
@@ -242,7 +266,7 @@ class RefusalValueConformanceIT {
      * {@code offenders = ["types"]}.
      */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_wrong_value_is_named_by_its_position_and_an_unknown_name_by_the_declared_ones() {
         Mcp.Result unknownType = Mcp.call(DIGEST, args("scope", SCOPE,
             "types", List.of("decision", MARK)));
@@ -276,7 +300,7 @@ class RefusalValueConformanceIT {
      * not a method of this server}.
      */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void no_error_of_the_protocol_repeats_a_name_the_caller_sent() {
         List<io.restassured.response.Response> answers = List.of(
             Mcp.rpc(MARK + "/list", Map.of()),
@@ -316,7 +340,7 @@ class RefusalValueConformanceIT {
      * ARGUMENT_MISSING}.
      */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void no_refusal_of_the_generic_surface_repeats_a_value_the_caller_sent() {
         String item = SurfaceFixture.API + "/" + SCOPE + "/convention/branch-names";
         String decisions = SurfaceFixture.API + "/" + SCOPE + "/decision";

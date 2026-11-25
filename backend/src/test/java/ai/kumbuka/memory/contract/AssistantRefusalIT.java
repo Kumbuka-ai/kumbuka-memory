@@ -76,7 +76,7 @@ class AssistantRefusalIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void an_absent_entry_and_an_unresolvable_scope_are_one_refusal_and_the_generic_one() {
         Mcp.Result absent = Mcp.call(READ,
             args("address", "memory://" + SCOPE + "/convention/nothing-here"));
@@ -104,7 +104,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.SECOND_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.SECOND_SUBJECT, roles = "owner")
     void another_author_s_private_entry_is_the_same_refusal_as_nothing_at_all() {
         SurfaceFixture.plant(new SurfaceFixture.Planted(SubstrateDatabaseResource.TENANT_ID,
             SubstrateDatabaseResource.PRIVATE_SCOPE_ID, true,
@@ -122,7 +122,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_write_to_an_absent_entry_is_the_same_refusal_naming_the_write() {
         assertNotFound(Mcp.call(UPDATE, args("address",
             "memory://" + SCOPE + "/convention/nothing-here", "conflict_token", "t",
@@ -136,7 +136,7 @@ class AssistantRefusalIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_write_in_a_locked_scope_is_scope_locked_and_offers_the_reads() {
         String locked = "memory://" + LOCKED + "/convention/branch-names";
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", locked,
@@ -146,9 +146,14 @@ class AssistantRefusalIT {
         assertConcernsAVisibleEntry(refusal, List.of(READ, QUERY, DIGEST));
     }
 
+    /**
+     * A subject whose roles grant reading alone. Before the permission check
+     * this was the muted member; the subject here is unmuted and holds
+     * {@code memory-reader}.
+     */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.MUTED_SUBJECT)
-    void a_write_without_the_write_right_is_scope_read_only_and_offers_the_reads() {
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-reader")
+    void a_write_without_the_write_permission_is_scope_read_only_and_offers_the_reads() {
         Mcp.Result refusal = Mcp.call(WITHDRAW, args("address", ADDRESS,
             "conflict_token", token(ADDRESS)));
 
@@ -161,7 +166,7 @@ class AssistantRefusalIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void an_address_of_another_form_is_address_malformed_and_not_repeated() {
         for (String written : List.of(SCOPE + "/convention/branch-names",
                 "memory://" + SCOPE + "/convention",
@@ -173,7 +178,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_key_of_another_form_is_key_malformed_and_not_repeated() {
         assertRefusal(Mcp.call(READ, args("address", "memory://" + SCOPE + "/Convention/x")),
             "KEY_MALFORMED", READ, literal(Map.of("call", READ)));
@@ -183,21 +188,21 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void the_reserved_selector_is_selector_reserved() {
         assertRefusal(create("system", "system.boot", "convention", "x"),
             "SELECTOR_RESERVED", CREATE, Map.of());
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_key_under_another_selector_is_selector_mismatched() {
         assertRefusal(create("decision", "convention.tabs", "convention", "x"),
             "SELECTOR_MISMATCHED", CREATE, Map.of("call", CREATE));
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_key_without_a_selector_is_selector_absent() {
         assertRefusal(create("decision", "storage", "decision", "x"),
             "SELECTOR_ABSENT", CREATE, literal(Map.of("call", CREATE)));
@@ -208,7 +213,7 @@ class AssistantRefusalIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_create_onto_a_standing_entry_is_already_exists_and_offers_read_then_update() {
         Mcp.Result refusal = create("convention", KEY, "convention", "a second one");
         assertRefusal(refusal, "ALREADY_EXISTS", CREATE, Map.of("call", CREATE));
@@ -216,7 +221,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_stale_token_is_refused_with_the_entry_as_the_caller_s_own_read_answers_it() {
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", ADDRESS,
             "conflict_token", "2000-01-01T00:00:00Z", "fields", Map.of("content", "x")));
@@ -234,7 +239,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void an_update_that_names_nothing_is_update_empty() {
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", ADDRESS,
             "conflict_token", token(ADDRESS), "fields", Map.of()));
@@ -247,7 +252,7 @@ class AssistantRefusalIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_type_that_is_not_one_of_the_six_is_type_unknown_and_lists_them() {
         // The six are listed under data.accepts, which the message points at:
         // a value of a fixed set is no placeholder a text may take.
@@ -263,14 +268,14 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void blank_content_is_content_absent() {
         assertRefusal(create("decision", "decision.tabs", "decision", "   "),
             "CONTENT_ABSENT", CREATE, Map.of("call", CREATE));
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void oversized_content_is_content_oversize_and_the_content_is_not_repeated() {
         int limit = contractNumber("one text of at most (\\d+) characters");
         String tooLong = "a sentence nobody should read back. ".repeat(limit / 10);
@@ -285,7 +290,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_reference_with_a_credential_is_refused_and_its_value_is_not_repeated() {
         String reference = "https://probe:hunter2@docs.example.org/adr?token=s3cr3t";
         Mcp.Result refusal = Mcp.call(CREATE, args("scope", SCOPE, "selector", "decision",
@@ -302,7 +307,7 @@ class AssistantRefusalIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_page_size_out_of_bounds_is_page_size_rejected() {
         int max = contractNumber("optional `page_size` \\(1 to (\\d+)");
         for (int asked : List.of(0, max + 1)) {
@@ -312,14 +317,14 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_cursor_not_handed_out_is_cursor_malformed() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "after", "!!not-a-cursor")),
             "CURSOR_MALFORMED", QUERY, Map.of());
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_cursor_handed_out_for_another_selector_is_cursor_foreign() {
         create("decision", "decision.one", "decision", "first");
         create("decision", "decision.two", "decision", "second");
@@ -333,14 +338,14 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void an_order_this_verb_does_not_declare_is_sort_undeclared() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "sort", "content")),
             "SORT_UNDECLARED", QUERY, Map.of("call", QUERY));
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_direction_that_is_neither_of_the_two_is_argument_invalid() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "direction", "sideways")),
             "ARGUMENT_INVALID", QUERY,
@@ -352,7 +357,7 @@ class AssistantRefusalIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void an_undeclared_argument_is_refused_by_name_at_the_top_and_inside_fields() {
         // Answered with the declared names, never with the one that arrived
         // (DEC-0043 R19).
@@ -380,7 +385,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_missing_argument_is_argument_missing_and_a_missing_token_is_its_own_refusal() {
         // The conflict token is refused by the domain once the scope is
         // resolved, so that an invisible scope answers NOT_FOUND whatever else
@@ -398,7 +403,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_value_of_the_wrong_kind_is_argument_invalid() {
         assertRefusal(Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
                 token(ADDRESS), "fields", "content")),
@@ -411,7 +416,7 @@ class AssistantRefusalIT {
      * this surface as on the generic one.
      */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_page_size_of_the_wrong_kind_is_page_size_rejected() {
         assertRefusal(Mcp.call(QUERY, args("scope", SCOPE, "page_size", "fifty")),
             "PAGE_SIZE_REJECTED", QUERY, Map.of("call", QUERY), "max");
@@ -420,7 +425,7 @@ class AssistantRefusalIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void content_of_the_wrong_kind_is_refused_without_being_shown_back() {
         Mcp.Result refusal = Mcp.call(UPDATE, args("address", ADDRESS, "conflict_token",
             token(ADDRESS), "fields", Map.of("content", List.of("a list of secrets"))));

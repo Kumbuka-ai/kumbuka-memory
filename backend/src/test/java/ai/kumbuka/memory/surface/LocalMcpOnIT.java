@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
 @TestProfile(LocalMcpOnIT.On.class)
-@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class LocalMcpOnIT {
 
     /** The build with the setting named and on. */

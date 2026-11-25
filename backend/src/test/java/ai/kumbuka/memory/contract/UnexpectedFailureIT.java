@@ -132,7 +132,7 @@ class UnexpectedFailureIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_call_with_an_address_answers_unexpected_failure_and_the_reference_is_logged() {
         String token = Mcp.call(Contract.toolFor("read"), args("address", ADDRESS))
             .string("conflict_token");
@@ -159,7 +159,7 @@ class UnexpectedFailureIT {
     }
 
     @Test
-    @TestSecurity(user = FailingCallerActor.FAILING_SUBJECT)
+    @TestSecurity(user = FailingCallerActor.FAILING_SUBJECT, roles = "owner")
     void a_call_without_an_address_answers_the_same_form_and_names_no_scope() {
         String query = Contract.toolFor("query");
         Mcp.Result refusal = Mcp.call(query, args("scope", SCOPE));
@@ -180,7 +180,7 @@ class UnexpectedFailureIT {
      * the call, without a state nobody could read.
      */
     @Test
-    @TestSecurity(user = FailingCallerActor.FAILING_SUBJECT)
+    @TestSecurity(user = FailingCallerActor.FAILING_SUBJECT, roles = "owner")
     void a_failure_of_the_second_read_is_logged_and_the_refusal_still_answers() {
         String update = Contract.toolFor("update");
         Mcp.Result refusal = Mcp.call(update, args("address", ADDRESS,
@@ -201,7 +201,7 @@ class UnexpectedFailureIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_call_whose_commit_fails_answers_unexpected_failure_and_changes_nothing() {
         String read = Contract.toolFor("read");
         String update = Contract.toolFor("update");
@@ -240,7 +240,7 @@ class UnexpectedFailureIT {
      * log once (C8.3).
      */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void over_rest_an_unexpected_failure_answers_500_with_a_reference() {
         String token = SurfaceFixture.call().get(SurfaceFixture.API + "/" + SCOPE
             + "/convention/branch-names").header("ETag");
@@ -274,7 +274,7 @@ class UnexpectedFailureIT {
 
     /** A route the framework does not serve is the framework's answer, in the envelope. */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_route_nobody_serves_is_not_found_and_not_a_failure() {
         io.restassured.response.Response answer = SurfaceFixture.call()
             .get(SurfaceFixture.API + "/" + SCOPE + "/convention/branch-names/more");

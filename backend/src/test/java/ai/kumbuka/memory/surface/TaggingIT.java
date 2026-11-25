@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
-@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class TaggingIT {
 
     private static final String SCOPE = SubstrateDatabaseResource.PROBE_SCOPE_SLUG;
@@ -203,9 +203,15 @@ class TaggingIT {
         assertThat(detached.jsonPath().getList("fields.tags", String.class)).isEmpty();
     }
 
+    /**
+     * A subject holding {@code memory-reader} alone tags nothing: the tag verbs
+     * declare {@code memory.entry.tag}. Before the permission check this was
+     * the muted member, refused through the view's {@code can_write}; the
+     * subject here is unmuted, so the refusal comes from the role.
+     */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.MUTED_SUBJECT)
-    void a_caller_without_the_write_right_is_refused_both_tag_verbs() {
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-reader")
+    void a_caller_without_the_tag_permission_is_refused_both_tag_verbs() {
         for (Response refused : List.of(attach(COMPONENT), detach(COMPONENT))) {
             assertThat(refused.statusCode()).as(refused.asString()).isEqualTo(403);
             assertThat(refused.jsonPath().getString("reason")).isEqualTo("SCOPE_READ_ONLY");
@@ -367,7 +373,7 @@ class TaggingIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.OTHER_TENANT_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.OTHER_TENANT_SUBJECT, roles = "owner")
     void another_tenants_caller_cannot_tag_this_tenants_entry() {
         Response refused = attach(COMPONENT);
         assertThat(refused.statusCode()).as(refused.asString()).isEqualTo(404);

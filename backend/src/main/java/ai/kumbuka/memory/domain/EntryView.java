@@ -12,6 +12,7 @@ import org.jspecify.annotations.Nullable;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 /**
  * One entry, as a caller reads it.
@@ -42,6 +43,14 @@ import java.util.List;
  * ascending, withdrawn ones included, and empty where it carries none. They
  * are a relation of the entry rather than a value of it (V11), and no write of
  * the entry's own fields changes them.
+ *
+ * <p>{@code writable} and {@code permissions} are not values of the entry
+ * either: they are what decides the calls an answer offers next, and they
+ * travel on the projection so that the offer is computed from the same facts
+ * that decide the calls. {@code writable} says the scope's own state admits a
+ * write -- it is not locked; {@code permissions} are the permissions the call
+ * holds. Neither decides whether a call succeeds: that is the permission
+ * check, before the method runs, and the lock, after it.
  */
 public record EntryView(
     EntryAddress address,
@@ -56,22 +65,26 @@ public record EntryView(
     Instant updatedAt,
     String conflictToken,
     boolean writable,
+    Set<String> permissions,
     List<String> tags) {
 
     public EntryView {
+        permissions = Set.copyOf(permissions);
         tags = List.copyOf(tags);
     }
 
     /**
      * The projection of a stored entry, for a caller who may already see it.
      *
-     * @param scopeSlug the scope's name, resolved — never the stored uuid
-     * @param writable  whether this caller may write in that scope, which is
-     *                  what decides the calls the answer offers next
-     * @param tags      the tokens the entry carries, in any order; sorted here
+     * @param scopeSlug   the scope's name, resolved — never the stored uuid
+     * @param writable    whether the scope's state admits a write, which is
+     *                    with the permissions what decides the calls the
+     *                    answer offers next
+     * @param permissions the permissions the call holds
+     * @param tags        the tokens the entry carries, in any order; sorted here
      */
     public static EntryView of(Memory entry, String scopeSlug, boolean writable,
-                               Collection<String> tags) {
+                               Set<String> permissions, Collection<String> tags) {
         return new EntryView(
             EntryAddress.ofKey(scopeSlug, entry.key),
             scopeSlug,
@@ -87,6 +100,7 @@ public record EntryView(
             entry.updatedAt,
             tokenOf(entry),
             writable,
+            permissions,
             tags.stream().sorted().toList());
     }
 

@@ -14,6 +14,7 @@ import ai.kumbuka.memory.tenancy.TenantContext;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.security.TestSecurity;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +38,10 @@ import static org.assertj.core.api.Assertions.catchThrowable;
  * flushed. A create, an update through the verb and an update that changes
  * nothing are the writes the service makes, and none of them is refused.
  *
+ * <p>The domain is called directly, and every method of it declares its
+ * permission, so the calls are made as a subject holding the {@code owner}
+ * role.
+ *
  * <p>RED STATE, observed on memory {@code c3c1104} (before the stamp was
  * enforced): the unstamped change was flushed and committed, the content read
  * back was the changed one and the token was the old one, so the first case
@@ -44,6 +49,7 @@ import static org.assertj.core.api.Assertions.catchThrowable;
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class UnstampedWriteIT {
 
     private static final UUID TENANT = UUID.fromString(SubstrateDatabaseResource.TENANT_ID);
@@ -88,7 +94,7 @@ class UnstampedWriteIT {
             .as("a changed row whose write did not pass changedAt() is refused at the flush")
             .isNotNull()
             .hasStackTraceContaining("written without changedAt()");
-        EntryView after = memory.read(PROBE, ENTRY);
+        EntryView after = memory.read(PROBE, ENTRY.scope(), ENTRY.key());
         assertThat(after.content())
             .as("and nothing of it is stored")
             .isEqualTo("as laid down");
@@ -101,30 +107,31 @@ class UnstampedWriteIT {
         assertThat(created.content()).as("a create is a persist, not a refused update")
             .isEqualTo("first");
 
-        EntryView changed =
-            memory.update(PROBE, ENTRY, created.conflictToken(), content("second")).answer();
+        EntryView changed = memory.update(PROBE, ENTRY.scope(), ENTRY.key(),
+            created.conflictToken(), content("second")).answer();
         assertThat(changed.content()).as("an update through the verb is stamped")
             .isEqualTo("second");
         assertThat(changed.conflictToken()).isNotEqualTo(created.conflictToken());
 
-        EntryView same = memory.update(PROBE, ENTRY, changed.conflictToken(), content("second"))
-            .answer();
+        EntryView same = memory.update(PROBE, ENTRY.scope(), ENTRY.key(),
+            changed.conflictToken(), content("second")).answer();
         assertThat(same.conflictToken())
             .as("a write that changes nothing flushes nothing and keeps its token")
             .isEqualTo(changed.conflictToken());
 
-        EntryView again = memory.update(PROBE, ENTRY, same.conflictToken(), content("third"))
-            .answer();
+        EntryView again = memory.update(PROBE, ENTRY.scope(), ENTRY.key(),
+            same.conflictToken(), content("third")).answer();
         assertThat(again.content())
             .as("and the stamp of one write does not stand in for the next")
             .isEqualTo("third");
-        assertThat(memory.read(PROBE, ENTRY).content()).isEqualTo("third");
+        assertThat(memory.read(PROBE, ENTRY.scope(), ENTRY.key()).content()).isEqualTo("third");
     }
 
     // -----------------------------------------------------------------------
 
     private EntryView create(String content) {
-        return memory.create(PROBE, ENTRY, new Draft("decision", content, null)).answer();
+        return memory.create(PROBE, ENTRY.scope(), ENTRY.key(),
+            new Draft("decision", content, null)).answer();
     }
 
     private static Patch content(String content) {
@@ -137,7 +144,7 @@ class UnstampedWriteIT {
      * policy needs before the entity manager may see the row.
      */
     private Memory stored() {
-        memory.read(PROBE, ENTRY);
+        memory.read(PROBE, ENTRY.scope(), ENTRY.key());
         return em.createQuery("SELECT m FROM Memory m WHERE m.key = :key", Memory.class)
             .setParameter("key", KEY)
             .getSingleResult();

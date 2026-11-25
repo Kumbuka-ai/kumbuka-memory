@@ -367,14 +367,18 @@ public final class Contract {
         return rows;
     }
 
-    /** The calls the table lists for an entry in force, for a reader or a writer. */
+    /**
+     * The calls the table lists for an entry in force, for a reader or a
+     * writer: a reader holds the read permission, a writer every permission,
+     * and the entry's scope is not locked.
+     */
     public static List<String> nextOnAnEntry(boolean mayWrite) {
         List<String> calls = new ArrayList<>();
         for (NextRow row : nextTable()) {
             if (!row.about().equals("an entry in force")) {
                 continue;
             }
-            if (row.condition().equals("always") || mayWrite) {
+            if (row.condition().contains("read permission") || mayWrite) {
                 calls.addAll(row.calls());
             }
         }

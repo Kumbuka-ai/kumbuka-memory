@@ -58,7 +58,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
-@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class CreateRaceIT {
 
     private static final UUID TENANT = UUID.fromString(SubstrateDatabaseResource.TENANT_ID);
@@ -135,8 +135,7 @@ class CreateRaceIT {
             try (AutoCloseable ignored = tenantContext.bind(TENANT)) {
                 QuarkusTransaction.begin();
                 try {
-                    memory.create(PROBE, EntryAddress.ofKey(SCOPE, KEY),
-                        new Draft("decision", "the first", null));
+                    memory.create(PROBE, SCOPE, KEY, new Draft("decision", "the first", null));
                     int holder = LockWaits.sessionOf(em);
 
                     secondCreate = pool.submit(second);

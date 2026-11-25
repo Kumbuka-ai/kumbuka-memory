@@ -77,10 +77,16 @@ final class DeclarationTranscript {
     private static final List<String> ENTRY = List.of("address", "fields", "conflict_token",
         "next");
 
-    /** Every call can be refused with these, whatever it does. */
+    /**
+     * Every call can be refused with these, whatever it does. {@code
+     * ROLE_INSUFFICIENT} among them: every call declares a permission of the
+     * catalogue, and a caller's roles can grant another one (contract C8.7,
+     * the row of the caller's permissions).
+     */
     private static final List<String> EVERY_CALL = List.of("NOT_FOUND", "ACTOR_UNKNOWN",
-        "ARGUMENT_UNKNOWN", "ARGUMENT_MISSING", "ARGUMENT_INVALID", "UNEXPECTED_FAILURE",
-        "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED", "HEADER_INVALID");
+        "ROLE_INSUFFICIENT", "ARGUMENT_UNKNOWN", "ARGUMENT_MISSING", "ARGUMENT_INVALID",
+        "UNEXPECTED_FAILURE", "SESSION_NOT_BOUND", "VERB_NOT_CARRIED", "ADDRESS_TRUNCATED",
+        "HEADER_INVALID");
 
     static List<Verb> verbs() {
         Arg scope = new Arg("scope", "string", true, null, List.of());

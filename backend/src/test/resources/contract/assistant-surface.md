@@ -58,10 +58,15 @@ neither the conflict token nor the change time.
 
 ## 2. Who may call
 
-The platform's read contract answers, per scope, whether a caller may read and whether it may
-write. A scope can be locked; a locked scope takes no write from anyone. There is no part a caller
-takes in a single entry: whoever may write to the scope may change and withdraw every entry in it
-that it may see.
+Every verb declares the permission it needs: `memory.entry.read` for `memory_read`, `memory_query`
+and `memory_digest`, `memory.entry.create` for `memory_create`, `memory.entry.update` for
+`memory_update`, `memory.entry.withdraw` for `memory_withdraw`, `memory.entry.tag` for the two tag
+verbs. A caller holds the permissions its roles grant, across the tenant, and may address the
+scopes the platform's read contract answers for it. Both are checked once, before the verb acts: a
+missing permission is refused, and a scope outside the caller's scopes is answered as a scope that
+does not exist. A scope can be locked; a locked scope takes no write from anyone, and the lock is
+decided after the permission. There is no part a caller takes in a single entry: whoever holds a
+write permission may use it on every entry it may see in a scope it may address.
 
 ## 3. The answer
 
@@ -86,8 +91,8 @@ Every answer about one entry has this shape (DEC-0040):
 
 `next` lists exactly the calls this caller can make successfully on this entry (section 6): every
 listed call succeeds for this caller, and every call that would succeed is listed. `memory_read` is
-always among them, because an answer about an entry is proof that this caller may read it. The list
-is therefore never empty, and `waiting_for` never arises on this surface.
+among them for every caller that holds the read permission, which every role that reads holds, so
+for such a caller the list is never empty; `waiting_for` never arises on this surface.
 
 **Every address is complete.** Every address anywhere in an answer or a refusal is the complete
 URI, exactly as every call takes it.
@@ -189,6 +194,7 @@ is the cause (DEC-0042).
 | `NOT_FOUND` | 4.3 | Check the address, and that you are a member of the scope it names. |
 | `SCOPE_LOCKED` | `<call> is refused: the scope is locked, and a locked scope takes writes from nobody. Read the scope with <read>, <query> or <digest>, and write to it once it is unlocked.` | Read the scope with `<read>`, `<query>` or `<digest>`, and write to it once it is unlocked. |
 | `SCOPE_READ_ONLY` | `<call> is refused: your right in this scope is to read it. Read the scope with <read>, <query> or <digest>, and ask the scope's owner for the write right to change it.` | Read the scope with `<read>`, `<query>` or `<digest>`, and ask the scope's owner for the write right to change it. |
+| `ROLE_INSUFFICIENT` | `<call> is refused: the roles of your account grant other acts on entries than this one. Make the calls your roles grant, such as <read>, <query> or <digest> where they grant reading, and ask the administrator of your organisation for the role that grants this one.` | Make the calls your roles grant, such as `<read>`, `<query>` or `<digest>` where they grant reading, and ask the administrator of your organisation for the role that grants this one. |
 | `ADDRESS_MALFORMED` | `<call> was given an address or a scope in a form this service does not carry. Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens, by a name other than declaration and whoami.` | Write an address as memory://<scope>/<selector>/<id>, and a scope in lowercase letters and digits, in segments joined by single hyphens, by a name other than declaration and whoami. |
 | `KEY_MALFORMED` | `<call> was given a key or a selector in a form this service does not store. Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters.` | Write a key as <selector>.<id> in lowercase letters and digits, in segments joined by single dots or hyphens; its selector begins with a letter and runs to at most sixteen characters. |
 | `SELECTOR_ABSENT` | `<call> was given a key that names no selector. The part of a key before its first dot is the selector the entry stands under. Write the key as <selector>.<id>.` | Write the key as <selector>.<id>. |
@@ -307,8 +313,8 @@ declare is `VALUE_UNDECLARED`.
 
 | The answer is about | Condition | `next` |
 |---|---|---|
-| an entry in force | always | `memory_read` |
-| an entry in force | the caller may write to the entry's scope at the moment of the answer | additionally `memory_update`, `memory_withdraw` |
+| an entry in force | the caller holds the read permission | `memory_read` |
+| an entry in force | the caller holds the permission of the call, and the entry's scope is not locked at the moment of the answer | additionally `memory_update`, `memory_withdraw` |
 | a withdrawal that released the address | -- | `memory_create` |
 | a withdrawal that kept the address | -- | `memory_read` |
 
@@ -316,8 +322,9 @@ The `does` texts are the ones section 3 shows for the three calls on an entry in
 withdrawal that released the address: `The address is free again; a new entry may be laid down at
 it.` After one that kept it: `Reads the retired entry, which still stands at this address.`
 
-The list is computed from the same answer that permits and refuses the calls. A second table beside
-that answer would drift from it, and a listed call that is then refused is what the rule forbids.
+The list is computed from the same facts that permit and refuse the calls: the permissions the
+caller holds and the lock of the entry's scope. A second table beside them would drift from them,
+and a listed call that is then refused is what the rule forbids.
 
 ## 7. What this contract requires of the service
 

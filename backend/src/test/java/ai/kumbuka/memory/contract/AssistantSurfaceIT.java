@@ -74,7 +74,7 @@ class AssistantSurfaceIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void initialize_names_the_server_and_offers_tools() {
         JsonPath answer = Mcp.rpc("initialize", Map.of("protocolVersion", "2025-06-18",
             "capabilities", Map.of(), "clientInfo", Map.of("name", "probe", "version", "1")))
@@ -86,7 +86,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void tools_list_answers_exactly_the_contract_s_tools_with_their_descriptions() {
         JsonPath answer = Mcp.rpc("tools/list", Map.of()).jsonPath();
         List<Map<String, Object>> tools = answer.getList("result.tools");
@@ -105,7 +105,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void the_declaration_is_served_and_carries_the_calls_and_the_reasons() {
         JsonPath declaration = given().get(DECLARATION).then()
             .statusCode(200).extract().jsonPath();
@@ -117,7 +117,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_method_that_does_not_exist_and_a_tool_that_does_not_exist_are_protocol_errors() {
         assertThat(Mcp.rpc("resources/list", Map.of()).jsonPath().getInt("error.code"))
             .isEqualTo(-32601);
@@ -127,7 +127,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void arguments_that_are_present_and_not_an_object_are_a_protocol_error() {
         String read = Contract.toolFor("read");
         for (Object notAnObject : List.of("memory://" + SCOPE + "/convention/x", List.of(1),
@@ -144,7 +144,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void missing_arguments_are_the_empty_object() {
         String digest = Contract.toolFor("digest");
         JsonPath answer = Mcp.rpc("tools/call", Map.of("name", digest)).jsonPath();
@@ -158,7 +158,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_notification_is_accepted_without_an_answer() {
         Response answer = Mcp.post(Map.of("jsonrpc", "2.0",
             "method", "notifications/initialized"));
@@ -186,7 +186,7 @@ class AssistantSurfaceIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void create_read_and_update_answer_address_fields_token_and_next() throws Exception {
         Mcp.Result created = create(KEY, "convention", "feature/<slug>");
         assertEntryAnswer(created, true);
@@ -207,7 +207,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void query_answers_a_listing_whose_entries_have_the_answer_shape() throws Exception {
         create(KEY, "convention", "feature/<slug>");
         create("decision.storage-engine", "decision", "postgres");
@@ -233,7 +233,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void query_pages_with_next_cursor_in_the_order_and_direction_asked() {
         create("decision.alpha", "decision", "first");
         create("decision.beta", "decision", "second");
@@ -262,7 +262,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void digest_answers_the_digest_shape() throws Exception {
         create(KEY, "convention", "feature/<slug>");
         Mcp.Result digest = Mcp.call(Contract.toolFor("digest"), args("scope", SCOPE,
@@ -277,7 +277,7 @@ class AssistantSurfaceIT {
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void withdraw_answers_the_outcome_and_the_one_call_open_after_it() throws Exception {
         String token = create(KEY, "convention", "feature/<slug>").string("conflict_token");
 
@@ -306,21 +306,26 @@ class AssistantSurfaceIT {
     // ======================================================================
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void a_writer_is_offered_read_update_and_withdraw_and_all_three_succeed() {
         plant(SubstrateDatabaseResource.SCOPE_ID);
         everyListedCallSucceedsAndOnlyThose(ADDRESS, true);
     }
 
+    /**
+     * A subject whose roles grant reading alone. Before the permission check
+     * this was the muted member; the subject here is unmuted and holds
+     * {@code memory-reader}, so what is offered and refused follows the role.
+     */
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.MUTED_SUBJECT)
-    void a_reader_without_the_write_right_is_offered_read_alone_and_the_rest_is_refused() {
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "memory-reader")
+    void a_reader_without_the_write_permission_is_offered_read_alone_and_the_rest_is_refused() {
         plant(SubstrateDatabaseResource.SCOPE_ID);
         everyListedCallSucceedsAndOnlyThose(ADDRESS, false);
     }
 
     @Test
-    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT)
+    @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
     void in_a_locked_scope_read_alone_is_offered_and_the_rest_is_refused() {
         plant(SubstrateDatabaseResource.LOCKED_SCOPE_ID);
         everyListedCallSucceedsAndOnlyThose(

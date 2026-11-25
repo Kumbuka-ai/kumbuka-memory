@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * This file is part of Kumbuka and is licensed under the GNU Affero
+ * General Public License v3.0 only. See the LICENSE file in the
+ * repository root for the full licence text.
+ */
 package ai.kumbuka.memory.surface;
 
 import ai.kumbuka.memory.platform.PlatformFixture;
@@ -51,7 +58,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @QuarkusTest
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
 @TestProfile(SecondTenantDigestIT.SecondTenant.class)
-@TestSecurity(user = SubstrateDatabaseResource.OTHER_TENANT_SUBJECT)
+@TestSecurity(user = SubstrateDatabaseResource.OTHER_TENANT_SUBJECT, roles = "owner")
 class SecondTenantDigestIT {
 
     private static final String SCOPE = SubstrateDatabaseResource.OTHER_TENANT_SCOPE_SLUG;

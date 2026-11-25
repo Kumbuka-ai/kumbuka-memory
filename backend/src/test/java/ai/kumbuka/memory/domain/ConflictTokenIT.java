@@ -14,6 +14,7 @@ import ai.kumbuka.memory.tenancy.TenantContext;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
+import io.quarkus.test.security.TestSecurity;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -40,6 +41,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * token is also compared against a read that follows, so what is asserted is
  * the stored value and not only the answer.
  *
+ * <p>The domain is called directly, and every method of it declares its
+ * permission, so the calls are made as a subject holding the {@code owner}
+ * role; the permission check decides them as it decides a call over a
+ * surface.
+ *
  * <p>RED STATE, observed on the tree before the clock (memory {@code
  * 482a26b}): the token of a new entry was the database's transaction time and
  * that of an update the platform clock, so the first assertion of each case
@@ -49,6 +55,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @QuarkusTest
 @TestProfile(SettableClock.Profile.class)
 @QuarkusTestResource(value = SubstrateDatabaseResource.class, restrictToAnnotatedClass = true)
+@TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
 class ConflictTokenIT {
 
     private static final UUID TENANT = UUID.fromString(SubstrateDatabaseResource.TENANT_ID);
@@ -151,16 +158,17 @@ class ConflictTokenIT {
     // -----------------------------------------------------------------------
 
     private EntryView create(String content) {
-        return memory.create(PROBE, ENTRY, new Draft("decision", content, null)).answer();
+        return memory.create(PROBE, ENTRY.scope(), ENTRY.key(),
+            new Draft("decision", content, null)).answer();
     }
 
     private EntryView rewrite(EntryView entry, String content) {
-        return memory.update(PROBE, ENTRY, entry.conflictToken(),
+        return memory.update(PROBE, ENTRY.scope(), ENTRY.key(), entry.conflictToken(),
             new Patch(Optional.empty(), Optional.of(content), Optional.empty())).answer();
     }
 
     private EntryView read() {
-        return memory.read(PROBE, ENTRY);
+        return memory.read(PROBE, ENTRY.scope(), ENTRY.key());
     }
 
     private static String token(Instant at) {
