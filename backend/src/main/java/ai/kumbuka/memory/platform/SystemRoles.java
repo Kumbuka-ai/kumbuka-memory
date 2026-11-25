@@ -42,8 +42,7 @@ public final class SystemRoles {
         Map<String, Set<String>> roles = new LinkedHashMap<>();
         roles.put("owner", Set.of(MemoryPermission.READ, MemoryPermission.CREATE,
             MemoryPermission.UPDATE, MemoryPermission.WITHDRAW, MemoryPermission.TAG));
-        // RED PROBE f: the mapping departs from the catalogue's table.
-        roles.put("memory-reader", Set.of(MemoryPermission.READ, MemoryPermission.CREATE));
+        roles.put("memory-reader", Set.of(MemoryPermission.READ));
         roles.put("memory-author", Set.of(MemoryPermission.CREATE, MemoryPermission.UPDATE,
             MemoryPermission.TAG));
         roles.put("memory-curator", Set.of(MemoryPermission.WITHDRAW));
