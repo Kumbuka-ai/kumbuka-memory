@@ -91,7 +91,7 @@ public class DigestService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.READ, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public DigestView digest(Actor actor, String scope, @Nullable List<String> override,
                              @Nullable List<String> tags) {
         ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.READ);

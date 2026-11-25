@@ -175,10 +175,12 @@ class PermissionCheckIT {
 
             @Override
             public void flush() {
+                // Every line is kept as it is published; nothing is buffered.
             }
 
             @Override
             public void close() {
+                // The handler holds no resource; it is removed below.
             }
         };
         Logger security = Logger.getLogger("ai.kumbuka.security");

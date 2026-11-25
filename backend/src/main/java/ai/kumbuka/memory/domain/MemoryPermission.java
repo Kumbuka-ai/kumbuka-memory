@@ -40,6 +40,13 @@ public final class MemoryPermission {
     public static final String TAG = "memory.entry.tag";
 
     /**
+     * The argument a declaring method carries the addressed scope's slug in.
+     * The check reads it by this name, so every such method names its
+     * parameter {@code scope}.
+     */
+    public static final String SCOPE_ARGUMENT = "scope";
+
+    /**
      * What a declaration without a scope argument addresses, written after its
      * permission: the tenant. The one such method is the read by technical
      * address, whose scope is known only once its entry is loaded.

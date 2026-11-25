@@ -156,7 +156,7 @@ public class MemoryService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.CREATE, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public Written<EntryView> create(Actor actor, String scope, String entryKey, Draft draft) {
         return create(actor, scope, entryKey, draft, IdempotencyKey.NONE);
     }
@@ -170,7 +170,7 @@ public class MemoryService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.CREATE, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public Written<EntryView> create(Actor actor, String scope, String entryKey, Draft draft,
                                      IdempotencyKey key) {
         EntryAddress address = EntryAddress.ofKey(scope, entryKey);
@@ -234,7 +234,7 @@ public class MemoryService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.READ, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public EntryView read(Actor actor, String scope, String entryKey) {
         ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.READ);
         Memory entry = entries.findInScope(resolved.scopeId(), entryKey, actor.subject())
@@ -297,7 +297,7 @@ public class MemoryService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.UPDATE, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public Written<EntryView> update(Actor actor, String scope, String entryKey,
                                      @Nullable String conflictToken, Patch patch) {
         ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.WRITE);
@@ -354,7 +354,7 @@ public class MemoryService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.WITHDRAW, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public Written<Withdrawn> withdraw(Actor actor, String scope, String entryKey,
                                        @Nullable String conflictToken) {
         EntryAddress address = EntryAddress.ofKey(scope, entryKey);
@@ -404,7 +404,7 @@ public class MemoryService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.TAG, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public Written<EntryView> tagAttach(Actor actor, String scope, String entryKey,
                                         String token) {
         ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.WRITE);
@@ -442,7 +442,7 @@ public class MemoryService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.TAG, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public Written<EntryView> tagDetach(Actor actor, String scope, String entryKey,
                                         String token) {
         ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.WRITE);
@@ -484,7 +484,7 @@ public class MemoryService {
      */
     @Transactional
     @PermissionsAllowed(value = MemoryPermission.READ, permission = ScopePermission.class,
-        params = "scope")
+        params = MemoryPermission.SCOPE_ARGUMENT)
     public Page query(Actor actor, String scope, @Nullable String selector,
                       Narrowing narrowing, PageRequest request) {
         ScopeDirectory.ScopeAccess resolved = scopes.resolve(actor.subject(), scope, Access.READ);
