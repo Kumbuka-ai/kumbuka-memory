@@ -41,6 +41,7 @@ import java.util.Set;
 public final class PermissionRefusal {
 
     private PermissionRefusal() {
+        // One mapping and nothing to instantiate.
     }
 
     /** The refusal of a call the permission check refused, with the facts it read. */

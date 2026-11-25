@@ -36,6 +36,7 @@ public final class SystemRoles {
     private static final Map<String, Set<String>> PERMISSIONS = mapping();
 
     private SystemRoles() {
+        // A fixed table and its reading; nothing to instantiate.
     }
 
     private static Map<String, Set<String>> mapping() {

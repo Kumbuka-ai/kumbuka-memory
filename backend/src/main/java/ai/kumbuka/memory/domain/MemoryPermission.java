@@ -54,5 +54,6 @@ public final class MemoryPermission {
     public static final String ON_THE_TENANT = ":tenant";
 
     private MemoryPermission() {
+        // Constants only; nothing to instantiate.
     }
 }
