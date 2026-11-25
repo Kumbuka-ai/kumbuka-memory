@@ -341,18 +341,13 @@ public class McpAdapter {
                 return carried;
             }
         }
-        @Nullable Object address = null;
-        if (AssistantRefusals.takesAddress(verb)) {
-            address = args.get(Names.ADDRESS);
-        } else if (verb == AssistantVerb.CREATE) {
-            address = targetOfCreate(args).orElse(null);
-        }
-        if (!(address instanceof String complete)) {
+        Optional<String> address = addressOf(verb, args);
+        if (address.isEmpty()) {
             return Optional.empty();
         }
         try {
-            return Optional.of(verbs.read(caller.current(), AddressParser.complete(complete))
-                .entry());
+            return Optional.of(verbs.read(caller.current(),
+                AddressParser.complete(address.get())).entry());
         } catch (MemoryException refused) {
             if (!foreseen(refused)) {
                 if (refused.reason() == MemoryException.Reason.SESSION_NOT_BOUND) {
@@ -374,6 +369,18 @@ public class McpAdapter {
             UnexpectedFailures.logged(verb.verbName(), failure);
             return Optional.empty();
         }
+    }
+
+    /**
+     * The complete address a call names: its address argument, or for a
+     * create the address its scope and key aim at; empty where it names none.
+     */
+    private static Optional<String> addressOf(AssistantVerb verb, Map<String, Object> args) {
+        if (AssistantRefusals.takesAddress(verb)) {
+            return args.get(Names.ADDRESS) instanceof String complete
+                ? Optional.of(complete) : Optional.empty();
+        }
+        return verb == AssistantVerb.CREATE ? targetOfCreate(args) : Optional.empty();
     }
 
     /**
