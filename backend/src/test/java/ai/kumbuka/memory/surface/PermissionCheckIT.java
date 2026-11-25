@@ -169,8 +169,8 @@ class PermissionCheckIT {
         List<String> logged = new ArrayList<>();
         Handler capture = new Handler() {
             @Override
-            public void publish(LogRecord record) {
-                logged.add(record.getMessage() + " " + Arrays.toString(record.getParameters()));
+            public void publish(LogRecord line) {
+                logged.add(line.getMessage() + " " + Arrays.toString(line.getParameters()));
             }
 
             @Override

@@ -132,7 +132,7 @@ class ScopeRightsIT {
 
     @Test
     @TestSecurity(user = SubstrateDatabaseResource.PROBE_SUBJECT, roles = "owner")
-    void the_lock_is_answered_before_the_write_right_so_both_codes_are_reachable() {
+    void a_caller_holding_the_permission_is_refused_by_the_lock_of_a_locked_scope() {
         Response locked = call().body(fields("key", "decision.another", "type", "decision",
                 "content", "x")).post(API + "/" + LOCKED + "/decision");
 

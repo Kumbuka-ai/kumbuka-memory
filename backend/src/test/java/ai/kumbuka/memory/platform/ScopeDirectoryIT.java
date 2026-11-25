@@ -202,7 +202,7 @@ class ScopeDirectoryIT {
      * now resolves it, and the view still publishes the write right as it is.
      */
     @Test
-    void a_muted_member_is_resolved_for_a_write_and_the_permission_decides() {
+    void a_muted_member_is_resolved_for_a_write_while_the_view_still_publishes_no_write_right() {
         assertThat(directory.resolve(SubstrateDatabaseResource.MUTED_SUBJECT,
                 SubstrateDatabaseResource.PROBE_SCOPE_SLUG, Access.READ).canWrite())
             .as("a muted member keeps the scope, and the view publishes no write right for "
