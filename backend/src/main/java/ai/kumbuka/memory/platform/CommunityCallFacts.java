@@ -15,6 +15,7 @@ import ai.kumbuka.security.contract.PresentedCredential;
 import ai.kumbuka.security.contract.ScopeGrant;
 import io.quarkus.arc.DefaultBean;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.inject.Inject;
 import org.jspecify.annotations.Nullable;
 
@@ -72,7 +73,16 @@ public class CommunityCallFacts implements CallFactsSource {
     @Inject ScopeDirectory scopes;
     @Inject TenantContext tenants;
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Runs in a request context of its own where none is active: the
+     * binding asks for the facts while it authenticates the call, on a worker
+     * thread before the request's context exists, and the persistence layer
+     * resolves the tenant of a session only inside one.
+     */
     @Override
+    @ActivateRequestContext
     public Optional<CallFacts> factsOf(PresentedCredential credential) {
         String subject = credential.principal();
         if (subject.isBlank()) {
