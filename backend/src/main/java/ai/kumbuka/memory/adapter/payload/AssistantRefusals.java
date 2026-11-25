@@ -47,8 +47,8 @@ import java.util.regex.Pattern;
  * value outside a fixed set, {@code accepts}, the names or values declared.
  * Where the refusal concerns an entry this caller may see, also its
  * {@code state} and {@code next}: the calls the remedy names, each kept only
- * if it would succeed for this caller, judged from the same write right that
- * decides an answer's {@code next}. A stale conflict token additionally
+ * if it would succeed for this caller, judged from the same permissions of the
+ * caller that decide an answer's {@code next}. A stale conflict token additionally
  * carries the entry as this caller's own read would answer it (DEC-0041).
  * {@code NOT_FOUND} carries no {@code data} at all, on this surface as on the
  * generic one, so that its three causes cannot be told apart (C8.4).

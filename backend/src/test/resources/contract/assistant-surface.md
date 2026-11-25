@@ -270,7 +270,7 @@ Top-level: `address`, `conflict_token`. Under `fields`: at least one of `content
 > Takes an entry out of force. Final: the entry stays out of force, and the answer says whether its
 > address is free again. Needs the conflict token of the latest read.
 
-Top-level: `address`, `conflict_token`. Callable by anyone who may write to the scope.
+Top-level: `address`, `conflict_token`. Callable by a caller who holds memory.entry.withdraw in the scope.
 
 **`memory_query`**
 > Lists the entries of a scope page by page, optionally narrowed by selector, type or text. Reads

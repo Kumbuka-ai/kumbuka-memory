@@ -29,7 +29,8 @@ import java.util.Set;
  *       names one is answered {@code NOT_FOUND} (contract C8.7, the status
  *       classes).</li>
  *   <li>A call whose one permission here is to read, refused a write, is told
- *       its right in the scope is to read it: {@code SCOPE_READ_ONLY}.</li>
+ *       the one permission it holds in the scope is memory.entry.read:
+ *       {@code SCOPE_READ_ONLY}.</li>
  *   <li>Every other call holds some permission of this service and not the one
  *       the method declares: {@code ROLE_INSUFFICIENT}.</li>
  * </ul>

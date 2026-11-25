@@ -70,7 +70,7 @@ import java.util.Optional;
  * SCOPE_READ_ONLY} <strong>403</strong>, and the split is the same one the
  * sibling services make. A lock is the scope's own state: the same caller with
  * the same token gets through once it is lifted, which is what 409 means. A
- * missing write right is about this caller and no state change lifts it, which
+ * missing permission is about this caller and no state change lifts it, which
  * is what 403 means. A caller told the wrong one of those goes to the wrong
  * person.
  */
