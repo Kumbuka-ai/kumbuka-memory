@@ -222,6 +222,12 @@ public class MemoryService {
             laidDown);
     }
 
+    /** RED PROBE e: a new verb method without a declaration. */
+    @Transactional
+    public EntryView archive(Actor actor, String scope, String entryKey) {
+        return read(actor, scope, entryKey);
+    }
+
     // ======================================================================
     // read
     // ======================================================================
